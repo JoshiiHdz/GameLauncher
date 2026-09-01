@@ -55,6 +55,21 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _minimizeToTrayWhileGaming = true;
 
+    [ObservableProperty]
+    private bool _detectSteam = true;
+
+    [ObservableProperty]
+    private bool _detectEpic = true;
+
+    [ObservableProperty]
+    private bool _detectGog = true;
+
+    [ObservableProperty]
+    private bool _detectXbox = true;
+
+    [ObservableProperty]
+    private bool _detectEa = true;
+
     public ObservableCollection<GameEntry> Games { get; } = new();
 
     public ObservableCollection<GameEntry> FavoriteGames { get; } = new();
@@ -78,9 +93,27 @@ public partial class LibraryViewModel : ObservableObject
         _steamGridDbApiKey = _settings.SteamGridDbApiKey ?? string.Empty;
         _vibrantBackground = _settings.VibrantBackground;
         _minimizeToTrayWhileGaming = _settings.MinimizeToTrayWhileGaming;
+        _detectSteam = _settings.DetectSteam;
+        _detectEpic = _settings.DetectEpic;
+        _detectGog = _settings.DetectGog;
+        _detectXbox = _settings.DetectXbox;
+        _detectEa = _settings.DetectEa;
 
         Logger.WriteEnvironment(_settings);
         RefreshShortcutState();
+    }
+
+    partial void OnDetectSteamChanged(bool value) => SaveDetectSetting(v => _settings.DetectSteam = v, value);
+    partial void OnDetectEpicChanged(bool value) => SaveDetectSetting(v => _settings.DetectEpic = v, value);
+    partial void OnDetectGogChanged(bool value) => SaveDetectSetting(v => _settings.DetectGog = v, value);
+    partial void OnDetectXboxChanged(bool value) => SaveDetectSetting(v => _settings.DetectXbox = v, value);
+    partial void OnDetectEaChanged(bool value) => SaveDetectSetting(v => _settings.DetectEa = v, value);
+
+    private void SaveDetectSetting(Action<bool> apply, bool value)
+    {
+        apply(value);
+        _settingsService.Save(_settings);
+        _ = RefreshAsync();
     }
 
     partial void OnMinimizeToTrayWhileGamingChanged(bool value)

@@ -11,6 +11,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Baked-in default SteamGridDB key so a fresh install has cover art with no setup.
+         The file is gitignored: the key ships inside the built exe, never in git history.
+         Absent (e.g. a fresh clone) the app simply starts with no default key. -->
+    <EmbeddedResource Include="default-api-key.txt" Condition="Exists('default-api-key.txt')" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />

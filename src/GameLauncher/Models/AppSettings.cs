@@ -7,6 +7,8 @@ public sealed class AppSettings
     public bool DetectSteam { get; set; } = true;
     public bool DetectEpic { get; set; } = true;
     public bool DetectGog { get; set; } = true;
+    public bool DetectXbox { get; set; } = true;
+    public bool DetectEa { get; set; } = true;
 
     /// <summary>Frosted acrylic window backdrop. Costs some GPU while the window is visible
     /// (nothing while minimized), so it's switchable for anyone who wants it truly idle.</summary>

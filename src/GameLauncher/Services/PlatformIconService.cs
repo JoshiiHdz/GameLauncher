@@ -42,6 +42,9 @@ public static class PlatformIconService
             GameSource.Steam => FindSteamExe(),
             GameSource.Epic => FindEpicExe(),
             GameSource.Gog => FindGogExe(),
+            GameSource.Ea => FindEaExe(),
+            // Xbox: the Xbox app is an MSIX package under WindowsApps, which is ACL-locked, so its
+            // icon can't be read by path. Those fall back to the generic badge.
             _ => null,
         };
 
@@ -86,6 +89,19 @@ public static class PlatformIconService
 
         var exe = Path.Combine(clientPath, "GalaxyClient.exe");
         return File.Exists(exe) ? exe : null;
+    }
+
+    private static string? FindEaExe()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Electronic Arts", "EA Desktop", "EA Desktop", "EADesktop.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Origin", "Origin.exe"),
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     private static string? ReadRegistryString(RegistryKey root, string keyPath, string valueName)

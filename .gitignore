@@ -2,3 +2,6 @@ bin/
 obj/
 dist/
 *.user
+
+# Baked-in default SteamGridDB key - deliberately not committed
+default-api-key.txt

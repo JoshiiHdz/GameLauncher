@@ -21,6 +21,12 @@ public sealed class GameScannerService
             if (settings.DetectGog)
                 results.AddRange(SafeScan("GOG", GogScanner.Scan));
 
+            if (settings.DetectXbox)
+                results.AddRange(SafeScan("Xbox", XboxScanner.Scan));
+
+            if (settings.DetectEa)
+                results.AddRange(SafeScan("EA", EaScanner.Scan));
+
             results.AddRange(SafeScan("Manual folders", () => ManualFolderScanner.Scan(settings.WatchedFolders)));
 
             // De-duplicate by install dir (a manually-watched folder may overlap a launcher's library,

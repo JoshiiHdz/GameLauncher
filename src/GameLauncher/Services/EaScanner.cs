@@ -1,0 +1,183 @@
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+using GameLauncher.Models;
+using Microsoft.Win32;
+
+namespace GameLauncher.Services;
+
+/// <summary>
+/// Finds EA app / Origin games. EA registers each installed game under
+/// HKLM\SOFTWARE\WOW6432Node\Electronic Arts\<Game> with an install directory, which is the
+/// reliable route. As a fallback it also checks the conventional "EA Games" / "Origin Games"
+/// folders on every ready drive, since EA lets you install to any drive.
+/// </summary>
+public static class EaScanner
+{
+    private static readonly string[] LibraryFolderNames = { "EA Games", "Origin Games", "EASports" };
+
+    public static List<GameEntry> Scan()
+    {
+        var games = new List<GameEntry>();
+
+        ScanRegistry(games);
+        ScanKnownFolders(games);
+
+        if (games.Count == 0)
+            Logger.Info("EA: nothing found in the registry or the usual EA/Origin folders.");
+
+        return games;
+    }
+
+    private static void ScanRegistry(List<GameEntry> games)
+    {
+        foreach (var keyPath in new[]
+                 {
+                     @"SOFTWARE\WOW6432Node\Electronic Arts",
+                     @"SOFTWARE\Electronic Arts",
+                 })
+        {
+            try
+            {
+                using var root = Registry.LocalMachine.OpenSubKey(keyPath);
+                if (root is null)
+                    continue;
+
+                foreach (var name in root.GetSubKeyNames())
+                {
+                    // These two are the launcher itself, not games.
+                    if (name.Equals("EA Desktop", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("EA Core", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    using var gameKey = root.OpenSubKey(name);
+                    var installDir = gameKey?.GetValue("Install Dir") as string
+                                     ?? gameKey?.GetValue("InstallDir") as string
+                                     ?? gameKey?.GetValue("Install Location") as string;
+
+                    if (string.IsNullOrWhiteSpace(installDir) || !Directory.Exists(installDir))
+                        continue;
+
+                    AddIfPlayable(games, installDir, name);
+                }
+            }
+            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
+            {
+                Logger.Warn($"Couldn't read EA registry key '{keyPath}'.", ex);
+            }
+        }
+    }
+
+    private static void ScanKnownFolders(List<GameEntry> games)
+    {
+        foreach (var drive in GetReadyDrives())
+        {
+            foreach (var libraryName in LibraryFolderNames)
+            {
+                var libraryDir = Path.Combine(drive, libraryName);
+                if (!Directory.Exists(libraryDir))
+                    continue;
+
+                try
+                {
+                    foreach (var gameDir in Directory.EnumerateDirectories(libraryDir))
+                        AddIfPlayable(games, gameDir, Path.GetFileName(gameDir));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Logger.Warn($"Failed reading EA games from '{libraryDir}'.", ex);
+                }
+            }
+        }
+    }
+
+    private static void AddIfPlayable(List<GameEntry> games, string installDir, string name)
+    {
+        var id = $"ea-{StableId(installDir)}";
+        if (games.Any(g => g.Id == id))
+            return;
+
+        var exe = FindGameExe(installDir);
+        if (exe is null)
+            return;
+
+        games.Add(new GameEntry
+        {
+            Id = id,
+            Name = name,
+            ExecutablePath = exe,
+            InstallDir = installDir,
+            Source = GameSource.Ea,
+        });
+    }
+
+    private static string? FindGameExe(string installDir)
+    {
+        FileInfo? best = null;
+        Collect(installDir, 0);
+        return best?.FullName;
+
+        void Collect(string dir, int depth)
+        {
+            if (depth > 2)
+                return;
+
+            try
+            {
+                foreach (var exe in Directory.EnumerateFiles(dir, "*.exe"))
+                {
+                    var fileName = Path.GetFileNameWithoutExtension(exe).ToLowerInvariant();
+                    if (fileName.Contains("unins") || fileName.Contains("redist")
+                        || fileName.Contains("crash") || fileName.Contains("touchup")
+                        || fileName.Contains("activation"))
+                    {
+                        continue;
+                    }
+
+                    var info = new FileInfo(exe);
+                    if (best is null || info.Length > best.Length)
+                        best = info;
+                }
+
+                foreach (var sub in Directory.EnumerateDirectories(dir))
+                    Collect(sub, depth + 1);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetReadyDrives()
+    {
+        DriveInfo[] drives;
+        try
+        {
+            drives = DriveInfo.GetDrives();
+        }
+        catch (IOException)
+        {
+            yield break;
+        }
+
+        foreach (var drive in drives)
+        {
+            var ready = false;
+            try
+            {
+                ready = drive.IsReady && drive.DriveType is DriveType.Fixed or DriveType.Removable;
+            }
+            catch (IOException)
+            {
+            }
+
+            if (ready)
+                yield return drive.RootDirectory.FullName;
+        }
+    }
+
+    private static string StableId(string path)
+        => Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(path.ToLowerInvariant())));
+}

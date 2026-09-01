@@ -55,9 +55,11 @@ public static class Logger
                 .Select(d => $"{d.Name.TrimEnd('\\')} ({d.DriveType}, {d.VolumeLabel})");
             Info($"Drives: {string.Join(", ", drives)}");
 
-            Info($"Settings: detect Steam={settings.DetectSteam} Epic={settings.DetectEpic} GOG={settings.DetectGog}; "
+            Info($"Data location: {(AppPaths.IsPortable ? "portable (beside exe)" : "roaming (%AppData%)")}");
+            Info($"Settings: detect Steam={settings.DetectSteam} Epic={settings.DetectEpic} GOG={settings.DetectGog} "
+                 + $"Xbox={settings.DetectXbox} EA={settings.DetectEa}; "
                  + $"watched folders={settings.WatchedFolders.Count}; "
-                 + $"SteamGridDB key={(string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey) ? "not set" : "set")}; "
+                 + $"SteamGridDB key={(!string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey) ? "set (user)" : DefaultApiKey.SteamGridDb is not null ? "set (built-in)" : "none")}; "
                  + $"vibrant={settings.VibrantBackground}; tray while gaming={settings.MinimizeToTrayWhileGaming}");
 
             foreach (var folder in settings.WatchedFolders)

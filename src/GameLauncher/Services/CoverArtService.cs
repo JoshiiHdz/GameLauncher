@@ -26,9 +26,14 @@ public static class CoverArtService
             Logger.Warn($"  art: '{game.Name}' has no Steam CDN box art (appid {game.Id}).");
         }
 
-        if (!string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey))
+        // A key entered in Settings wins; otherwise fall back to the key compiled into the build.
+        var apiKey = string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey)
+            ? DefaultApiKey.SteamGridDb
+            : settings.SteamGridDbApiKey;
+
+        if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            var gridArt = new SteamGridDbCoverArtProvider(settings.SteamGridDbApiKey).GetCoverArt(game);
+            var gridArt = new SteamGridDbCoverArtProvider(apiKey).GetCoverArt(game);
             if (gridArt is not null)
             {
                 game.Icon = gridArt;
@@ -41,8 +46,8 @@ public static class CoverArtService
         game.Icon = IconService.GetIcon(game);
         game.IsCoverArt = false;
         Logger.Info($"  art: '{game.Name}' <- exe icon fallback"
-                    + (string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey) && game.Source != GameSource.Steam
-                        ? " (no SteamGridDB key set)"
+                    + (string.IsNullOrWhiteSpace(apiKey) && game.Source != GameSource.Steam
+                        ? " (no SteamGridDB key available)"
                         : string.Empty));
     }
 }
