@@ -124,9 +124,14 @@
                                                 <Border.Clip>
                                                     <RectangleGeometry Rect="0,0,170,226" RadiusX="8" RadiusY="8" />
                                                 </Border.Clip>
-                                                <Image Source="{Binding Icon}"
-                                                       Style="{StaticResource GameArtImageStyle}"
-                                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                                                <Grid>
+                                                    <ui:SymbolIcon Symbol="Games24" FontSize="40" Opacity="0.35"
+                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                   Visibility="{Binding Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                                    <Image Source="{Binding Icon}"
+                                                           Style="{StaticResource GameArtImageStyle}"
+                                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                                </Grid>
                                             </Border>
 
                                             <!-- Hover reveal: plain Visibility swap on a property trigger, no Storyboard/timer -->

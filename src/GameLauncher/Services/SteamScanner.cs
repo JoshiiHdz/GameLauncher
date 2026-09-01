@@ -7,6 +7,10 @@ namespace GameLauncher.Services;
 
 public static partial class SteamScanner
 {
+    // Shared runtime/tooling Steam installs alongside games via the same appmanifest mechanism -
+    // these aren't games and have no launch UI, so they'd show up as blank, unplayable entries.
+    private static readonly HashSet<string> NonGameAppIds = ["228980"]; // Steamworks Common Redistributables
+
     public static List<GameEntry> Scan()
     {
         var games = new List<GameEntry>();
@@ -114,7 +118,7 @@ public static partial class SteamScanner
         var name = nameMatch.Groups[1].Value;
         var installDir = Path.Combine(steamAppsDir, "common", installDirMatch.Groups[1].Value);
 
-        if (!Directory.Exists(installDir))
+        if (!Directory.Exists(installDir) || NonGameAppIds.Contains(appId))
             return null;
 
         // The .acf manifest doesn't list a launch exe, and games launch via LaunchUri anyway,
