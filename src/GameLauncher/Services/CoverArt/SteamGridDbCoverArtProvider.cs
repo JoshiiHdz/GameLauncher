@@ -10,9 +10,8 @@ namespace GameLauncher.Services.CoverArt;
 /// <summary>
 /// Fetches box art from SteamGridDB (steamgriddb.com) for games that aren't on Steam (Epic/GOG/manual),
 /// using their public REST API. Requires a free API key from steamgriddb.com/profile/preferences/api,
-/// set via AppSettings.SteamGridDbApiKey. Dormant until a key is configured - the API contract here is
-/// implemented from SteamGridDB's documented v2 endpoints but hasn't been exercised against a real key,
-/// so treat it as best-effort until it's been tried live.
+/// set via AppSettings.SteamGridDbApiKey. Matches by name search, so results depend on how closely the
+/// detected game name matches SteamGridDB's catalog.
 /// </summary>
 public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
 {
@@ -37,11 +36,17 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
 
             var gameId = SearchGameId(game.Name);
             if (gameId is null)
+            {
+                Logger.Warn($"SteamGridDB: no match for '{game.Name}'.");
                 return null;
+            }
 
             var imageUrl = GetGridImageUrl(gameId.Value);
             if (imageUrl is null)
+            {
+                Logger.Warn($"SteamGridDB: matched '{game.Name}' but it has no grid art available.");
                 return null;
+            }
 
             var bytes = Http.GetByteArrayAsync(imageUrl).GetAwaiter().GetResult();
             File.WriteAllBytes(cachePath, bytes);
@@ -50,6 +55,7 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException
                                         or IOException or UnauthorizedAccessException)
         {
+            Logger.Warn($"SteamGridDB: request failed for '{game.Name}'.", ex);
             return null;
         }
     }
@@ -62,7 +68,11 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
 
         using var response = Http.Send(request);
         if (!response.IsSuccessStatusCode)
+        {
+            Logger.Warn($"SteamGridDB: search request returned {(int)response.StatusCode} "
+                + $"{response.StatusCode}{(response.StatusCode == System.Net.HttpStatusCode.Unauthorized ? " - check the API key in Settings" : "")}.");
             return null;
+        }
 
         using var stream = response.Content.ReadAsStream();
         using var doc = JsonDocument.Parse(stream);
@@ -78,7 +88,10 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
 
         using var response = Http.Send(request);
         if (!response.IsSuccessStatusCode)
+        {
+            Logger.Warn($"SteamGridDB: grid request returned {(int)response.StatusCode} {response.StatusCode}.");
             return null;
+        }
 
         using var stream = response.Content.ReadAsStream();
         using var doc = JsonDocument.Parse(stream);

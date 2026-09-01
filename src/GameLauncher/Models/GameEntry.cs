@@ -13,6 +13,11 @@ public sealed partial class GameEntry : ObservableObject
 
     public string? LaunchUri { get; init; }
     public BitmapImage? Icon { get; set; }
+
+    /// <summary>True when Icon is real portrait box art (fills the card edge-to-edge); false when
+    /// it's a fallback exe icon (small, centered, on a plate) - the UI renders these differently.</summary>
+    public bool IsCoverArt { get; set; }
+
     public bool Hidden { get; set; }
     public DateTime DateAdded { get; set; }
 

@@ -1,26 +1,40 @@
-using System.Windows.Media.Imaging;
 using GameLauncher.Models;
 using GameLauncher.Services.CoverArt;
 
 namespace GameLauncher.Services;
 
 /// <summary>
-/// Picks the best available art for a game: SteamGridDB (if an API key is configured) for
-/// non-Steam sources, falling back to the exe icon everywhere else. Today, with no key configured,
-/// this always resolves to the icon - the SteamGridDB path is wired but dormant until a key is added
-/// in Settings.
+/// Picks the best available art for a game: Steam's free public CDN for Steam games (no key needed,
+/// always an exact match by app ID), then SteamGridDB for everything else if a key is configured,
+/// falling back to the exe icon when neither has art.
 /// </summary>
 public static class CoverArtService
 {
-    public static BitmapImage? GetCoverArt(GameEntry game, AppSettings settings)
+    public static void Apply(GameEntry game, AppSettings settings)
     {
-        if (game.Source != GameSource.Steam && !string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey))
+        if (game.Source == GameSource.Steam)
         {
-            var art = new SteamGridDbCoverArtProvider(settings.SteamGridDbApiKey).GetCoverArt(game);
-            if (art is not null)
-                return art;
+            var steamArt = new SteamCoverArtProvider().GetCoverArt(game);
+            if (steamArt is not null)
+            {
+                game.Icon = steamArt;
+                game.IsCoverArt = true;
+                return;
+            }
         }
 
-        return IconService.GetIcon(game);
+        if (!string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey))
+        {
+            var gridArt = new SteamGridDbCoverArtProvider(settings.SteamGridDbApiKey).GetCoverArt(game);
+            if (gridArt is not null)
+            {
+                game.Icon = gridArt;
+                game.IsCoverArt = true;
+                return;
+            }
+        }
+
+        game.Icon = IconService.GetIcon(game);
+        game.IsCoverArt = false;
     }
 }

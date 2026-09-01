@@ -71,7 +71,7 @@
                 <Separator Margin="0,20" />
 
                 <TextBlock Text="Cover Art" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
-                <TextBlock Text="Steam games always show their real Steam icon. For Epic/GOG/manual games, add a free SteamGridDB API key (steamgriddb.com/profile/preferences/api) to fetch real box art instead of the exe icon."
+                <TextBlock Text="Steam games always get real box art automatically, no key needed. For Epic/GOG/manual games, add a free SteamGridDB API key (steamgriddb.com/profile/preferences/api) to fetch real box art instead of the exe icon."
                            FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />
 
                 <ui:TextBox PlaceholderText="SteamGridDB API key (optional)"

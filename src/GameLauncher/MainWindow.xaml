@@ -28,6 +28,25 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
+
+        <!-- Real cover art fills the tile edge-to-edge; a fallback exe icon stays small and centered
+             on the plate behind it so it doesn't look stretched/blurry. -->
+        <Style x:Key="GameArtImageStyle" TargetType="Image">
+            <Setter Property="Width" Value="88" />
+            <Setter Property="Height" Value="88" />
+            <Setter Property="Stretch" Value="Uniform" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsCoverArt}" Value="True">
+                    <Setter Property="Width" Value="NaN" />
+                    <Setter Property="Height" Value="NaN" />
+                    <Setter Property="Stretch" Value="UniformToFill" />
+                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                    <Setter Property="VerticalAlignment" Value="Stretch" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -102,9 +121,12 @@
                                         <Grid x:Name="TileRoot" Width="170" Height="226">
                                             <Border CornerRadius="8" ClipToBounds="True"
                                                     Background="{DynamicResource ControlFillColorSecondaryBrush}">
-                                                <Image Source="{Binding Icon}" Width="88" Height="88"
-                                                       RenderOptions.BitmapScalingMode="HighQuality"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <Border.Clip>
+                                                    <RectangleGeometry Rect="0,0,170,226" RadiusX="8" RadiusY="8" />
+                                                </Border.Clip>
+                                                <Image Source="{Binding Icon}"
+                                                       Style="{StaticResource GameArtImageStyle}"
+                                                       RenderOptions.BitmapScalingMode="HighQuality" />
                                             </Border>
 
                                             <!-- Hover reveal: plain Visibility swap on a property trigger, no Storyboard/timer -->

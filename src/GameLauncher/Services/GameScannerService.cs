@@ -50,9 +50,12 @@ public sealed class GameScannerService
                 game.Favorite = over.Favorite;
                 game.DateAdded = over.DateAdded.Value;
 
-                game.Icon = CoverArtService.GetCoverArt(game, settings);
+                CoverArtService.Apply(game, settings);
             }
 
+            var coverArtCount = deduped.Count(g => g.IsCoverArt);
+            Logger.Info($"Cover art: {coverArtCount}/{deduped.Count} game(s) got real box art, "
+                + $"{deduped.Count - coverArtCount} fell back to the exe icon.");
             Logger.Info($"Scan finished: {deduped.Count} game(s) total.");
 
             // Final ordering doesn't matter here - LibraryViewModel re-sorts per the user's chosen SortOption.
