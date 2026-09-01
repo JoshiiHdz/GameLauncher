@@ -86,12 +86,26 @@ public partial class MainWindow : FluentWindow
         MemoryTrimmer.Trim("hidden to tray");
     }
 
+    /// <summary>
+    /// Windows enforces a well-documented restriction (the foreground-lock): a background process
+    /// cannot forcibly steal focus from whatever currently owns it. After sitting hidden in the tray
+    /// while a game owned focus, a plain Activate() call can silently do nothing - no exception, no
+    /// log signal, the window just stays exactly where it was. This is the standard failure mode for
+    /// tray-icon apps specifically, and the Topmost-toggle below is the standard, widely-used
+    /// workaround: forcing the window topmost and immediately releasing it makes Windows actually
+    /// bring it to the front, where Activate() alone could not.
+    /// </summary>
     private void RestoreFromTray()
     {
         Logger.Info("Restoring window from tray.");
         Show();
         WindowState = WindowState.Normal;
         Activate();
+
+        Topmost = true;
+        Topmost = false;
+        Focus();
+
         TrayIcon.Visibility = Visibility.Collapsed;
     }
 
