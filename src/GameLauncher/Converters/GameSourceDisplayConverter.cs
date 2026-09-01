@@ -15,6 +15,10 @@ public sealed class GameSourceDisplayConverter : IValueConverter
         {
             GameSource.Gog => "GOG",
             GameSource.Ea => "EA",
+            GameSource.Ubisoft => "Ubisoft Connect",
+            GameSource.BattleNet => "Battle.net",
+            GameSource.Rockstar => "Rockstar Games",
+            GameSource.AmazonGames => "Amazon Games",
             GameSource source => source.ToString(),
             _ => string.Empty,
         };

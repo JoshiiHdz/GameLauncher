@@ -5,6 +5,12 @@ namespace GameLauncher.Services;
 
 public sealed class GameScannerService
 {
+    /// <summary>
+    /// Always scans every launcher, regardless of its Detect toggle - the sidebar needs to know
+    /// whether a source has any games at all (to decide whether its row shows up) independent of
+    /// whether the user currently has it switched on, and toggling a source should only filter the
+    /// library view, not force a rescan. LibraryViewModel.ApplyFilter applies the Detect toggles.
+    /// </summary>
     public Task<List<GameEntry>> ScanAllAsync(AppSettings settings)
     {
         return Task.Run(() =>
@@ -12,21 +18,15 @@ public sealed class GameScannerService
             Logger.Info("Scan started.");
             var results = new List<GameEntry>();
 
-            if (settings.DetectSteam)
-                results.AddRange(SafeScan("Steam", SteamScanner.Scan));
-
-            if (settings.DetectEpic)
-                results.AddRange(SafeScan("Epic", EpicScanner.Scan));
-
-            if (settings.DetectGog)
-                results.AddRange(SafeScan("GOG", GogScanner.Scan));
-
-            if (settings.DetectXbox)
-                results.AddRange(SafeScan("Xbox", XboxScanner.Scan));
-
-            if (settings.DetectEa)
-                results.AddRange(SafeScan("EA", EaScanner.Scan));
-
+            results.AddRange(SafeScan("Steam", SteamScanner.Scan));
+            results.AddRange(SafeScan("Epic", EpicScanner.Scan));
+            results.AddRange(SafeScan("GOG", GogScanner.Scan));
+            results.AddRange(SafeScan("Xbox", XboxScanner.Scan));
+            results.AddRange(SafeScan("EA", EaScanner.Scan));
+            results.AddRange(SafeScan("Ubisoft Connect", UbisoftScanner.Scan));
+            results.AddRange(SafeScan("Battle.net", BattleNetScanner.Scan));
+            results.AddRange(SafeScan("Rockstar Games Launcher", RockstarScanner.Scan));
+            results.AddRange(SafeScan("Amazon Games", AmazonGamesScanner.Scan));
             results.AddRange(SafeScan("Manual folders", () => ManualFolderScanner.Scan(settings.WatchedFolders)));
 
             // De-duplicate by install dir (a manually-watched folder may overlap a launcher's library,

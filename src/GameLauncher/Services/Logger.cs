@@ -57,10 +57,12 @@ public static class Logger
 
             Info($"Data location: {(AppPaths.IsPortable ? "portable (beside exe)" : "roaming (%AppData%)")}");
             Info($"Settings: detect Steam={settings.DetectSteam} Epic={settings.DetectEpic} GOG={settings.DetectGog} "
-                 + $"Xbox={settings.DetectXbox} EA={settings.DetectEa}; "
+                 + $"Xbox={settings.DetectXbox} EA={settings.DetectEa} Ubisoft={settings.DetectUbisoft} "
+                 + $"BattleNet={settings.DetectBattleNet} Rockstar={settings.DetectRockstar} AmazonGames={settings.DetectAmazonGames}; "
                  + $"watched folders={settings.WatchedFolders.Count}; "
                  + $"SteamGridDB key={(!string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey) ? "set (user)" : DefaultApiKey.SteamGridDb is not null ? "set (built-in)" : "none")}; "
-                 + $"vibrant={settings.VibrantBackground}; tray while gaming={settings.MinimizeToTrayWhileGaming}");
+                 + $"vibrant={settings.VibrantBackground}; tray while gaming={settings.MinimizeToTrayWhileGaming}; "
+                 + $"sidebar expanded={settings.SidebarExpanded}");
 
             foreach (var folder in settings.WatchedFolders)
                 Info($"  watched folder: {folder.Path} (exists={Directory.Exists(folder.Path)})");

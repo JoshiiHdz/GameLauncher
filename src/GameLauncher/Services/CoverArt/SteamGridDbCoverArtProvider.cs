@@ -125,7 +125,10 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         GameSource.Epic => "egs",
         GameSource.Gog => "gog",
         GameSource.Ea => "origin",
-        _ => null, // Xbox/Manual: SteamGridDB has no storefront tag to filter on - use the top result.
+        GameSource.Ubisoft => "uplay",
+        // Xbox/BattleNet/Rockstar/AmazonGames/Manual: no storefront tag to filter on (or unverified) -
+        // use the top result.
+        _ => null,
     };
 
     private string? GetGridImageUrl(int gameId)

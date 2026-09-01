@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GameLauncher.Models;
@@ -56,6 +57,9 @@ public partial class LibraryViewModel : ObservableObject
     private bool _minimizeToTrayWhileGaming = true;
 
     [ObservableProperty]
+    private bool _isSidebarExpanded = true;
+
+    [ObservableProperty]
     private bool _detectSteam = true;
 
     [ObservableProperty]
@@ -69,6 +73,69 @@ public partial class LibraryViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _detectEa = true;
+
+    [ObservableProperty]
+    private bool _detectUbisoft = true;
+
+    [ObservableProperty]
+    private bool _detectBattleNet = true;
+
+    [ObservableProperty]
+    private bool _detectRockstar = true;
+
+    [ObservableProperty]
+    private bool _detectAmazonGames = true;
+
+    // Same launcher-exe icon extraction the game card platform badges already use, so the sidebar
+    // shows each launcher's real logo when it's installed on this PC - null (falls back to a
+    // letter badge in the view) for whichever ones aren't. Xbox has no equivalent property: its
+    // MSIX package icon can never be extracted by path, on any PC, so the view renders a fixed
+    // built-in Xbox glyph for that row instead of attempting extraction at all.
+    public BitmapImage? SteamIcon => PlatformIconService.GetIcon(GameSource.Steam);
+    public BitmapImage? EpicIcon => PlatformIconService.GetIcon(GameSource.Epic);
+    public BitmapImage? GogIcon => PlatformIconService.GetIcon(GameSource.Gog);
+    public BitmapImage? EaIcon => PlatformIconService.GetIcon(GameSource.Ea);
+    public BitmapImage? UbisoftIcon => PlatformIconService.GetIcon(GameSource.Ubisoft);
+    public BitmapImage? BattleNetIcon => PlatformIconService.GetIcon(GameSource.BattleNet);
+    public BitmapImage? RockstarIcon => PlatformIconService.GetIcon(GameSource.Rockstar);
+    public BitmapImage? AmazonGamesIcon => PlatformIconService.GetIcon(GameSource.AmazonGames);
+
+    // Drives whether each sidebar source row shows up at all - only once a scan has actually found
+    // a game from that launcher, so a PC without (say) Battle.net installed never sees a Battle.net
+    // toggle it could never turn anything on. Set in ApplyFilter from the full, unfiltered scan
+    // result, not from the Detect-filtered Games list, so disabling a source can never hide its own
+    // row - there'd be no way back on.
+    [ObservableProperty]
+    private bool _hasSteamGames;
+
+    [ObservableProperty]
+    private bool _hasEpicGames;
+
+    [ObservableProperty]
+    private bool _hasGogGames;
+
+    [ObservableProperty]
+    private bool _hasXboxGames;
+
+    [ObservableProperty]
+    private bool _hasEaGames;
+
+    [ObservableProperty]
+    private bool _hasUbisoftGames;
+
+    [ObservableProperty]
+    private bool _hasBattleNetGames;
+
+    [ObservableProperty]
+    private bool _hasRockstarGames;
+
+    [ObservableProperty]
+    private bool _hasAmazonGames;
+
+    /// <summary>Hides the "SOURCES" header itself once every individual row above has already
+    /// hidden itself - otherwise a PC with no detected launchers shows a floating label over nothing.</summary>
+    [ObservableProperty]
+    private bool _hasAnySourceGames;
 
     public ObservableCollection<GameEntry> Games { get; } = new();
 
@@ -93,11 +160,16 @@ public partial class LibraryViewModel : ObservableObject
         _steamGridDbApiKey = _settings.SteamGridDbApiKey ?? string.Empty;
         _vibrantBackground = _settings.VibrantBackground;
         _minimizeToTrayWhileGaming = _settings.MinimizeToTrayWhileGaming;
+        _isSidebarExpanded = _settings.SidebarExpanded;
         _detectSteam = _settings.DetectSteam;
         _detectEpic = _settings.DetectEpic;
         _detectGog = _settings.DetectGog;
         _detectXbox = _settings.DetectXbox;
         _detectEa = _settings.DetectEa;
+        _detectUbisoft = _settings.DetectUbisoft;
+        _detectBattleNet = _settings.DetectBattleNet;
+        _detectRockstar = _settings.DetectRockstar;
+        _detectAmazonGames = _settings.DetectAmazonGames;
 
         Logger.WriteEnvironment(_settings);
         RefreshShortcutState();
@@ -108,12 +180,19 @@ public partial class LibraryViewModel : ObservableObject
     partial void OnDetectGogChanged(bool value) => SaveDetectSetting(v => _settings.DetectGog = v, value);
     partial void OnDetectXboxChanged(bool value) => SaveDetectSetting(v => _settings.DetectXbox = v, value);
     partial void OnDetectEaChanged(bool value) => SaveDetectSetting(v => _settings.DetectEa = v, value);
+    partial void OnDetectUbisoftChanged(bool value) => SaveDetectSetting(v => _settings.DetectUbisoft = v, value);
+    partial void OnDetectBattleNetChanged(bool value) => SaveDetectSetting(v => _settings.DetectBattleNet = v, value);
+    partial void OnDetectRockstarChanged(bool value) => SaveDetectSetting(v => _settings.DetectRockstar = v, value);
+    partial void OnDetectAmazonGamesChanged(bool value) => SaveDetectSetting(v => _settings.DetectAmazonGames = v, value);
 
+    // Scanning always runs for every source now (see GameScannerService), so a toggle only needs to
+    // re-filter the already-scanned library, not trigger a fresh scan - instant instead of a
+    // multi-second rescan for what's really just a visibility change.
     private void SaveDetectSetting(Action<bool> apply, bool value)
     {
         apply(value);
         _settingsService.Save(_settings);
-        _ = RefreshAsync();
+        ApplyFilter();
     }
 
     partial void OnMinimizeToTrayWhileGamingChanged(bool value)
@@ -121,6 +200,15 @@ public partial class LibraryViewModel : ObservableObject
         _settings.MinimizeToTrayWhileGaming = value;
         _settingsService.Save(_settings);
     }
+
+    partial void OnIsSidebarExpandedChanged(bool value)
+    {
+        _settings.SidebarExpanded = value;
+        _settingsService.Save(_settings);
+    }
+
+    [RelayCommand]
+    private void ToggleSidebar() => IsSidebarExpanded = !IsSidebarExpanded;
 
     partial void OnSteamGridDbApiKeyChanged(string value)
     {
@@ -152,7 +240,15 @@ public partial class LibraryViewModel : ObservableObject
             _allGames = await _scannerService.ScanAllAsync(_settings);
             _settingsService.Save(_settings); // persists any newly-assigned DateAdded values
             ApplyFilter();
-            StatusText = $"{_allGames.Count(g => !g.Hidden)} games found";
+
+            // Count from the filtered collections, not _allGames directly - scanning now always
+            // covers every source (see GameScannerService), so _allGames includes games from
+            // sources the user has toggled off. Games/FavoriteGames already reflect that filter.
+            var shown = Games.Count + FavoriteGames.Count;
+            var totalFound = _allGames.Count(g => !g.Hidden);
+            StatusText = shown == totalFound
+                ? $"{shown} games found"
+                : $"{shown} of {totalFound} games shown ({totalFound - shown} hidden by disabled sources)";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -293,9 +389,37 @@ public partial class LibraryViewModel : ObservableObject
         }
     }
 
+    private bool IsSourceEnabled(GameSource source) => source switch
+    {
+        GameSource.Steam => DetectSteam,
+        GameSource.Epic => DetectEpic,
+        GameSource.Gog => DetectGog,
+        GameSource.Xbox => DetectXbox,
+        GameSource.Ea => DetectEa,
+        GameSource.Ubisoft => DetectUbisoft,
+        GameSource.BattleNet => DetectBattleNet,
+        GameSource.Rockstar => DetectRockstar,
+        GameSource.AmazonGames => DetectAmazonGames,
+        _ => true, // Manual folders have no toggle - always shown.
+    };
+
     private void ApplyFilter()
     {
-        IEnumerable<GameEntry> filtered = _allGames.Where(g => !g.Hidden);
+        // Computed from the full, un-filtered scan result (not the Detect-filtered list below), so
+        // disabling a source can never make its own sidebar row disappear.
+        HasSteamGames = _allGames.Any(g => g.Source == GameSource.Steam);
+        HasEpicGames = _allGames.Any(g => g.Source == GameSource.Epic);
+        HasGogGames = _allGames.Any(g => g.Source == GameSource.Gog);
+        HasXboxGames = _allGames.Any(g => g.Source == GameSource.Xbox);
+        HasEaGames = _allGames.Any(g => g.Source == GameSource.Ea);
+        HasUbisoftGames = _allGames.Any(g => g.Source == GameSource.Ubisoft);
+        HasBattleNetGames = _allGames.Any(g => g.Source == GameSource.BattleNet);
+        HasRockstarGames = _allGames.Any(g => g.Source == GameSource.Rockstar);
+        HasAmazonGames = _allGames.Any(g => g.Source == GameSource.AmazonGames);
+        HasAnySourceGames = HasSteamGames || HasEpicGames || HasGogGames || HasXboxGames || HasEaGames
+            || HasUbisoftGames || HasBattleNetGames || HasRockstarGames || HasAmazonGames;
+
+        IEnumerable<GameEntry> filtered = _allGames.Where(g => !g.Hidden && IsSourceEnabled(g.Source));
 
         if (!string.IsNullOrWhiteSpace(SearchText))
         {

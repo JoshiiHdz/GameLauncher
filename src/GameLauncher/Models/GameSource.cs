@@ -7,5 +7,9 @@ public enum GameSource
     Gog,
     Xbox,
     Ea,
+    Ubisoft,
+    BattleNet,
+    Rockstar,
+    AmazonGames,
     Manual,
 }

@@ -9,6 +9,10 @@ public sealed class AppSettings
     public bool DetectGog { get; set; } = true;
     public bool DetectXbox { get; set; } = true;
     public bool DetectEa { get; set; } = true;
+    public bool DetectUbisoft { get; set; } = true;
+    public bool DetectBattleNet { get; set; } = true;
+    public bool DetectRockstar { get; set; } = true;
+    public bool DetectAmazonGames { get; set; } = true;
 
     /// <summary>Frosted acrylic window backdrop. Costs some GPU while the window is visible
     /// (nothing while minimized), so it's switchable for anyone who wants it truly idle.</summary>
@@ -17,6 +21,9 @@ public sealed class AppSettings
     /// <summary>Hide to the system tray while a game is running, and come back when it exits.
     /// When off, the launcher just minimizes to the taskbar as before.</summary>
     public bool MinimizeToTrayWhileGaming { get; set; } = true;
+
+    /// <summary>Whether the left sidebar (source toggles) is expanded or collapsed to a slim rail.</summary>
+    public bool SidebarExpanded { get; set; } = true;
 
     /// <summary>
     /// Optional SteamGridDB API key (steamgriddb.com/profile/preferences/api). When set, cover art

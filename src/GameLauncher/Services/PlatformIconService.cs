@@ -8,9 +8,10 @@ namespace GameLauncher.Services;
 
 /// <summary>
 /// Resolves the icon for each game source by extracting it from that launcher's own executable on
-/// this machine - so the badge shows the real Steam/Epic/GOG mark without the app shipping any
-/// brand artwork. Returns null when the launcher isn't installed or the source has no launcher
-/// (manual folders), and the UI falls back to a generic glyph.
+/// this machine - so the badge shows the real launcher mark without the app shipping any brand
+/// artwork. Returns null when the launcher isn't installed, the source has no conventional launcher
+/// exe to extract from (manual folders), or its icon can never be read by path regardless of PC
+/// (Xbox's MSIX package) - the UI falls back to a generic glyph in all three cases.
 /// Resolved at most once per source per run.
 /// </summary>
 public static class PlatformIconService
@@ -43,6 +44,10 @@ public static class PlatformIconService
             GameSource.Epic => FindEpicExe(),
             GameSource.Gog => FindGogExe(),
             GameSource.Ea => FindEaExe(),
+            GameSource.Ubisoft => FindUbisoftExe(),
+            GameSource.BattleNet => FindBattleNetExe(),
+            GameSource.Rockstar => FindRockstarExe(),
+            GameSource.AmazonGames => FindAmazonGamesExe(),
             // Xbox: the Xbox app is an MSIX package under WindowsApps, which is ACL-locked, so its
             // icon can't be read by path. Those fall back to the generic badge.
             _ => null,
@@ -102,6 +107,54 @@ public static class PlatformIconService
         };
 
         return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static string? FindUbisoftExe()
+    {
+        var installDir = ReadRegistryString(Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Ubisoft\Launcher", "InstallDir");
+        if (installDir is null)
+            return null;
+
+        var candidates = new[] { "UbisoftConnect.exe", "upc.exe" }
+            .Select(exe => Path.Combine(installDir, exe));
+
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    /// <summary>Unverified exact registry key/exe name - falls back to the conventional install path.</summary>
+    private static string? FindBattleNetExe()
+    {
+        var installDir = ReadRegistryString(Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Battle.net", "InstallPath");
+        if (installDir is not null)
+        {
+            var exe = Path.Combine(installDir, "Battle.net.exe");
+            if (File.Exists(exe))
+                return exe;
+        }
+
+        var fallback = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Battle.net", "Battle.net.exe");
+        return File.Exists(fallback) ? fallback : null;
+    }
+
+    private static string? FindRockstarExe()
+    {
+        var installDir = ReadRegistryString(Registry.LocalMachine,
+            @"SOFTWARE\WOW6432Node\Rockstar Games\Launcher", "InstallFolder");
+        if (installDir is null)
+            return null;
+
+        var exe = Path.Combine(installDir, "Launcher.exe");
+        return File.Exists(exe) ? exe : null;
+    }
+
+    /// <summary>Unverified exact path - Amazon Games has no documented registry key for this, only
+    /// the conventional per-user install location.</summary>
+    private static string? FindAmazonGamesExe()
+    {
+        var exe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Amazon Games", "App", "Amazon Games.exe");
+        return File.Exists(exe) ? exe : null;
     }
 
     private static string? ReadRegistryString(RegistryKey root, string keyPath, string valueName)

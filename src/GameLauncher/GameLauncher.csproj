@@ -8,6 +8,7 @@
     <UseWPF>true</UseWPF>
     <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <Version>1.9.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,6 +16,7 @@
          The file is gitignored: the key ships inside the built exe, never in git history.
          Absent (e.g. a fresh clone) the app simply starts with no default key. -->
     <EmbeddedResource Include="default-api-key.txt" Condition="Exists('default-api-key.txt')" />
+    <Resource Include="Assets\AppIcon.png" />
   </ItemGroup>
 
   <ItemGroup>

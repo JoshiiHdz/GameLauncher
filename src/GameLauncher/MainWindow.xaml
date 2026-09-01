@@ -6,6 +6,7 @@
         xmlns:local="clr-namespace:GameLauncher"
         xmlns:vm="clr-namespace:GameLauncher.ViewModels"
         xmlns:conv="clr-namespace:GameLauncher.Converters"
+        xmlns:services="clr-namespace:GameLauncher.Services"
         xmlns:tb="http://www.hardcodet.net/taskbar"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         mc:Ignorable="d"
@@ -128,7 +129,8 @@
                                 <Grid Width="14" Height="14">
                                     <Image Source="{Binding PlatformIcon}"
                                            RenderOptions.BitmapScalingMode="HighQuality" />
-                                    <ui:SymbolIcon Symbol="Question24" FontSize="10" Foreground="#8CFFFFFF"
+                                    <ui:SymbolIcon Symbol="{Binding Source, Converter={x:Static conv:GameSourceToFallbackSymbolConverter.Instance}}"
+                                                   FontSize="10" Foreground="#8CFFFFFF"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    Visibility="{Binding PlatformIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
                                 </Grid>
@@ -174,6 +176,46 @@
             </DataTemplate.Triggers>
         </DataTemplate>
 
+        <!-- Collapses to a slim icon-only rail; DataTrigger keeps the width swap purely declarative,
+             no converter or code-behind needed. -->
+        <Style x:Key="SidebarStyle" TargetType="Border">
+            <Setter Property="Width" Value="200" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSidebarExpanded}" Value="False">
+                    <Setter Property="Width" Value="52" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Pill row for each source toggle - a soft hover highlight ties it to the same rounded,
+             card-driven language as the game grid instead of a bare list of switches. -->
+        <Style x:Key="SidebarRowStyle" TargetType="Border">
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="8,7" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#14FFFFFF" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="SidebarBadgeStyle" TargetType="Border">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="CornerRadius" Value="13" />
+            <Setter Property="Background" Value="#1FFFFFFF" />
+        </Style>
+
+        <Style x:Key="SidebarToggleStyle" TargetType="ui:ToggleSwitch" BasedOn="{StaticResource {x:Type ui:ToggleSwitch}}">
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="0.8" ScaleY="0.8" />
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -182,6 +224,10 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
         <tb:TaskbarIcon x:Name="TrayIcon" Visibility="Collapsed"
                         ToolTipText="Game Launcher"
@@ -195,9 +241,258 @@
             </tb:TaskbarIcon.ContextMenu>
         </tb:TaskbarIcon>
 
-        <ui:TitleBar Grid.Row="0" Title="Game Launcher" />
+        <ui:TitleBar Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Title="Game Launcher" />
 
-        <DockPanel Grid.Row="1" Margin="20,4,20,12">
+        <!-- Left sidebar: source toggles moved out of Settings since they're reached for far more
+             often than the rest of that dialog - collapses to a bare rail to give the library room. -->
+        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource SidebarStyle}"
+                HorizontalAlignment="Left" Background="#14000000"
+                BorderThickness="0,0,1,0" BorderBrush="#14FFFFFF">
+            <DockPanel LastChildFill="False" Margin="0,12,0,0">
+                <ui:Button DockPanel.Dock="Top" HorizontalAlignment="Right" Margin="0,0,10,10"
+                           Appearance="Transparent" BorderThickness="0"
+                           ToolTip="Collapse sidebar"
+                           Command="{Binding ToggleSidebarCommand}">
+                    <Grid Width="20" Height="20">
+                        <ui:SymbolIcon Symbol="ChevronLeft24"
+                                       Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        <ui:SymbolIcon Symbol="ChevronRight24"
+                                       Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                    </Grid>
+                </ui:Button>
+
+                <!-- Big brand header while expanded - the sidebar's top slot, not a footer afterthought -->
+                <StackPanel DockPanel.Dock="Top" HorizontalAlignment="Center" Margin="0,0,0,18"
+                            Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <Image Source="/Assets/AppIcon.png" Width="96" Height="96"
+                           RenderOptions.BitmapScalingMode="HighQuality" HorizontalAlignment="Center" />
+                    <TextBlock Text="Game Launcher" FontSize="15" FontWeight="SemiBold" Margin="0,12,0,0"
+                               HorizontalAlignment="Center" />
+                    <TextBlock FontSize="10" Opacity="0.45" HorizontalAlignment="Center" Margin="0,2,0,0">
+                        <Run Text="v" /><Run Text="{x:Static services:AppInfo.Version}" />
+                    </TextBlock>
+                </StackPanel>
+
+                <!-- Edge-to-edge, unlike the indented rows below - a true full-bleed divider -->
+                <Border DockPanel.Dock="Top" Height="1" Background="#14FFFFFF" Margin="0,0,0,16"
+                        Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+
+                <StackPanel DockPanel.Dock="Top" Margin="10,0,10,0"
+                            Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="SOURCES" FontWeight="SemiBold" FontSize="11" Opacity="0.5"
+                               Margin="8,0,0,10"
+                               Visibility="{Binding HasAnySourceGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasSteamGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <Grid>
+                                    <TextBlock Text="S" FontSize="11" FontWeight="Bold" Opacity="0.85"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding SteamIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding SteamIcon}" Width="16" Height="16"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="Steam" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectSteam}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasEpicGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <Grid>
+                                    <TextBlock Text="E" FontSize="11" FontWeight="Bold" Opacity="0.85"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding EpicIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding EpicIcon}" Width="16" Height="16"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="Epic Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectEpic}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasGogGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <Grid>
+                                    <TextBlock Text="G" FontSize="11" FontWeight="Bold" Opacity="0.85"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding GogIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding GogIcon}" Width="16" Height="16"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="GOG" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectGog}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasXboxGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <!-- The Xbox app's icon lives inside an ACL-locked MSIX package and can
+                                     never be extracted by path, on any PC - so unlike the other sources
+                                     this one skips the live-extraction attempt entirely and always shows
+                                     a real, recognizable built-in Xbox controller glyph. -->
+                                <ui:SymbolIcon Symbol="XboxController24" FontSize="14" Opacity="0.9"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="Xbox" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectXbox}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasEaGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <Grid>
+                                    <TextBlock Text="EA" FontSize="9" FontWeight="Bold" Opacity="0.85"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding EaIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding EaIcon}" Width="16" Height="16"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="EA app" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectEa}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasUbisoftGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <Grid>
+                                    <TextBlock Text="U" FontSize="11" FontWeight="Bold" Opacity="0.85"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding UbisoftIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding UbisoftIcon}" Width="16" Height="16"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="Ubisoft Connect" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectUbisoft}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasBattleNetGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <Grid>
+                                    <TextBlock Text="B" FontSize="11" FontWeight="Bold" Opacity="0.85"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding BattleNetIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding BattleNetIcon}" Width="16" Height="16"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="Battle.net" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectBattleNet}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasRockstarGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <Grid>
+                                    <TextBlock Text="R" FontSize="11" FontWeight="Bold" Opacity="0.85"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding RockstarIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding RockstarIcon}" Width="16" Height="16"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="Rockstar Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectRockstar}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource SidebarRowStyle}"
+                            Visibility="{Binding HasAmazonGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                <Grid>
+                                    <TextBlock Text="A" FontSize="11" FontWeight="Bold" Opacity="0.85"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding AmazonGamesIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding AmazonGamesIcon}" Width="16" Height="16"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="Amazon Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                              IsChecked="{Binding DetectAmazonGames}" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <DockPanel Grid.Row="1" Grid.Column="1" Margin="20,4,20,12">
             <!-- Header row: library title on the left, controls on the right. Kept out of the title
                  bar so the control cluster can't overflow the caption buttons on a narrow window. -->
             <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
@@ -209,18 +504,21 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
                     <ui:TextBox Width="200" PlaceholderText="Search games..."
                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                                Icon="{ui:SymbolIcon Search24}" />
+                                Icon="{ui:SymbolIcon Search24}"
+                                Background="#14FFFFFF" BorderThickness="0" />
 
-                    <ComboBox Margin="8,0,0,0" MinWidth="150"
+                    <ComboBox Margin="10,0,0,0" MinWidth="130"
+                              Background="Transparent" BorderThickness="0"
                               ItemsSource="{Binding SortOptions}"
                               DisplayMemberPath="Label" SelectedValuePath="Value"
                               SelectedValue="{Binding SortOption}" />
 
-                    <ui:Button Margin="8,0,0,0" Icon="{ui:SymbolIcon ArrowSync24}"
+                    <ui:Button Margin="6,0,0,0" Appearance="Transparent" BorderThickness="0"
+                               Icon="{ui:SymbolIcon ArrowSync24}"
                                ToolTip="Re-scan library"
                                Command="{Binding RefreshCommand}" />
 
-                    <ui:Button x:Name="SettingsButton" Margin="8,0,0,0"
+                    <ui:Button x:Name="SettingsButton" Margin="2,0,0,0" Appearance="Transparent" BorderThickness="0"
                                Icon="{ui:SymbolIcon Settings24}"
                                ToolTip="Settings"
                                Click="SettingsButton_Click" />
@@ -233,7 +531,7 @@
                     <ui:SymbolIcon Symbol="Games24" FontSize="56" HorizontalAlignment="Center" Opacity="0.5" />
                     <TextBlock Text="No games found yet" FontSize="18" FontWeight="SemiBold"
                                HorizontalAlignment="Center" Margin="0,16,0,4" />
-                    <TextBlock Text="Games are auto-detected from Steam, Epic and GOG, or add a folder to scan."
+                    <TextBlock Text="Games are auto-detected from Steam, Epic, GOG and more, or add a folder to scan."
                                FontSize="12" Opacity="0.6" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                         <ui:Button Content="Scan Now" Icon="{ui:SymbolIcon ArrowSync24}"
@@ -278,7 +576,7 @@
             </ScrollViewer>
         </DockPanel>
 
-        <StatusBar Grid.Row="2" Background="Transparent">
+        <StatusBar Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Background="Transparent">
             <StatusBarItem>
                 <TextBlock Text="{Binding StatusText}" Margin="16,0" FontSize="12" Opacity="0.7" />
             </StatusBarItem>
