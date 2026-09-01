@@ -118,6 +118,10 @@ public partial class LibraryViewModel : ObservableObject
         finally
         {
             IsLoading = false;
+
+            // A scan is a burst of allocation (file/registry walking, decoding cover art) and the
+            // app goes idle straight after. Hand back what that burst left resident.
+            MemoryTrimmer.Trim();
         }
     }
 

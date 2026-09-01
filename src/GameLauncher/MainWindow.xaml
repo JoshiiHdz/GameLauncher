@@ -25,7 +25,12 @@
         <Style x:Key="GameCardStyle" TargetType="ui:Button">
             <Setter Property="Padding" Value="0" />
             <Setter Property="Appearance" Value="Transparent" />
+            <!-- Appearance=Transparent alone still leaves WPF-UI painting its own square-cornered
+                 background/border behind the card, which showed as a pale hard-cornered frame. -->
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="8" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
@@ -93,14 +98,15 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Platform badge: the launcher's own icon, or a generic glyph when unknown -->
+            <!-- Platform badge: the launcher's own icon, or a small muted glyph when the source
+                 is unknown - kept subtle so it marks the cover rather than blotting it out. -->
                             <Border HorizontalAlignment="Left" VerticalAlignment="Top"
-                                    Margin="5,5,0,0" Padding="3" CornerRadius="4"
-                                    Background="#B3000000" ToolTip="{Binding Source}">
-                                <Grid Width="16" Height="16">
+                                    Margin="5,5,0,0" Padding="2" CornerRadius="4"
+                                    Background="#8C000000" ToolTip="{Binding Source}">
+                                <Grid Width="14" Height="14">
                                     <Image Source="{Binding PlatformIcon}"
                                            RenderOptions.BitmapScalingMode="HighQuality" />
-                                    <ui:SymbolIcon Symbol="Question24" FontSize="12" Foreground="#D9FFFFFF"
+                                    <ui:SymbolIcon Symbol="Question24" FontSize="10" Foreground="#8CFFFFFF"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    Visibility="{Binding PlatformIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
                                 </Grid>
@@ -116,7 +122,7 @@
                             </Border>
                         </Grid>
 
-                        <Grid Background="#40000000" Height="30">
+                        <Grid Background="#CC0A0A0A" Height="30">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />

@@ -16,6 +16,14 @@ public partial class MainWindow : FluentWindow
                 return;
 
             vm.GameLaunched += () => WindowState = WindowState.Minimized;
+
+            // Covers both launching a game and minimizing by hand.
+            StateChanged += (_, _) =>
+            {
+                if (WindowState == WindowState.Minimized)
+                    MemoryTrimmer.Trim();
+            };
+
             vm.VibrantBackgroundChanged += ApplyBackdrop;
             ApplyBackdrop(vm.VibrantBackground);
 

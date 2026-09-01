@@ -99,15 +99,5 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         return data.GetArrayLength() == 0 ? null : data[0].GetProperty("url").GetString();
     }
 
-    private static BitmapImage LoadBitmap(byte[] bytes)
-    {
-        var bitmap = new BitmapImage();
-        using var stream = new MemoryStream(bytes);
-        bitmap.BeginInit();
-        bitmap.CacheOption = BitmapCacheOption.OnLoad;
-        bitmap.StreamSource = stream;
-        bitmap.EndInit();
-        bitmap.Freeze();
-        return bitmap;
-    }
+    private static BitmapImage LoadBitmap(byte[] bytes) => CoverArtDecoder.Decode(bytes);
 }

@@ -48,15 +48,5 @@ public sealed class SteamCoverArtProvider : ICoverArtProvider
             : null;
     }
 
-    private static BitmapImage LoadBitmap(byte[] bytes)
-    {
-        var bitmap = new BitmapImage();
-        using var stream = new MemoryStream(bytes);
-        bitmap.BeginInit();
-        bitmap.CacheOption = BitmapCacheOption.OnLoad;
-        bitmap.StreamSource = stream;
-        bitmap.EndInit();
-        bitmap.Freeze();
-        return bitmap;
-    }
+    private static BitmapImage LoadBitmap(byte[] bytes) => CoverArtDecoder.Decode(bytes);
 }
