@@ -42,10 +42,9 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string _libraryHeaderText = "My Library";
 
-    /// <summary>Source badges only earn their space when the library actually spans more than one
-    /// source - stamping "Steam" on every tile of an all-Steam library is pure noise.</summary>
+    /// <summary>Drives the Favorites section and its separator - both vanish when nothing is starred.</summary>
     [ObservableProperty]
-    private bool _showSourceBadges;
+    private bool _hasFavorites;
 
     [ObservableProperty]
     private string _steamGridDbApiKey = string.Empty;
@@ -54,6 +53,8 @@ public partial class LibraryViewModel : ObservableObject
     private bool _vibrantBackground = true;
 
     public ObservableCollection<GameEntry> Games { get; } = new();
+
+    public ObservableCollection<GameEntry> FavoriteGames { get; } = new();
 
     public ObservableCollection<WatchedFolder> WatchedFolders { get; } = new();
 
@@ -217,8 +218,8 @@ public partial class LibraryViewModel : ObservableObject
         over.Favorite = game.Favorite;
         _settingsService.Save(_settings);
 
-        if (SortOption == GameSortOption.FavoritesFirst)
-            ApplyFilter();
+        // Always re-filter: the game has to move between the Favorites section and the main grid.
+        ApplyFilter();
     }
 
     /// <summary>Raised after a game successfully launches, so the view can get out of the way (minimize)
@@ -265,12 +266,19 @@ public partial class LibraryViewModel : ObservableObject
             _ => filtered.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
         };
 
+        // Favourites are pulled into their own section, so they aren't repeated in the main grid.
+        var ordered = filtered.ToList();
+
+        FavoriteGames.Clear();
+        foreach (var game in ordered.Where(g => g.Favorite))
+            FavoriteGames.Add(game);
+
         Games.Clear();
-        foreach (var game in filtered)
+        foreach (var game in ordered.Where(g => !g.Favorite))
             Games.Add(game);
 
+        HasFavorites = FavoriteGames.Count > 0;
         HasNoGames = _allGames.Count(g => !g.Hidden) == 0;
         LibraryHeaderText = $"My Library ({Games.Count} {(Games.Count == 1 ? "Game" : "Games")})";
-        ShowSourceBadges = Games.Select(g => g.Source).Distinct().Count() > 1;
     }
 }

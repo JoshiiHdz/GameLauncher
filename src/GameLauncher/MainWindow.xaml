@@ -65,6 +65,87 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <!-- One card definition shared by the Favorites section and the main library grid -->
+        <DataTemplate x:Key="GameCardTemplate">
+            <ui:Button Style="{StaticResource GameCardStyle}"
+                       Margin="0,0,12,14" Width="124"
+                       Command="{Binding DataContext.LaunchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                       CommandParameter="{Binding}">
+                <Border x:Name="CardRoot" CornerRadius="8" Background="#33000000">
+                    <!-- Explicit clip so the caption strip's bottom corners round too, not just the art -->
+                    <Border.Clip>
+                        <RectangleGeometry Rect="0,0,124,216" RadiusX="8" RadiusY="8" />
+                    </Border.Clip>
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.45" Color="Black" />
+                    </Border.Effect>
+                    <StackPanel>
+                        <Grid Width="124" Height="186">
+                            <Border Background="{DynamicResource ControlFillColorSecondaryBrush}">
+                                <Grid>
+                                    <ui:SymbolIcon Symbol="Games24" FontSize="34" Opacity="0.35"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Visibility="{Binding Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <Image Source="{Binding Icon}"
+                                           Style="{StaticResource GameArtImageStyle}"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Grid>
+                            </Border>
+
+                            <!-- Platform badge: the launcher's own icon, or a generic glyph when unknown -->
+                            <Border HorizontalAlignment="Left" VerticalAlignment="Top"
+                                    Margin="5,5,0,0" Padding="3" CornerRadius="4"
+                                    Background="#B3000000" ToolTip="{Binding Source}">
+                                <Grid Width="16" Height="16">
+                                    <Image Source="{Binding PlatformIcon}"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <ui:SymbolIcon Symbol="Question24" FontSize="12" Foreground="#D9FFFFFF"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Visibility="{Binding PlatformIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                </Grid>
+                            </Border>
+
+                            <!-- Hover reveal: Visibility swap on a property trigger, no animation loop -->
+                            <Border x:Name="HoverOverlay" Background="#A6000000" Visibility="Collapsed">
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <ui:SymbolIcon Symbol="Play24" FontSize="28" HorizontalAlignment="Center" Foreground="White" />
+                                    <TextBlock Text="Play" FontWeight="SemiBold" FontSize="12" Foreground="White"
+                                               HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <Grid Background="#40000000" Height="30">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                       FontSize="11" VerticalAlignment="Center"
+                                       Margin="7,0,2,0" TextTrimming="CharacterEllipsis"
+                                       TextWrapping="NoWrap" ToolTip="{Binding Name}"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+
+                            <ui:Button Grid.Column="1" Style="{StaticResource FavoriteStarStyle}"
+                                       Margin="0,0,5,0"
+                                       Content="{Binding Favorite, Converter={StaticResource BoolToStarConverter}}"
+                                       ToolTip="Favorite"
+                                       Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                       CommandParameter="{Binding}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </ui:Button>
+
+            <DataTemplate.Triggers>
+                <Trigger SourceName="CardRoot" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="HoverOverlay" Property="Visibility" Value="Visible" />
+                </Trigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
     </Window.Resources>
 
     <Grid>
@@ -84,11 +165,6 @@
                     <ColumnDefinition Width="*" MinWidth="60" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-
-                <TextBlock Grid.Column="0" Text="{Binding LibraryHeaderText}"
-                           FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"
-                           Margin="2,0,8,0" TextTrimming="CharacterEllipsis"
-                           Visibility="{Binding HasNoGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
                     <ui:TextBox Width="200" PlaceholderText="Search games..."
@@ -130,94 +206,35 @@
 
             <ScrollViewer VerticalScrollBarVisibility="Auto"
                           Visibility="{Binding HasNoGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}">
-                <ItemsControl ItemsSource="{Binding Games}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <ui:Button Style="{StaticResource GameCardStyle}"
-                                       Margin="0,0,12,14" Width="124"
-                                       Command="{Binding DataContext.LaunchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                       CommandParameter="{Binding}">
-                                <Border x:Name="CardRoot" CornerRadius="6" Background="#33000000">
-                                    <Border.Effect>
-                                        <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.45" Color="Black" />
-                                    </Border.Effect>
-                                    <StackPanel>
-                                        <!-- Cover art -->
-                                        <Grid Width="124" Height="186">
-                                            <Border CornerRadius="6,6,0,0" ClipToBounds="True"
-                                                    Background="{DynamicResource ControlFillColorSecondaryBrush}">
-                                                <Border.Clip>
-                                                    <RectangleGeometry Rect="0,0,124,186" RadiusX="6" RadiusY="6" />
-                                                </Border.Clip>
-                                                <Grid>
-                                                    <ui:SymbolIcon Symbol="Games24" FontSize="34" Opacity="0.35"
-                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                   Visibility="{Binding Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                                    <Image Source="{Binding Icon}"
-                                                           Style="{StaticResource GameArtImageStyle}"
-                                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                                </Grid>
-                                            </Border>
+                <StackPanel>
+                    <!-- Favorites section - it and its divider disappear entirely when nothing is starred -->
+                    <StackPanel Visibility="{Binding HasFavorites, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <TextBlock Text="Favorites" FontSize="17" FontWeight="SemiBold" Margin="2,0,0,12" />
 
-                                            <!-- Source badge - hidden unless the library spans multiple sources -->
-                                            <Border HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                    Margin="5,5,0,0" Padding="5,1" CornerRadius="3"
-                                                    Background="#B0000000"
-                                                    Visibility="{Binding DataContext.ShowSourceBadges, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                                <TextBlock Text="{Binding Source}" FontSize="9" FontWeight="SemiBold"
-                                                           Foreground="#E6FFFFFF" />
-                                            </Border>
+                        <ItemsControl ItemsSource="{Binding FavoriteGames}"
+                                      ItemTemplate="{StaticResource GameCardTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
 
-                                            <!-- Hover reveal: Visibility swap on a property trigger, no animation loop -->
-                                            <Border x:Name="HoverOverlay" Background="#A6000000" Visibility="Collapsed">
-                                                <Border.Clip>
-                                                    <RectangleGeometry Rect="0,0,124,186" RadiusX="6" RadiusY="6" />
-                                                </Border.Clip>
-                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <ui:SymbolIcon Symbol="Play24" FontSize="28" HorizontalAlignment="Center" Foreground="White" />
-                                                    <TextBlock Text="Play" FontWeight="SemiBold" FontSize="12" Foreground="White"
-                                                               HorizontalAlignment="Center" Margin="0,2,0,0" />
-                                                </StackPanel>
-                                            </Border>
-                                        </Grid>
+                        <Separator Margin="0,4,0,20" Opacity="0.4" />
+                    </StackPanel>
 
-                                        <!-- Caption strip: name + favourite star -->
-                                        <Grid Background="#40000000" Height="30">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding LibraryHeaderText}" FontSize="17" FontWeight="SemiBold"
+                               Margin="2,0,0,12" />
 
-                                            <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                       FontSize="11" VerticalAlignment="Center"
-                                                       Margin="7,0,2,0" TextTrimming="CharacterEllipsis"
-                                                       TextWrapping="NoWrap" ToolTip="{Binding Name}"
-                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-
-                                            <ui:Button Grid.Column="1" Style="{StaticResource FavoriteStarStyle}"
-                                                       Margin="0,0,5,0"
-                                                       Content="{Binding Favorite, Converter={StaticResource BoolToStarConverter}}"
-                                                       ToolTip="Favorite"
-                                                       Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                       CommandParameter="{Binding}" />
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                            </ui:Button>
-
-                            <DataTemplate.Triggers>
-                                <Trigger SourceName="CardRoot" Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="HoverOverlay" Property="Visibility" Value="Visible" />
-                                </Trigger>
-                            </DataTemplate.Triggers>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding Games}"
+                                  ItemTemplate="{StaticResource GameCardTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </StackPanel>
             </ScrollViewer>
         </DockPanel>
 

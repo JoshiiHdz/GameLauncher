@@ -51,6 +51,7 @@ public sealed class GameScannerService
                 game.DateAdded = over.DateAdded.Value;
 
                 CoverArtService.Apply(game, settings);
+                game.PlatformIcon = PlatformIconService.GetIcon(game.Source);
             }
 
             var coverArtCount = deduped.Count(g => g.IsCoverArt);

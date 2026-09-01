@@ -18,6 +18,10 @@ public sealed partial class GameEntry : ObservableObject
     /// it's a fallback exe icon (small, centered, on a plate) - the UI renders these differently.</summary>
     public bool IsCoverArt { get; set; }
 
+    /// <summary>Icon of the launcher this game came from (Steam, Epic, ...), extracted from that
+    /// launcher's own executable. Null when the source is unknown or its launcher isn't installed.</summary>
+    public BitmapImage? PlatformIcon { get; set; }
+
     public bool Hidden { get; set; }
     public DateTime DateAdded { get; set; }
 
