@@ -8,7 +8,7 @@
         mc:Ignorable="d"
         Title="Settings" Height="640" Width="460" MinHeight="420" MinWidth="380"
         ExtendsContentIntoTitleBar="True"
-        WindowBackdropType="None"
+        WindowBackdropType="Acrylic"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip">
 
@@ -67,6 +67,15 @@
                            Command="{Binding CreateDesktopShortcutCommand}"
                            Icon="{ui:SymbolIcon Desktop24}"
                            HorizontalAlignment="Stretch" Margin="0,8,0,0" />
+
+                <Separator Margin="0,20" />
+
+                <TextBlock Text="Appearance" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
+                <TextBlock Text="Frosted acrylic background. Uses a little GPU while the window is on screen - nothing while it's minimized during a game."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,10" />
+
+                <ui:ToggleSwitch Content="Vibrant background"
+                                 IsChecked="{Binding VibrantBackground}" />
 
                 <Separator Margin="0,20" />
 

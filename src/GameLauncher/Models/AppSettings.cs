@@ -8,6 +8,10 @@ public sealed class AppSettings
     public bool DetectEpic { get; set; } = true;
     public bool DetectGog { get; set; } = true;
 
+    /// <summary>Frosted acrylic window backdrop. Costs some GPU while the window is visible
+    /// (nothing while minimized), so it's switchable for anyone who wants it truly idle.</summary>
+    public bool VibrantBackground { get; set; } = true;
+
     /// <summary>
     /// Optional SteamGridDB API key (steamgriddb.com/profile/preferences/api). When set, cover art
     /// for non-Steam games is fetched from SteamGridDB instead of falling back to the exe icon.

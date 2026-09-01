@@ -8,9 +8,9 @@
         xmlns:conv="clr-namespace:GameLauncher.Converters"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         mc:Ignorable="d"
-        Title="Game Launcher" Height="720" Width="1180" MinHeight="480" MinWidth="760"
+        Title="Game Launcher" Height="760" Width="1180" MinHeight="480" MinWidth="760"
         ExtendsContentIntoTitleBar="True"
-        WindowBackdropType="None"
+        WindowBackdropType="Acrylic"
         WindowStartupLocation="CenterScreen">
 
     <Window.DataContext>
@@ -20,20 +20,21 @@
     <Window.Resources>
         <conv:BoolToStarConverter x:Key="BoolToStarConverter" />
 
-        <!-- Simple, non-animated hover state (property-trigger only - no per-frame Storyboards)
-             so idle CPU/GPU cost stays effectively zero while a game is running. -->
+        <!-- Hover/selection states are plain property triggers - no Storyboards or timers, so the
+             app costs effectively nothing while idle or while a game is running. -->
         <Style x:Key="GameCardStyle" TargetType="ui:Button">
             <Setter Property="Padding" Value="0" />
             <Setter Property="Appearance" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
 
         <!-- Real cover art fills the tile edge-to-edge; a fallback exe icon stays small and centered
-             on the plate behind it so it doesn't look stretched/blurry. -->
+             so it isn't stretched into a blurry mess. -->
         <Style x:Key="GameArtImageStyle" TargetType="Image">
-            <Setter Property="Width" Value="88" />
-            <Setter Property="Height" Value="88" />
+            <Setter Property="Width" Value="52" />
+            <Setter Property="Height" Value="52" />
             <Setter Property="Stretch" Value="Uniform" />
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -44,6 +45,23 @@
                     <Setter Property="Stretch" Value="UniformToFill" />
                     <Setter Property="HorizontalAlignment" Value="Stretch" />
                     <Setter Property="VerticalAlignment" Value="Stretch" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="FavoriteStarStyle" TargetType="ui:Button">
+            <Setter Property="Appearance" Value="Transparent" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="3,0" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="#A6FFFFFF" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Favorite}" Value="True">
+                    <Setter Property="Foreground" Value="#FFC83D" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -58,35 +76,42 @@
 
         <ui:TitleBar Grid.Row="0" Title="Game Launcher" />
 
-        <DockPanel Grid.Row="1" Margin="16,0,16,16">
+        <DockPanel Grid.Row="1" Margin="20,4,20,12">
+            <!-- Header row: library title on the left, controls on the right. Kept out of the title
+                 bar so the control cluster can't overflow the caption buttons on a narrow window. -->
             <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" MinWidth="60" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <ui:TextBox Grid.Column="0" PlaceholderText="Search your library..."
-                            Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                            Icon="{ui:SymbolIcon Search24}" />
+                <TextBlock Grid.Column="0" Text="{Binding LibraryHeaderText}"
+                           FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"
+                           Margin="2,0,8,0" TextTrimming="CharacterEllipsis"
+                           Visibility="{Binding HasNoGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
 
-                <ComboBox Grid.Column="1" Margin="8,0,0,0" MinWidth="160"
-                          ItemsSource="{Binding SortOptions}"
-                          DisplayMemberPath="Label" SelectedValuePath="Value"
-                          SelectedValue="{Binding SortOption}" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <ui:TextBox Width="200" PlaceholderText="Search games..."
+                                Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                Icon="{ui:SymbolIcon Search24}" />
 
-                <ui:Button Grid.Column="2" Margin="8,0,0,0" Content="Refresh"
-                           Icon="{ui:SymbolIcon ArrowSync24}"
-                           Command="{Binding RefreshCommand}" />
+                    <ComboBox Margin="8,0,0,0" MinWidth="150"
+                              ItemsSource="{Binding SortOptions}"
+                              DisplayMemberPath="Label" SelectedValuePath="Value"
+                              SelectedValue="{Binding SortOption}" />
 
-                <ui:Button x:Name="SettingsButton" Grid.Column="3" Margin="8,0,0,0"
-                           Icon="{ui:SymbolIcon Settings24}"
-                           ToolTip="Settings"
-                           Click="SettingsButton_Click" />
+                    <ui:Button Margin="8,0,0,0" Icon="{ui:SymbolIcon ArrowSync24}"
+                               ToolTip="Re-scan library"
+                               Command="{Binding RefreshCommand}" />
+
+                    <ui:Button x:Name="SettingsButton" Margin="8,0,0,0"
+                               Icon="{ui:SymbolIcon Settings24}"
+                               ToolTip="Settings"
+                               Click="SettingsButton_Click" />
+                </StackPanel>
             </Grid>
 
-            <!-- Empty state: shown only when the library has genuinely nothing in it, not on a filtered search -->
+            <!-- Empty state: only when the library is genuinely empty, not when a search filters it out -->
             <Grid DockPanel.Dock="Top" Visibility="{Binding HasNoGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,80,0,0" MaxWidth="360">
                     <ui:SymbolIcon Symbol="Games24" FontSize="56" HorizontalAlignment="Center" Opacity="0.5" />
@@ -113,19 +138,24 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,0,16,16" Width="170">
-                                <ui:Button Style="{StaticResource GameCardStyle}"
-                                           Command="{Binding DataContext.LaunchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                           CommandParameter="{Binding}">
+                            <ui:Button Style="{StaticResource GameCardStyle}"
+                                       Margin="0,0,12,14" Width="124"
+                                       Command="{Binding DataContext.LaunchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                       CommandParameter="{Binding}">
+                                <Border x:Name="CardRoot" CornerRadius="6" Background="#33000000">
+                                    <Border.Effect>
+                                        <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.45" Color="Black" />
+                                    </Border.Effect>
                                     <StackPanel>
-                                        <Grid x:Name="TileRoot" Width="170" Height="226">
-                                            <Border CornerRadius="8" ClipToBounds="True"
+                                        <!-- Cover art -->
+                                        <Grid Width="124" Height="186">
+                                            <Border CornerRadius="6,6,0,0" ClipToBounds="True"
                                                     Background="{DynamicResource ControlFillColorSecondaryBrush}">
                                                 <Border.Clip>
-                                                    <RectangleGeometry Rect="0,0,170,226" RadiusX="8" RadiusY="8" />
+                                                    <RectangleGeometry Rect="0,0,124,186" RadiusX="6" RadiusY="6" />
                                                 </Border.Clip>
                                                 <Grid>
-                                                    <ui:SymbolIcon Symbol="Games24" FontSize="40" Opacity="0.35"
+                                                    <ui:SymbolIcon Symbol="Games24" FontSize="34" Opacity="0.35"
                                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                    Visibility="{Binding Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
                                                     <Image Source="{Binding Icon}"
@@ -134,37 +164,54 @@
                                                 </Grid>
                                             </Border>
 
-                                            <!-- Hover reveal: plain Visibility swap on a property trigger, no Storyboard/timer -->
-                                            <Border x:Name="HoverOverlay" CornerRadius="8" Background="#99000000" Visibility="Collapsed">
-                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <ui:SymbolIcon Symbol="Play24" FontSize="32" HorizontalAlignment="Center" Foreground="White" />
-                                                    <TextBlock Text="Play" FontWeight="SemiBold" Foreground="White"
-                                                               HorizontalAlignment="Center" Margin="0,4,0,0" />
-                                                </StackPanel>
+                                            <!-- Source badge - hidden unless the library spans multiple sources -->
+                                            <Border HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                    Margin="5,5,0,0" Padding="5,1" CornerRadius="3"
+                                                    Background="#B0000000"
+                                                    Visibility="{Binding DataContext.ShowSourceBadges, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                                <TextBlock Text="{Binding Source}" FontSize="9" FontWeight="SemiBold"
+                                                           Foreground="#E6FFFFFF" />
                                             </Border>
 
-                                            <ui:Button HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                       Margin="0,6,6,0" Padding="4" FontSize="13"
-                                                       Appearance="Transparent"
+                                            <!-- Hover reveal: Visibility swap on a property trigger, no animation loop -->
+                                            <Border x:Name="HoverOverlay" Background="#A6000000" Visibility="Collapsed">
+                                                <Border.Clip>
+                                                    <RectangleGeometry Rect="0,0,124,186" RadiusX="6" RadiusY="6" />
+                                                </Border.Clip>
+                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <ui:SymbolIcon Symbol="Play24" FontSize="28" HorizontalAlignment="Center" Foreground="White" />
+                                                    <TextBlock Text="Play" FontWeight="SemiBold" FontSize="12" Foreground="White"
+                                                               HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
+
+                                        <!-- Caption strip: name + favourite star -->
+                                        <Grid Background="#40000000" Height="30">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                       FontSize="11" VerticalAlignment="Center"
+                                                       Margin="7,0,2,0" TextTrimming="CharacterEllipsis"
+                                                       TextWrapping="NoWrap" ToolTip="{Binding Name}"
+                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+
+                                            <ui:Button Grid.Column="1" Style="{StaticResource FavoriteStarStyle}"
+                                                       Margin="0,0,5,0"
                                                        Content="{Binding Favorite, Converter={StaticResource BoolToStarConverter}}"
                                                        ToolTip="Favorite"
                                                        Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                        CommandParameter="{Binding}" />
                                         </Grid>
-
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"
-                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                                                   Margin="2,8,2,0" TextTrimming="CharacterEllipsis"
-                                                   TextWrapping="NoWrap" TextAlignment="Left"
-                                                   HorizontalAlignment="Stretch" ToolTip="{Binding Name}" />
-                                        <TextBlock Text="{Binding Source}" FontSize="11" Opacity="0.55"
-                                                   Margin="2,2,2,0" HorizontalAlignment="Left" />
                                     </StackPanel>
-                                </ui:Button>
-                            </Grid>
+                                </Border>
+                            </ui:Button>
 
                             <DataTemplate.Triggers>
-                                <Trigger SourceName="TileRoot" Property="IsMouseOver" Value="True">
+                                <Trigger SourceName="CardRoot" Property="IsMouseOver" Value="True">
                                     <Setter TargetName="HoverOverlay" Property="Visibility" Value="Visible" />
                                 </Trigger>
                             </DataTemplate.Triggers>

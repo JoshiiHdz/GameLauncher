@@ -40,7 +40,18 @@ public partial class LibraryViewModel : ObservableObject
     private bool _hasNoGames;
 
     [ObservableProperty]
+    private string _libraryHeaderText = "My Library";
+
+    /// <summary>Source badges only earn their space when the library actually spans more than one
+    /// source - stamping "Steam" on every tile of an all-Steam library is pure noise.</summary>
+    [ObservableProperty]
+    private bool _showSourceBadges;
+
+    [ObservableProperty]
     private string _steamGridDbApiKey = string.Empty;
+
+    [ObservableProperty]
+    private bool _vibrantBackground = true;
 
     public ObservableCollection<GameEntry> Games { get; } = new();
 
@@ -61,6 +72,7 @@ public partial class LibraryViewModel : ObservableObject
         foreach (var folder in _settings.WatchedFolders)
             WatchedFolders.Add(folder);
         _steamGridDbApiKey = _settings.SteamGridDbApiKey ?? string.Empty;
+        _vibrantBackground = _settings.VibrantBackground;
 
         RefreshShortcutState();
     }
@@ -69,6 +81,16 @@ public partial class LibraryViewModel : ObservableObject
     {
         _settings.SteamGridDbApiKey = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         _settingsService.Save(_settings);
+    }
+
+    /// <summary>Raised when the backdrop preference changes so open windows can re-apply it live.</summary>
+    public event Action<bool>? VibrantBackgroundChanged;
+
+    partial void OnVibrantBackgroundChanged(bool value)
+    {
+        _settings.VibrantBackground = value;
+        _settingsService.Save(_settings);
+        VibrantBackgroundChanged?.Invoke(value);
     }
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();
@@ -248,5 +270,7 @@ public partial class LibraryViewModel : ObservableObject
             Games.Add(game);
 
         HasNoGames = _allGames.Count(g => !g.Hidden) == 0;
+        LibraryHeaderText = $"My Library ({Games.Count} {(Games.Count == 1 ? "Game" : "Games")})";
+        ShowSourceBadges = Games.Select(g => g.Source).Distinct().Count() > 1;
     }
 }
