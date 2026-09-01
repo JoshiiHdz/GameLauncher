@@ -12,9 +12,14 @@ namespace GameLauncher.Services.CoverArt;
 /// using their public REST API. Requires a free API key from steamgriddb.com/profile/preferences/api,
 /// set via AppSettings.SteamGridDbApiKey. Matches by name search, so results depend on how closely the
 /// detected game name matches SteamGridDB's catalog.
+///
+/// Bump CacheVersion when changing match/selection logic here, so games that were mis-cached under
+/// the old logic get re-fetched automatically instead of keeping a wrong cover forever.
 /// </summary>
 public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
 {
+    private const int CacheVersion = 2;
+
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(AppPaths.DataDir, "CoverArtCache");
 
@@ -30,11 +35,11 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         try
         {
             Directory.CreateDirectory(CacheDir);
-            var cachePath = Path.Combine(CacheDir, $"{game.Id}.png");
+            var cachePath = Path.Combine(CacheDir, $"{game.Id}-v{CacheVersion}.png");
             if (File.Exists(cachePath))
                 return LoadBitmap(File.ReadAllBytes(cachePath));
 
-            var gameId = SearchGameId(game.Name);
+            var gameId = SearchGameId(game);
             if (gameId is null)
             {
                 Logger.Warn($"SteamGridDB: no match for '{game.Name}'.");
@@ -60,10 +65,19 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         }
     }
 
-    private int? SearchGameId(string gameName)
+    /// <summary>
+    /// A bare name search ("Apex" for a folder called just "Apex") can match multiple unrelated
+    /// games - live check found "Apex" (an obscure title) ranked above "Apex Legends" for that exact
+    /// query. SteamGridDB tags each result with which storefronts carry it (steam/egs/origin/gog), so
+    /// when we know the game's source, a result actually listed under that storefront is strong
+    /// evidence it's the right one - "Apex Legends" is the only "Apex"-prefixed result tagged
+    /// "origin", which is exactly our signal for an EA-sourced game. Falls back to the top result
+    /// when nothing carries a matching tag, which is the previous (naive) behaviour.
+    /// </summary>
+    private int? SearchGameId(GameEntry game)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get,
-            $"https://www.steamgriddb.com/api/v2/search/autocomplete/{Uri.EscapeDataString(gameName)}");
+            $"https://www.steamgriddb.com/api/v2/search/autocomplete/{Uri.EscapeDataString(game.Name)}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
 
         using var response = Http.Send(request);
@@ -77,8 +91,39 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         using var stream = response.Content.ReadAsStream();
         using var doc = JsonDocument.Parse(stream);
         var data = doc.RootElement.GetProperty("data");
-        return data.GetArrayLength() == 0 ? null : data[0].GetProperty("id").GetInt32();
+        if (data.GetArrayLength() == 0)
+            return null;
+
+        var storefrontTag = StorefrontTagFor(game.Source);
+        if (storefrontTag is not null)
+        {
+            foreach (var candidate in data.EnumerateArray())
+            {
+                if (!candidate.TryGetProperty("types", out var types))
+                    continue;
+
+                if (types.EnumerateArray().Any(t => string.Equals(t.GetString(), storefrontTag, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Logger.Info($"  SteamGridDB: '{game.Name}' matched '{candidate.GetProperty("name").GetString()}' "
+                                + $"(tagged '{storefrontTag}').");
+                    return candidate.GetProperty("id").GetInt32();
+                }
+            }
+        }
+
+        var first = data[0];
+        Logger.Info($"  SteamGridDB: '{game.Name}' matched '{first.GetProperty("name").GetString()}' (top result, no storefront tag matched).");
+        return first.GetProperty("id").GetInt32();
     }
+
+    private static string? StorefrontTagFor(GameSource source) => source switch
+    {
+        GameSource.Steam => "steam",
+        GameSource.Epic => "egs",
+        GameSource.Gog => "gog",
+        GameSource.Ea => "origin",
+        _ => null, // Xbox/Manual: SteamGridDB has no storefront tag to filter on - use the top result.
+    };
 
     private string? GetGridImageUrl(int gameId)
     {

@@ -27,6 +27,7 @@ public static class XboxScanner
     {
         var games = new List<GameEntry>();
         var anyFolderFound = false;
+        var packagedApps = StartAppsResolver.GetPackagedApps();
 
         foreach (var drive in GetReadyDrives())
         {
@@ -54,6 +55,13 @@ public static class XboxScanner
                         continue;
                     }
 
+                    var aumid = MatchAumid(name, packagedApps);
+                    if (aumid is null)
+                    {
+                        Logger.Warn($"  Xbox: no Start Menu entry matched '{name}' - launching the exe "
+                                    + "directly, which can error for packaged titles that expect proper activation.");
+                    }
+
                     games.Add(new GameEntry
                     {
                         Id = $"xbox-{StableId(gameDir)}",
@@ -61,6 +69,9 @@ public static class XboxScanner
                         ExecutablePath = exe,
                         InstallDir = gameDir,
                         Source = GameSource.Xbox,
+                        // Launching the exe directly skips the activation context Windows sets up for
+                        // packaged apps - shell:appsFolder is how a real shortcut actually launches one.
+                        LaunchUri = aumid is null ? null : $"shell:appsFolder\\{aumid}",
                     });
                 }
             }
@@ -114,6 +125,32 @@ public static class XboxScanner
 
         return best?.FullName;
     }
+
+    /// <summary>Matches an Xbox game folder name against Get-StartApps entries. Exact (normalized)
+    /// match first, then a looser contains-match, since folder names and Start Menu display names
+    /// don't always agree exactly (e.g. a trailing edition/region suffix).</summary>
+    private static string? MatchAumid(string folderName, IReadOnlyList<(string Name, string Aumid)> packagedApps)
+    {
+        var normalizedFolder = Normalize(folderName);
+        if (normalizedFolder.Length == 0)
+            return null;
+
+        var exact = packagedApps.FirstOrDefault(a => Normalize(a.Name) == normalizedFolder);
+        if (exact != default)
+            return exact.Aumid;
+
+        var loose = packagedApps.FirstOrDefault(a =>
+        {
+            var normalizedName = Normalize(a.Name);
+            return normalizedName.Length > 0
+                   && (normalizedName.Contains(normalizedFolder) || normalizedFolder.Contains(normalizedName));
+        });
+
+        return loose == default ? null : loose.Aumid;
+    }
+
+    private static string Normalize(string name)
+        => new(name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
     private static bool IsStub(string folderName)
     {

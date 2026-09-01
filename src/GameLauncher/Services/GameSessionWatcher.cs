@@ -19,6 +19,14 @@ public sealed class GameSessionWatcher
 {
     private static readonly TimeSpan DiscoveryTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
+
+    // How long to keep looking for a handoff process after the watched one(s) exit before believing
+    // the game is actually closed. Found from real logs: gamelaunchhelper.exe (Xbox) and an EA
+    // trial-launcher stub both exit within half a second of starting, well before the real game
+    // process exists yet, which made the launcher pop back out of the tray almost instantly.
+    private static readonly TimeSpan HandoffGracePeriod = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan HandoffPollInterval = TimeSpan.FromSeconds(1);
+
     private const int MaxExeScanDepth = 3;
 
     /// <summary>
@@ -62,8 +70,6 @@ public sealed class GameSessionWatcher
 
         Logger.Info($"Watching {running.Count} process(es) for '{game.Name}'.");
 
-        // Wait for everything to exit, then look once more: a launcher process commonly hands off
-        // to the real game, so new processes can appear right as the first ones die.
         while (!ct.IsCancellationRequested)
         {
             foreach (var process in running)
@@ -82,15 +88,50 @@ public sealed class GameSessionWatcher
                 }
             }
 
-            running = FindRunning(game, candidateNames, launched: null);
-            if (running.Count == 0)
+            // A launcher process commonly hands off to the real game and exits well before it's up,
+            // so don't trust a single immediate recheck - keep looking for a replacement for a while.
+            var replacement = await WaitForHandoffAsync(game, candidateNames, ct);
+            if (replacement.Count == 0)
             {
                 Logger.Info($"'{game.Name}' exited.");
                 return true;
             }
+
+            Logger.Info($"'{game.Name}' handed off to {replacement.Count} new process(es), still watching.");
+            running = replacement;
         }
 
         return false;
+    }
+
+    private static async Task<List<Process>> WaitForHandoffAsync(
+        GameEntry game, HashSet<string> candidateNames, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + HandoffGracePeriod;
+
+        while (true)
+        {
+            // Re-scan for candidate names too, not just running processes, on every tick: some games
+            // only write/extract their real binary partway through the handoff, so a name absent at
+            // the start of this wait can still appear at any point before the deadline. A first
+            // attempt refreshed this only once at entry and missed a handoff file created a few
+            // seconds later - confirmed live with a stub that spawns its "real" process after a delay.
+            if (GetCandidateProcessNames(game) is { Count: > 0 } refreshed)
+                candidateNames = refreshed;
+
+            var found = FindRunning(game, candidateNames, launched: null);
+            if (found.Count > 0 || DateTime.UtcNow >= deadline || ct.IsCancellationRequested)
+                return found;
+
+            try
+            {
+                await Task.Delay(HandoffPollInterval, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return [];
+            }
+        }
     }
 
     private static List<Process> FindRunning(GameEntry game, HashSet<string> candidateNames, Process? launched)
