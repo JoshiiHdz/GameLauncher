@@ -1,0 +1,95 @@
+<ui:FluentWindow x:Class="GameLauncher.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:services="clr-namespace:GameLauncher.Services"
+        mc:Ignorable="d"
+        Title="Settings" Height="640" Width="460" MinHeight="420" MinWidth="380"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="None"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="Settings" />
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20,8,20,20">
+
+                <TextBlock Text="Watched Folders" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
+                <TextBlock Text="Games are auto-detected from Steam, Epic and GOG. Add folders below for anything else."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+                <ListBox ItemsSource="{Binding WatchedFolders}" BorderThickness="0" Background="Transparent"
+                         MaxHeight="160">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Path}" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" ToolTip="{Binding Path}" FontSize="12" />
+                                <ui:Button Grid.Column="1" Appearance="Transparent" Padding="4"
+                                           Icon="{ui:SymbolIcon Delete24}"
+                                           Command="{Binding DataContext.RemoveFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                           CommandParameter="{Binding}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <ui:Button Content="Add Folder"
+                           Command="{Binding AddFolderCommand}"
+                           Icon="{ui:SymbolIcon FolderAdd24}"
+                           HorizontalAlignment="Stretch" Margin="0,12,0,0" />
+
+                <Separator Margin="0,20" />
+
+                <TextBlock Text="Library Management" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
+                <TextBlock Text="Re-scan after installing new games, or add a shortcut to launch Game Launcher from your desktop."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+                <ui:Button Content="Re-scan Library" Appearance="Primary"
+                           Command="{Binding RefreshCommand}"
+                           Icon="{ui:SymbolIcon ArrowSync24}"
+                           HorizontalAlignment="Stretch" />
+
+                <ui:Button Content="{Binding DesktopShortcutButtonText}"
+                           Command="{Binding CreateDesktopShortcutCommand}"
+                           Icon="{ui:SymbolIcon Desktop24}"
+                           HorizontalAlignment="Stretch" Margin="0,8,0,0" />
+
+                <Separator Margin="0,20" />
+
+                <TextBlock Text="Cover Art" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
+                <TextBlock Text="Steam games always show their real Steam icon. For Epic/GOG/manual games, add a free SteamGridDB API key (steamgriddb.com/profile/preferences/api) to fetch real box art instead of the exe icon."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+                <ui:TextBox PlaceholderText="SteamGridDB API key (optional)"
+                            Text="{Binding SteamGridDbApiKey, UpdateSourceTrigger=LostFocus}" />
+
+                <Separator Margin="0,20" />
+
+                <TextBlock Text="About" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,8" />
+                <TextBlock FontSize="12" Opacity="0.7" Margin="0,0,0,12">
+                    <Run Text="Game Launcher &#8226; Version " /><Run Text="{x:Static services:AppInfo.Version}" />
+                </TextBlock>
+
+                <ui:Button Content="Open Logs Folder"
+                           Command="{Binding OpenLogsFolderCommand}"
+                           Icon="{ui:SymbolIcon DocumentText24}"
+                           HorizontalAlignment="Stretch" />
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</ui:FluentWindow>
