@@ -19,8 +19,11 @@ public static class CoverArtService
             {
                 game.Icon = steamArt;
                 game.IsCoverArt = true;
+                Logger.Info($"  art: '{game.Name}' <- Steam CDN");
                 return;
             }
+
+            Logger.Warn($"  art: '{game.Name}' has no Steam CDN box art (appid {game.Id}).");
         }
 
         if (!string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey))
@@ -30,11 +33,16 @@ public static class CoverArtService
             {
                 game.Icon = gridArt;
                 game.IsCoverArt = true;
+                Logger.Info($"  art: '{game.Name}' <- SteamGridDB");
                 return;
             }
         }
 
         game.Icon = IconService.GetIcon(game);
         game.IsCoverArt = false;
+        Logger.Info($"  art: '{game.Name}' <- exe icon fallback"
+                    + (string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey) && game.Source != GameSource.Steam
+                        ? " (no SteamGridDB key set)"
+                        : string.Empty));
     }
 }

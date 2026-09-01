@@ -18,12 +18,18 @@ public static class MemoryTrimmer
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool SetProcessWorkingSetSize(IntPtr process, IntPtr minSize, IntPtr maxSize);
 
-    public static void Trim()
+    public static void Trim(string reason)
     {
         try
         {
+            using var process = Process.GetCurrentProcess();
+            var before = process.WorkingSet64;
+
             // -1 for both sizes tells Windows to empty the working set.
-            SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, -1, -1);
+            SetProcessWorkingSetSize(process.Handle, -1, -1);
+
+            process.Refresh();
+            Logger.Info($"Memory trim ({reason}): {before / 1024 / 1024} MB -> {process.WorkingSet64 / 1024 / 1024} MB working set.");
         }
         catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException
                                         or InvalidOperationException)

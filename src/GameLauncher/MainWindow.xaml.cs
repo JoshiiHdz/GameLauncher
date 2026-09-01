@@ -31,7 +31,7 @@ public partial class MainWindow : FluentWindow
             StateChanged += (_, _) =>
             {
                 if (WindowState == WindowState.Minimized)
-                    MemoryTrimmer.Trim();
+                    MemoryTrimmer.Trim("window minimized");
             };
 
             await vm.RefreshCommand.ExecuteAsync(null);
@@ -55,6 +55,7 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
+        Logger.Info($"Hiding to tray while '{game.Name}' runs.");
         HideToTray();
 
         // Only one game session is tracked at a time; launching again supersedes the previous watch.
@@ -82,11 +83,12 @@ public partial class MainWindow : FluentWindow
     {
         TrayIcon.Visibility = Visibility.Visible;
         Hide();
-        MemoryTrimmer.Trim();
+        MemoryTrimmer.Trim("hidden to tray");
     }
 
     private void RestoreFromTray()
     {
+        Logger.Info("Restoring window from tray.");
         Show();
         WindowState = WindowState.Normal;
         Activate();

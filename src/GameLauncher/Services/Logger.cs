@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using GameLauncher.Models;
 
 namespace GameLauncher.Services;
 
@@ -34,6 +35,39 @@ public static class Logger
     public static void Info(string message) => Write("INFO", message, null);
     public static void Warn(string message, Exception? ex = null) => Write("WARN", message, ex);
     public static void Error(string message, Exception? ex = null) => Write("ERROR", message, ex);
+
+    /// <summary>
+    /// Machine/runtime facts written once at startup. When a log comes back from another PC this is
+    /// the context that makes the rest of it interpretable - OS build, DPI scaling, drive layout
+    /// (drive letters matter for library detection), and which optional features are configured.
+    /// </summary>
+    public static void WriteEnvironment(AppSettings settings)
+    {
+        try
+        {
+            Info($"OS: {Environment.OSVersion.VersionString} ({(Environment.Is64BitOperatingSystem ? "x64" : "x86")}), "
+                 + $".NET {Environment.Version}, {Environment.ProcessorCount} cores");
+            Info($"Exe: {Environment.ProcessPath}");
+            Info($"Data folder: {AppPaths.DataDir}");
+
+            var drives = DriveInfo.GetDrives()
+                .Where(d => d.IsReady)
+                .Select(d => $"{d.Name.TrimEnd('\\')} ({d.DriveType}, {d.VolumeLabel})");
+            Info($"Drives: {string.Join(", ", drives)}");
+
+            Info($"Settings: detect Steam={settings.DetectSteam} Epic={settings.DetectEpic} GOG={settings.DetectGog}; "
+                 + $"watched folders={settings.WatchedFolders.Count}; "
+                 + $"SteamGridDB key={(string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey) ? "not set" : "set")}; "
+                 + $"vibrant={settings.VibrantBackground}; tray while gaming={settings.MinimizeToTrayWhileGaming}");
+
+            foreach (var folder in settings.WatchedFolders)
+                Info($"  watched folder: {folder.Path} (exists={Directory.Exists(folder.Path)})");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            Warn("Couldn't write the full environment block.", ex);
+        }
+    }
 
     private static void Write(string level, string message, Exception? ex)
     {

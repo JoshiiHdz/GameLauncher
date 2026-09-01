@@ -54,6 +54,9 @@ public sealed class GameScannerService
                 game.PlatformIcon = PlatformIconService.GetIcon(game.Source);
             }
 
+            foreach (var group in deduped.GroupBy(g => g.Source))
+                Logger.Info($"{group.Key}: {string.Join(", ", group.Select(g => $"'{g.Name}'"))}");
+
             var coverArtCount = deduped.Count(g => g.IsCoverArt);
             Logger.Info($"Cover art: {coverArtCount}/{deduped.Count} game(s) got real box art, "
                 + $"{deduped.Count - coverArtCount} fell back to the exe icon.");

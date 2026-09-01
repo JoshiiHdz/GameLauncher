@@ -79,6 +79,7 @@ public partial class LibraryViewModel : ObservableObject
         _vibrantBackground = _settings.VibrantBackground;
         _minimizeToTrayWhileGaming = _settings.MinimizeToTrayWhileGaming;
 
+        Logger.WriteEnvironment(_settings);
         RefreshShortcutState();
     }
 
@@ -131,7 +132,7 @@ public partial class LibraryViewModel : ObservableObject
 
             // A scan is a burst of allocation (file/registry walking, decoding cover art) and the
             // app goes idle straight after. Hand back what that burst left resident.
-            MemoryTrimmer.Trim();
+            MemoryTrimmer.Trim("after scan");
         }
     }
 
