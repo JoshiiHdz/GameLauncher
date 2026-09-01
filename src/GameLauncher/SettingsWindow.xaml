@@ -77,6 +77,12 @@
                 <ui:ToggleSwitch Content="Vibrant background"
                                  IsChecked="{Binding VibrantBackground}" />
 
+                <TextBlock Text="While a game is running, hide to the system tray and come back automatically when it closes. When off, the launcher just minimizes to the taskbar."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,14,0,10" />
+
+                <ui:ToggleSwitch Content="Hide to tray while gaming"
+                                 IsChecked="{Binding MinimizeToTrayWhileGaming}" />
+
                 <Separator Margin="0,20" />
 
                 <TextBlock Text="Cover Art" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />

@@ -6,6 +6,7 @@
         xmlns:local="clr-namespace:GameLauncher"
         xmlns:vm="clr-namespace:GameLauncher.ViewModels"
         xmlns:conv="clr-namespace:GameLauncher.Converters"
+        xmlns:tb="http://www.hardcodet.net/taskbar"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         mc:Ignorable="d"
         Title="Game Launcher" Height="760" Width="1180" MinHeight="480" MinWidth="760"
@@ -160,6 +161,18 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+
+        <tb:TaskbarIcon x:Name="TrayIcon" Visibility="Collapsed"
+                        ToolTipText="Game Launcher"
+                        TrayMouseDoubleClick="TrayIcon_Restore">
+            <tb:TaskbarIcon.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Show Game Launcher" Click="TrayIcon_Restore" />
+                    <Separator />
+                    <MenuItem Header="Exit" Click="TrayExit_Click" />
+                </ContextMenu>
+            </tb:TaskbarIcon.ContextMenu>
+        </tb:TaskbarIcon>
 
         <ui:TitleBar Grid.Row="0" Title="Game Launcher" />
 

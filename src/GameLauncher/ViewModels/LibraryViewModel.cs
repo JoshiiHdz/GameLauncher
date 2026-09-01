@@ -52,6 +52,9 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _vibrantBackground = true;
 
+    [ObservableProperty]
+    private bool _minimizeToTrayWhileGaming = true;
+
     public ObservableCollection<GameEntry> Games { get; } = new();
 
     public ObservableCollection<GameEntry> FavoriteGames { get; } = new();
@@ -74,8 +77,15 @@ public partial class LibraryViewModel : ObservableObject
             WatchedFolders.Add(folder);
         _steamGridDbApiKey = _settings.SteamGridDbApiKey ?? string.Empty;
         _vibrantBackground = _settings.VibrantBackground;
+        _minimizeToTrayWhileGaming = _settings.MinimizeToTrayWhileGaming;
 
         RefreshShortcutState();
+    }
+
+    partial void OnMinimizeToTrayWhileGamingChanged(bool value)
+    {
+        _settings.MinimizeToTrayWhileGaming = value;
+        _settingsService.Save(_settings);
     }
 
     partial void OnSteamGridDbApiKeyChanged(string value)
@@ -226,9 +236,9 @@ public partial class LibraryViewModel : ObservableObject
         ApplyFilter();
     }
 
-    /// <summary>Raised after a game successfully launches, so the view can get out of the way (minimize)
-    /// instead of sitting in the foreground competing with the game for CPU/GPU.</summary>
-    public event Action? GameLaunched;
+    /// <summary>Raised after a game successfully launches, so the view can get out of the way and
+    /// start watching for the game to exit. Carries the started process where there is one.</summary>
+    public event Action<GameEntry, Process?>? GameLaunched;
 
     [RelayCommand]
     private void Launch(GameEntry? game)
@@ -239,8 +249,8 @@ public partial class LibraryViewModel : ObservableObject
         try
         {
             Logger.Info($"Launching '{game.Name}' ({game.Source}) - {game.LaunchUri ?? game.ExecutablePath}");
-            GameLauncherService.Launch(game);
-            GameLaunched?.Invoke();
+            var started = GameLauncherService.Launch(game);
+            GameLaunched?.Invoke(game, started);
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or System.IO.IOException)
         {
