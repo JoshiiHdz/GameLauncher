@@ -18,7 +18,10 @@ namespace GameLauncher.Services.CoverArt;
 /// </summary>
 public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
 {
-    private const int CacheVersion = 2;
+    // v3: Xbox games now search using the real Start Menu title instead of a possibly-generic
+    // franchise folder name (e.g. "Call of Duty" holding this year's actual release), so a
+    // previously-cached cover fetched under the wrong name needs to be re-fetched, not reused.
+    private const int CacheVersion = 3;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(AppPaths.DataDir, "CoverArtCache");
