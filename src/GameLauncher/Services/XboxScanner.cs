@@ -123,7 +123,13 @@ public static class XboxScanner
                 foreach (var exe in Directory.EnumerateFiles(dir, "*.exe"))
                 {
                     var fileName = Path.GetFileNameWithoutExtension(exe).ToLowerInvariant();
-                    if (fileName.Contains("unins") || fileName.Contains("redist") || fileName.Contains("crash"))
+                    // "trial"/"anticheat": same false-pick class confirmed real in EaScanner (a
+                    // bundled trial/anti-cheat-launcher exe outweighing the real game by file size) -
+                    // this scanner has its own separate exclude list (not GameExeFinder's, since Xbox's
+                    // search scope - install dir + immediate subdirs only - is narrower than the shared
+                    // helper's default), so it needs the same additions independently.
+                    if (fileName.Contains("unins") || fileName.Contains("redist") || fileName.Contains("crash")
+                        || fileName.Contains("trial") || fileName.Contains("anticheat"))
                         continue;
 
                     var info = new FileInfo(exe);

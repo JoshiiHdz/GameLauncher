@@ -69,13 +69,23 @@ public static class PublisherUninstallScanner
                     if (excludeNameContains.Any(x => displayName.Contains(x, StringComparison.OrdinalIgnoreCase)))
                         continue;
 
+                    // From here on the publisher already matched and the name wasn't excluded - a
+                    // strong signal this really is one of the user's games, so failing to resolve it
+                    // the rest of the way is worth a trace (unlike the publisher-mismatch skip above,
+                    // which fires for every unrelated installed program and would just be noise).
                     var installLocation = entry?.GetValue("InstallLocation") as string;
                     if (string.IsNullOrWhiteSpace(installLocation) || !Directory.Exists(installLocation))
+                    {
+                        Logger.Warn($"  {source}: '{displayName}' matched but has no valid InstallLocation in the registry.");
                         continue;
+                    }
 
                     var exe = GameExeFinder.FindLargestExe(installLocation);
                     if (exe is null)
+                    {
+                        Logger.Warn($"  {source}: '{displayName}' matched but no launchable exe found under '{installLocation}'.");
                         continue;
+                    }
 
                     var id = $"{idPrefix}-{StableId(installLocation)}";
                     if (games.Any(g => g.Id == id))
@@ -92,6 +102,10 @@ public static class PublisherUninstallScanner
                 }
                 catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
                 {
+                    // Individual uninstall subkeys are essentially always readable (that's the whole
+                    // point of "Programs and Features" using them) - a failure here is unusual enough
+                    // to be worth a trace rather than a routine, expected skip.
+                    Logger.Warn($"  {source}: couldn't read uninstall entry '{name}'.", ex);
                 }
             }
         }

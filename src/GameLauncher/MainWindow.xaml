@@ -570,7 +570,8 @@
                     <ui:Button Margin="6,0,0,0" Appearance="Transparent" BorderThickness="0"
                                Icon="{ui:SymbolIcon ArrowSync24}"
                                ToolTip="Re-scan library"
-                               Command="{Binding RefreshCommand}" />
+                               Command="{Binding RefreshCommand}"
+                               IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
 
                     <ui:Button x:Name="SettingsButton" Margin="2,0,0,0" Appearance="Transparent" BorderThickness="0"
                                Icon="{ui:SymbolIcon Settings24}"
@@ -589,7 +590,8 @@
                                FontSize="12" Opacity="0.6" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                         <ui:Button Content="Scan Now" Icon="{ui:SymbolIcon ArrowSync24}"
-                                   Command="{Binding RefreshCommand}" Margin="0,0,8,0" />
+                                   Command="{Binding RefreshCommand}" Margin="0,0,8,0"
+                                   IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
                         <ui:Button Content="Add Folder" Icon="{ui:SymbolIcon FolderAdd24}" Appearance="Primary"
                                    Command="{Binding AddFolderCommand}" />
                     </StackPanel>

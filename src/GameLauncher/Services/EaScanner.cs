@@ -59,7 +59,10 @@ public static class EaScanner
                                      ?? gameKey?.GetValue("Install Location") as string;
 
                     if (string.IsNullOrWhiteSpace(installDir) || !Directory.Exists(installDir))
+                    {
+                        Logger.Warn($"  EA: '{name}' registry entry has no valid install directory, skipping it.");
                         continue;
+                    }
 
                     AddIfPlayable(games, installDir, name);
                 }
@@ -97,7 +100,10 @@ public static class EaScanner
                                  ?? gameKey?.GetValue("InstallDir") as string;
 
                 if (string.IsNullOrWhiteSpace(installDir) || !Directory.Exists(installDir))
+                {
+                    Logger.Warn($"  EA: Origin Games entry '{contentId}' has no valid install directory, skipping it.");
                     continue;
+                }
 
                 var name = Path.GetFileName(installDir.TrimEnd(Path.DirectorySeparatorChar));
                 AddIfPlayable(games, installDir, name);
@@ -143,7 +149,10 @@ public static class EaScanner
         // shared default list, but a real, confirmed false-pick here otherwise.
         var exe = GameExeFinder.FindLargestExe(installDir, extraExcludePatterns: new[] { "showcase" });
         if (exe is null)
+        {
+            Logger.Warn($"  EA: '{name}' found at '{installDir}' but no launchable exe was found in it.");
             return;
+        }
 
         games.Add(new GameEntry
         {

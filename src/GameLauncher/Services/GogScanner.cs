@@ -35,7 +35,15 @@ public static class GogScanner
                 var path = gameKey.GetValue("path") as string;
 
                 if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(exe) || !File.Exists(exe))
+                {
+                    // A real GOG registry entry that failed to become a playable game - worth a
+                    // trace, unlike a routine "not a game" skip elsewhere, since this is exactly the
+                    // shape of "why didn't my GOG game show up" a user's log needs to answer.
+                    Logger.Warn($"  GOG: '{gameId}' registry entry found but unusable "
+                        + $"(name={(string.IsNullOrEmpty(name) ? "missing" : name)}, "
+                        + $"exe={(string.IsNullOrEmpty(exe) ? "missing" : (File.Exists(exe) ? "ok" : "not found: " + exe))}).");
                     continue;
+                }
 
                 var id = $"gog-{gameId}";
                 if (games.Any(g => g.Id == id))

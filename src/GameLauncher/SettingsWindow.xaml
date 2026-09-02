@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:services="clr-namespace:GameLauncher.Services"
+        xmlns:conv="clr-namespace:GameLauncher.Converters"
         mc:Ignorable="d"
         Title="Settings" Height="640" Width="460" MinHeight="420" MinWidth="380"
         ExtendsContentIntoTitleBar="True"
@@ -61,7 +62,8 @@
                 <ui:Button Content="Re-scan Library" Appearance="Primary"
                            Command="{Binding RefreshCommand}"
                            Icon="{ui:SymbolIcon ArrowSync24}"
-                           HorizontalAlignment="Stretch" />
+                           HorizontalAlignment="Stretch"
+                           IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
 
                 <ui:Button Content="{Binding DesktopShortcutButtonText}"
                            Command="{Binding CreateDesktopShortcutCommand}"

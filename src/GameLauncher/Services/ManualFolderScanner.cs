@@ -21,6 +21,10 @@ public static class ManualFolderScanner
         "crashreport", "crashpad", "redist", "prereq", "easyanticheat", "battleye",
         "vc_redist", "ueprereq", "helper", "updater", "uninstall", "cleanup",
         "touchup", "activation", "diagnostic", "reporter",
+        // Confirmed real via EaScanner: a bundled trial build can legitimately be larger than the
+        // real game exe, winning the "largest file" pick otherwise. "anticheat" here catches the
+        // generic case; easyanticheat/battleye above already cover the two named vendors.
+        "trial", "anticheat",
     };
 
     /// <summary>Folders that never contain a game of their own, or that are too expensive/noisy to walk.</summary>

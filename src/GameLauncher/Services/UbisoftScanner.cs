@@ -35,11 +35,17 @@ public static class UbisoftScanner
                     using var gameKey = installs.OpenSubKey(gameId);
                     var installDir = gameKey?.GetValue("InstallDir") as string;
                     if (string.IsNullOrWhiteSpace(installDir) || !Directory.Exists(installDir))
+                    {
+                        Logger.Warn($"  Ubisoft Connect: install id '{gameId}' has no valid InstallDir, skipping it.");
                         continue;
+                    }
 
                     var exe = GameExeFinder.FindLargestExe(installDir);
                     if (exe is null)
+                    {
+                        Logger.Warn($"  Ubisoft Connect: no launchable exe found under '{installDir}' (id '{gameId}').");
                         continue;
+                    }
 
                     games.Add(new GameEntry
                     {
@@ -53,6 +59,7 @@ public static class UbisoftScanner
                 }
                 catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
                 {
+                    Logger.Warn($"  Ubisoft Connect: couldn't read install id '{gameId}'.", ex);
                 }
             }
         }

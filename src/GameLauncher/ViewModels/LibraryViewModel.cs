@@ -257,9 +257,10 @@ public partial class LibraryViewModel : ObservableObject
             // sources the user has toggled off. Games/FavoriteGames already reflect that filter.
             var shown = Games.Count + FavoriteGames.Count;
             var totalFound = _allGames.Count(g => !g.Hidden);
+            var shownWord = shown == 1 ? "game" : "games";
             StatusText = shown == totalFound
-                ? $"{shown} games found"
-                : $"{shown} of {totalFound} games shown ({totalFound - shown} hidden by disabled sources)";
+                ? $"{shown} {shownWord} found"
+                : $"{shown} of {totalFound} {shownWord} shown ({totalFound - shown} hidden by disabled sources)";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -499,7 +500,12 @@ public partial class LibraryViewModel : ObservableObject
             Games.Add(game);
 
         HasFavorites = FavoriteGames.Count > 0;
-        HasNoGames = _allGames.Count(g => !g.Hidden) == 0;
+
+        // Driven by what's actually on screen (Games + FavoriteGames), not the raw scan count -
+        // toggling off every source leaves _allGames non-empty but nothing visible, and the empty
+        // state (with its "Scan Now" / "Add Folder" actions) should show exactly when the grid is
+        // genuinely blank, whatever the reason.
+        HasNoGames = Games.Count == 0 && FavoriteGames.Count == 0;
         LibraryHeaderText = $"My Library ({Games.Count} {(Games.Count == 1 ? "Game" : "Games")})";
     }
 }

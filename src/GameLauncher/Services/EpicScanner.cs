@@ -43,17 +43,26 @@ public static class EpicScanner
                 !root.TryGetProperty("LaunchExecutable", out var launchExeProp) ||
                 !root.TryGetProperty("AppName", out var appNameProp))
             {
+                Logger.Warn($"  Epic: manifest '{Path.GetFileName(itemFile)}' is missing a required field, skipping it.");
                 return null;
             }
 
             var installLocation = installLocProp.GetString();
             var launchExecutable = launchExeProp.GetString();
             if (string.IsNullOrEmpty(installLocation) || string.IsNullOrEmpty(launchExecutable))
+            {
+                Logger.Warn($"  Epic: '{nameProp.GetString()}' has no install location or launch exe recorded, skipping it.");
                 return null;
+            }
 
             var exePath = Path.Combine(installLocation, launchExecutable);
             if (!File.Exists(exePath))
+            {
+                // A manifest for a game that's since been uninstalled or moved (Epic doesn't always
+                // clean these up) - real signal for "why isn't this in my library" rather than noise.
+                Logger.Warn($"  Epic: '{nameProp.GetString()}' manifest points at a missing exe, skipping it: {exePath}");
                 return null;
+            }
 
             return new GameEntry
             {
