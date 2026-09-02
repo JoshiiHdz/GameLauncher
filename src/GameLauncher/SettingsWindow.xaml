@@ -85,6 +85,44 @@
 
                 <Separator Margin="0,20" />
 
+                <TextBlock Text="Drives" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
+                <TextBlock Text="Only drives your games actually live on - re-checked every time this opens."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+                <ItemsControl ItemsSource="{Binding Drives}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="#14FFFFFF" CornerRadius="8" Padding="12,10" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Letter}" FontWeight="SemiBold" FontSize="13" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="13" Opacity="0.6"
+                                                   Margin="6,0,0,0" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+
+                                    <Border Height="6" CornerRadius="3" Background="#1FFFFFFF" ClipToBounds="True">
+                                        <Border HorizontalAlignment="Stretch" CornerRadius="3"
+                                                Background="{DynamicResource AccentFillColorDefaultBrush}"
+                                                RenderTransformOrigin="0,0">
+                                            <Border.RenderTransform>
+                                                <ScaleTransform ScaleX="{Binding UsedFraction}" ScaleY="1" />
+                                            </Border.RenderTransform>
+                                        </Border>
+                                    </Border>
+
+                                    <TextBlock Text="{Binding SummaryText}" FontSize="11" Opacity="0.55" Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Separator Margin="0,20" />
+
                 <TextBlock Text="Cover Art" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
                 <TextBlock Text="Steam games always get real box art automatically, no key needed. For every other source, add a free SteamGridDB API key (steamgriddb.com/profile/preferences/api) to fetch real box art instead of the exe icon."
                            FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />

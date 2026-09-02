@@ -136,6 +136,19 @@
                                 </Grid>
                             </Border>
 
+                            <!-- Running badge: mirrors the platform badge's placement, opposite corner -->
+                            <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Margin="0,5,5,0" Padding="6,3" CornerRadius="4"
+                                    Background="#8C000000"
+                                    Visibility="{Binding IsRunning, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="6" Height="6" Fill="{DynamicResource AccentFillColorDefaultBrush}"
+                                             VerticalAlignment="Center" />
+                                    <TextBlock Text="Running" FontSize="9" FontWeight="SemiBold" Foreground="White"
+                                               Margin="4,0,0,0" />
+                                </StackPanel>
+                            </Border>
+
                             <!-- Hover reveal: Visibility swap on a property trigger, no animation loop -->
                             <Border x:Name="HoverOverlay" Background="#A6000000" Visibility="Collapsed">
                                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">

@@ -27,4 +27,9 @@ public sealed partial class GameEntry : ObservableObject
 
     [ObservableProperty]
     private bool _favorite;
+
+    /// <summary>True from the moment this game is launched until GameSessionWatcher confirms it has
+    /// exited (or gives up ever finding it running). Drives the "Running" badge on its card.</summary>
+    [ObservableProperty]
+    private bool _isRunning;
 }

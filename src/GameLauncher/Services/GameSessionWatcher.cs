@@ -24,10 +24,18 @@ public sealed class GameSessionWatcher
     // the game is actually closed. Found from real logs: gamelaunchhelper.exe (Xbox) and an EA
     // trial-launcher stub both exit within half a second of starting, well before the real game
     // process exists yet, which made the launcher pop back out of the tray almost instantly.
-    private static readonly TimeSpan HandoffGracePeriod = TimeSpan.FromSeconds(20);
+    // Widened from 20s to 45s after a report of the launcher reappearing exactly when a game's
+    // splash screen closed - large modern titles (Call of Duty was the one reported) can take longer
+    // than 20s between the loader exiting and the real game window/process being fully up.
+    private static readonly TimeSpan HandoffGracePeriod = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan HandoffPollInterval = TimeSpan.FromSeconds(1);
 
-    private const int MaxExeScanDepth = 3;
+    // Widened from 3 to 6 after the same report: if a game's real executable lives deeper in its
+    // install folder than this scan goes (common for titles that split content into many nested
+    // package/DLC folders), its name never makes it into candidateNames at all - so the handoff
+    // check above can never find it running, no matter how long it waits, and restores the window
+    // over a game that's actually still open.
+    private const int MaxExeScanDepth = 6;
 
     /// <summary>
     /// Returns once the game appears to have exited. Returns false if the game's processes were
@@ -37,6 +45,9 @@ public sealed class GameSessionWatcher
     public async Task<bool> WaitForExitAsync(GameEntry game, Process? launched, CancellationToken ct = default)
     {
         var candidateNames = GetCandidateProcessNames(game);
+        Logger.Info($"'{game.Name}': watching for {candidateNames.Count} candidate exe name(s) "
+            + $"under '{game.InstallDir}': {string.Join(", ", candidateNames)}");
+
         if (candidateNames.Count == 0)
         {
             Logger.Warn($"No executables found under '{game.InstallDir}' - can't watch '{game.Name}' for exit.");
@@ -68,7 +79,8 @@ public sealed class GameSessionWatcher
             return false;
         }
 
-        Logger.Info($"Watching {running.Count} process(es) for '{game.Name}'.");
+        Logger.Info($"Watching {running.Count} process(es) for '{game.Name}': "
+            + string.Join(", ", running.Select(p => $"{SafeGetProcessName(p)} (pid {p.Id}) <- {SafeGetPath(p) ?? "path unknown"}")));
 
         while (!ct.IsCancellationRequested)
         {
@@ -93,11 +105,13 @@ public sealed class GameSessionWatcher
             var replacement = await WaitForHandoffAsync(game, candidateNames, ct);
             if (replacement.Count == 0)
             {
-                Logger.Info($"'{game.Name}' exited.");
+                Logger.Info($"'{game.Name}' exited - no replacement process found under "
+                    + $"'{game.InstallDir}' within the {HandoffGracePeriod.TotalSeconds:0}s handoff window.");
                 return true;
             }
 
-            Logger.Info($"'{game.Name}' handed off to {replacement.Count} new process(es), still watching.");
+            Logger.Info($"'{game.Name}' handed off to {replacement.Count} new process(es), still watching: "
+                + string.Join(", ", replacement.Select(p => $"{SafeGetProcessName(p)} (pid {p.Id}) <- {SafeGetPath(p) ?? "path unknown"}")));
             running = replacement;
         }
 
@@ -200,6 +214,18 @@ public sealed class GameSessionWatcher
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
             }
+        }
+    }
+
+    private static string SafeGetProcessName(Process process)
+    {
+        try
+        {
+            return process.ProcessName;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or SystemException)
+        {
+            return "unknown";
         }
     }
 

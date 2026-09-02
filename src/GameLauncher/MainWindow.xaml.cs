@@ -49,19 +49,24 @@ public partial class MainWindow : FluentWindow
         if (DataContext is not LibraryViewModel vm)
             return;
 
-        if (!vm.MinimizeToTrayWhileGaming)
-        {
-            WindowState = WindowState.Minimized;
-            return;
-        }
-
-        Logger.Info($"Hiding to tray while '{game.Name}' runs.");
-        HideToTray();
+        // Session tracking (and so the "Running" badge) runs regardless of the tray setting -
+        // MinimizeToTrayWhileGaming only decides whether the window also hides/restores itself.
+        game.IsRunning = true;
 
         // Only one game session is tracked at a time; launching again supersedes the previous watch.
         _sessionCts?.Cancel();
         _sessionCts = new CancellationTokenSource();
         var token = _sessionCts.Token;
+
+        if (vm.MinimizeToTrayWhileGaming)
+        {
+            Logger.Info($"Hiding to tray while '{game.Name}' runs.");
+            HideToTray();
+        }
+        else
+        {
+            WindowState = WindowState.Minimized;
+        }
 
         bool exited;
         try
@@ -70,12 +75,24 @@ public partial class MainWindow : FluentWindow
         }
         catch (OperationCanceledException)
         {
+            // Superseded by a newer launch - that one owns the badge/tray state now, this game's
+            // own "running" flag still needs clearing since nothing else will do it.
+            game.IsRunning = false;
             return;
         }
 
-        // If the game's processes were never found, leave the window hidden rather than popping it
-        // over a game that is most likely still running - the tray icon is the way back.
-        if (exited && !token.IsCancellationRequested)
+        if (token.IsCancellationRequested)
+            return;
+
+        // If the game's processes were never found, leave the window hidden (and the badge showing)
+        // rather than assuming it's closed - it's most likely still running, and the tray icon is
+        // the way back regardless.
+        if (!exited)
+            return;
+
+        game.IsRunning = false;
+
+        if (vm.MinimizeToTrayWhileGaming)
             RestoreFromTray();
     }
 
@@ -144,6 +161,7 @@ public partial class MainWindow : FluentWindow
         if (DataContext is not LibraryViewModel vm)
             return;
 
+        vm.RefreshDrives(); // re-check free space each time Settings opens, not just after a scan
         var settingsWindow = new SettingsWindow(vm) { Owner = this };
         settingsWindow.ShowDialog();
     }

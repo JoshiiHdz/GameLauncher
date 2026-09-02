@@ -143,6 +143,12 @@ public partial class LibraryViewModel : ObservableObject
 
     public ObservableCollection<WatchedFolder> WatchedFolders { get; } = new();
 
+    /// <summary>Only the drives games were actually detected on, not every drive on the system - a
+    /// user with a 6-drive PC doesn't need to see the 4 that hold nothing but Windows and documents.
+    /// Rebuilt from the game list itself (not the whole DriveInfo.GetDrives() set) so it's always
+    /// exactly the drives relevant to this library.</summary>
+    public ObservableCollection<DriveSpaceInfo> Drives { get; } = new();
+
     public List<SortOptionItem> SortOptions { get; } =
     [
         new("Name (A-Z)", GameSortOption.NameAsc),
@@ -240,6 +246,7 @@ public partial class LibraryViewModel : ObservableObject
             _allGames = await _scannerService.ScanAllAsync(_settings);
             _settingsService.Save(_settings); // persists any newly-assigned DateAdded values
             ApplyFilter();
+            RefreshDrives();
 
             // Count from the filtered collections, not _allGames directly - scanning now always
             // covers every source (see GameScannerService), so _allGames includes games from
@@ -386,6 +393,42 @@ public partial class LibraryViewModel : ObservableObject
         {
             Logger.Error($"Failed to launch '{game.Name}'.", ex);
             StatusText = $"Failed to launch {game.Name}: {ex.Message}";
+        }
+    }
+
+    /// <summary>Rebuilds the Drives list from the drive letters games actually live on. Public so
+    /// Settings can re-check free space on demand (a drive doesn't change which games are on it
+    /// without a rescan, but how full it is can change from other activity at any time).</summary>
+    public void RefreshDrives()
+    {
+        Drives.Clear();
+
+        var driveLetters = _allGames
+            .Select(g => Path.GetPathRoot(g.InstallDir))
+            .Where(root => !string.IsNullOrEmpty(root))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(root => root, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var root in driveLetters)
+        {
+            try
+            {
+                var drive = new DriveInfo(root!);
+                if (!drive.IsReady)
+                    continue;
+
+                Drives.Add(new DriveSpaceInfo
+                {
+                    Letter = drive.Name.TrimEnd('\\'),
+                    Label = string.IsNullOrWhiteSpace(drive.VolumeLabel) ? "Local Disk" : drive.VolumeLabel,
+                    TotalBytes = drive.TotalSize,
+                    FreeBytes = drive.AvailableFreeSpace,
+                });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                Logger.Warn($"Couldn't read space for drive '{root}'.", ex);
+            }
         }
     }
 

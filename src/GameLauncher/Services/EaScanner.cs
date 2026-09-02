@@ -21,6 +21,7 @@ public static class EaScanner
         var games = new List<GameEntry>();
 
         ScanRegistry(games);
+        ScanOriginGamesRegistry(games);
         ScanKnownFolders(games);
 
         if (games.Count == 0)
@@ -67,6 +68,44 @@ public static class EaScanner
             {
                 Logger.Warn($"Couldn't read EA registry key '{keyPath}'.", ex);
             }
+        }
+    }
+
+    /// <summary>
+    /// A friend's PC had every other source load but zero EA games, with no log to diagnose it from.
+    /// The "Electronic Arts" key above is where EA app registers its own newer-style titles, but
+    /// Origin games (and some EA app titles installed the older way) instead register each install
+    /// under SOFTWARE\WOW6432Node\Origin Games\&lt;content id&gt;, which was never checked - a very
+    /// plausible explanation for "every source works except EA" without needing a log to prove it.
+    /// Entries here are keyed by an opaque content ID rather than a readable name, so the game's own
+    /// folder name is used instead, same as the folder-scan fallback below.
+    /// </summary>
+    private static void ScanOriginGamesRegistry(List<GameEntry> games)
+    {
+        const string keyPath = @"SOFTWARE\WOW6432Node\Origin Games";
+
+        try
+        {
+            using var root = Registry.LocalMachine.OpenSubKey(keyPath);
+            if (root is null)
+                return;
+
+            foreach (var contentId in root.GetSubKeyNames())
+            {
+                using var gameKey = root.OpenSubKey(contentId);
+                var installDir = gameKey?.GetValue("Install Dir") as string
+                                 ?? gameKey?.GetValue("InstallDir") as string;
+
+                if (string.IsNullOrWhiteSpace(installDir) || !Directory.Exists(installDir))
+                    continue;
+
+                var name = Path.GetFileName(installDir.TrimEnd(Path.DirectorySeparatorChar));
+                AddIfPlayable(games, installDir, name);
+            }
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
+        {
+            Logger.Warn($"Couldn't read EA registry key '{keyPath}'.", ex);
         }
     }
 

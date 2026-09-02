@@ -140,11 +140,14 @@ public static class XboxScanner
     }
 
     /// <summary>Matches an Xbox game folder name against Get-StartApps entries, returning the real
-    /// display name alongside the AUMID. Exact (normalized) match first, then a looser contains-match,
-    /// since folder names and Start Menu display names don't always agree exactly (e.g. a folder like
-    /// "Call of Duty" reused for whichever year's title is actually installed, "Call of Duty: Black
-    /// Ops 7"). With more than one installed title the folder name could contain-match either, so this
-    /// is best-effort, not a guarantee, when a franchise has multiple entries on the same PC.</summary>
+    /// display name alongside the AUMID. Ranks every candidate (exact match or contains-match) by
+    /// name length and takes the longest, most specific one - not just whichever counts as "exact"
+    /// first. This matters because modern Call of Duty installs both a generic "Call of Duty" hub
+    /// entry (Call of Duty HQ) and the actual specific title ("Call of Duty: Black Ops 7") in the
+    /// Start Menu at the same time; an umbrella folder literally named "Call of Duty" exact-matches
+    /// the generic hub, which is real but the wrong one - the specific title is what should win, and
+    /// only loses on length if it doesn't exist. Still best-effort, not a guarantee, if a franchise
+    /// has two equally-specific entries installed at once.</summary>
     private static (string Name, string Aumid)? MatchAumid(
         string folderName, IReadOnlyList<(string Name, string Aumid)> packagedApps)
     {
@@ -152,18 +155,19 @@ public static class XboxScanner
         if (normalizedFolder.Length == 0)
             return null;
 
-        var exact = packagedApps.FirstOrDefault(a => Normalize(a.Name) == normalizedFolder);
-        if (exact != default)
-            return exact;
+        var candidates = packagedApps
+            .Where(a =>
+            {
+                var normalizedName = Normalize(a.Name);
+                return normalizedName.Length > 0
+                       && (normalizedName == normalizedFolder
+                           || normalizedName.Contains(normalizedFolder)
+                           || normalizedFolder.Contains(normalizedName));
+            })
+            .OrderByDescending(a => a.Name.Length)
+            .ToList();
 
-        var loose = packagedApps.FirstOrDefault(a =>
-        {
-            var normalizedName = Normalize(a.Name);
-            return normalizedName.Length > 0
-                   && (normalizedName.Contains(normalizedFolder) || normalizedFolder.Contains(normalizedName));
-        });
-
-        return loose == default ? null : loose;
+        return candidates.Count == 0 ? null : candidates[0];
     }
 
     private static string Normalize(string name)
