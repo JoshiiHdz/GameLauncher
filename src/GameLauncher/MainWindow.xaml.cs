@@ -161,7 +161,6 @@ public partial class MainWindow : FluentWindow
         if (DataContext is not LibraryViewModel vm)
             return;
 
-        vm.RefreshDrives(); // re-check free space each time Settings opens, not just after a scan
         var settingsWindow = new SettingsWindow(vm) { Owner = this };
         settingsWindow.ShowDialog();
     }

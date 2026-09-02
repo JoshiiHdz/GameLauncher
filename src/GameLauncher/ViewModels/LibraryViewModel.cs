@@ -149,6 +149,10 @@ public partial class LibraryViewModel : ObservableObject
     /// exactly the drives relevant to this library.</summary>
     public ObservableCollection<DriveSpaceInfo> Drives { get; } = new();
 
+    /// <summary>Hides the sidebar's "DRIVES" header when there's nothing to show it above.</summary>
+    [ObservableProperty]
+    private bool _hasDrives;
+
     public List<SortOptionItem> SortOptions { get; } =
     [
         new("Name (A-Z)", GameSortOption.NameAsc),
@@ -396,10 +400,10 @@ public partial class LibraryViewModel : ObservableObject
         }
     }
 
-    /// <summary>Rebuilds the Drives list from the drive letters games actually live on. Public so
-    /// Settings can re-check free space on demand (a drive doesn't change which games are on it
-    /// without a rescan, but how full it is can change from other activity at any time).</summary>
-    public void RefreshDrives()
+    /// <summary>Rebuilds the Drives list from the drive letters games actually live on. Re-run after
+    /// every scan, not just once, since free space changes from other activity even when the set of
+    /// drives games live on doesn't.</summary>
+    private void RefreshDrives()
     {
         Drives.Clear();
 
@@ -430,6 +434,8 @@ public partial class LibraryViewModel : ObservableObject
                 Logger.Warn($"Couldn't read space for drive '{root}'.", ex);
             }
         }
+
+        HasDrives = Drives.Count > 0;
     }
 
     private bool IsSourceEnabled(GameSource source) => source switch

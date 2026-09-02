@@ -502,6 +502,47 @@
                         </Grid>
                     </Border>
                 </StackPanel>
+
+                <!-- Drives: only the ones games actually live on, re-checked after every scan -->
+                <StackPanel DockPanel.Dock="Top" Margin="10,20,10,0"
+                            Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="DRIVES" FontWeight="SemiBold" FontSize="11" Opacity="0.5"
+                               Margin="8,0,0,10"
+                               Visibility="{Binding HasDrives, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+
+                    <ItemsControl ItemsSource="{Binding Drives}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#14FFFFFF" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,7">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Letter}" FontWeight="SemiBold" FontSize="12" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="12" Opacity="0.6"
+                                                       Margin="6,0,0,0" TextTrimming="CharacterEllipsis" />
+                                        </Grid>
+
+                                        <Border Height="5" CornerRadius="3" Background="#1FFFFFFF" ClipToBounds="True">
+                                            <Border HorizontalAlignment="Stretch" CornerRadius="3"
+                                                    Background="{DynamicResource AccentFillColorDefaultBrush}"
+                                                    RenderTransformOrigin="0,0">
+                                                <Border.RenderTransform>
+                                                    <ScaleTransform ScaleX="{Binding UsedFraction}" ScaleY="1" />
+                                                </Border.RenderTransform>
+                                            </Border>
+                                        </Border>
+
+                                        <TextBlock Text="{Binding SummaryText}" FontSize="10" Opacity="0.55" Margin="0,5,0,0"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
             </DockPanel>
         </Border>
 

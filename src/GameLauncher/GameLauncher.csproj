@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
-    <Version>1.10.0</Version>
+    <Version>1.10.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
