@@ -18,11 +18,12 @@ namespace GameLauncher.Services.CoverArt;
 /// </summary>
 public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
 {
-    // v4: XboxScanner's Start Menu title match now prefers the most specific candidate instead of
-    // whichever counted as "exact" first (a generic "Call of Duty" hub entry was winning over the
-    // actual specific title, e.g. "Call of Duty: Black Ops 7"), so a cover cached under the old,
-    // wrong resolved name needs to be re-fetched under the corrected one.
-    private const int CacheVersion = 4;
+    // v5: StartAppsResolver now reads Get-StartApps output as UTF-8 instead of the system ANSI
+    // codepage - real Start Menu titles with special characters (e.g. "Call of Duty®") were coming
+    // back corrupted ("Call of Dutyr"), which broke cover-art matching downstream since the mangled
+    // name never matches the real game on SteamGridDB. Covers cached under a corrupted name need to
+    // re-fetch under the real one.
+    private const int CacheVersion = 5;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(AppPaths.DataDir, "CoverArtCache");

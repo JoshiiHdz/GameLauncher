@@ -10,8 +10,12 @@ namespace GameLauncher.Services;
 /// </summary>
 public static class GameExeFinder
 {
+    // "trial"/"anticheat" found from a real log: EA SPORTS FC 26 launched "FC26_Trial.exe" instead
+    // of the real "FC26.exe" sitting right next to it, because the trial build happened to be the
+    // largest unexcluded exe in the folder - a paying owner should never get routed into trial mode.
     private static readonly string[] DefaultExcludePatterns =
-        { "unins", "redist", "crash", "touchup", "activation", "vcredist", "directx", "dxsetup", "setup" };
+        { "unins", "redist", "crash", "touchup", "activation", "vcredist", "directx", "dxsetup", "setup",
+          "trial", "anticheat" };
 
     public static string? FindLargestExe(string installDir, int maxDepth = 2, IEnumerable<string>? extraExcludePatterns = null)
     {

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 
 namespace GameLauncher.Services;
@@ -26,8 +27,17 @@ public static class StartAppsResolver
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
-                    Arguments = "-NoProfile -NonInteractive -Command \"Get-StartApps | ConvertTo-Json -Compress\"",
+                    // Real Start Menu titles often carry ®/™ (e.g. "Call of Duty®"). Without forcing
+                    // both sides to UTF-8, .NET reads the child process's stdout using the system's
+                    // ANSI codepage instead, silently mangling those characters (® became a stray "r")
+                    // - which then broke cover-art matching downstream, since the corrupted name never
+                    // matches the real game on SteamGridDB. Both the encoding .NET reads with and the
+                    // one PowerShell actually writes with have to agree, hence setting both.
+                    Arguments = "-NoProfile -NonInteractive -Command "
+                        + "\"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                        + "Get-StartApps | ConvertTo-Json -Compress\"",
                     RedirectStandardOutput = true,
+                    StandardOutputEncoding = Encoding.UTF8,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 },

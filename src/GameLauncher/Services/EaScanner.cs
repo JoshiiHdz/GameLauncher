@@ -138,7 +138,10 @@ public static class EaScanner
         if (games.Any(g => g.Id == id))
             return;
 
-        var exe = FindGameExe(installDir);
+        // "showcase" is EA Sports-specific (a demo/kiosk mode bundled alongside the real game, e.g.
+        // "FC26_Showcase.exe" next to "FC26.exe") - not a broadly generalizable enough term for the
+        // shared default list, but a real, confirmed false-pick here otherwise.
+        var exe = GameExeFinder.FindLargestExe(installDir, extraExcludePatterns: new[] { "showcase" });
         if (exe is null)
             return;
 
@@ -150,43 +153,6 @@ public static class EaScanner
             InstallDir = installDir,
             Source = GameSource.Ea,
         });
-    }
-
-    private static string? FindGameExe(string installDir)
-    {
-        FileInfo? best = null;
-        Collect(installDir, 0);
-        return best?.FullName;
-
-        void Collect(string dir, int depth)
-        {
-            if (depth > 2)
-                return;
-
-            try
-            {
-                foreach (var exe in Directory.EnumerateFiles(dir, "*.exe"))
-                {
-                    var fileName = Path.GetFileNameWithoutExtension(exe).ToLowerInvariant();
-                    if (fileName.Contains("unins") || fileName.Contains("redist")
-                        || fileName.Contains("crash") || fileName.Contains("touchup")
-                        || fileName.Contains("activation"))
-                    {
-                        continue;
-                    }
-
-                    var info = new FileInfo(exe);
-                    if (best is null || info.Length > best.Length)
-                        best = info;
-                }
-
-                foreach (var sub in Directory.EnumerateDirectories(dir))
-                    Collect(sub, depth + 1);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-            }
-        }
     }
 
     private static IEnumerable<string> GetReadyDrives()

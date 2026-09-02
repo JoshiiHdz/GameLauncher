@@ -152,6 +152,10 @@ public sealed class GameSessionWatcher
     {
         var found = new List<Process>();
 
+        // Unlike the name-matched loop below, `launched` isn't scoped to this game's own exe names -
+        // it's whatever process Process.Start happened to return (for Steam, explicitly documented as
+        // "the URI handler rather than the game," i.e. often unrelated) - so this one keeps the
+        // strict path check rather than trusting a blocked MainModule read.
         if (launched is not null && IsUnder(SafeGetPath(launched), game.InstallDir))
             found.Add(launched);
 
@@ -169,7 +173,7 @@ public sealed class GameSessionWatcher
 
             foreach (var process in matches)
             {
-                if (found.Any(p => p.Id == process.Id) || !IsUnder(SafeGetPath(process), game.InstallDir))
+                if (found.Any(p => p.Id == process.Id) || !IsRunningThisGame(process, game.InstallDir))
                 {
                     process.Dispose();
                     continue;
@@ -246,4 +250,20 @@ public sealed class GameSessionWatcher
         => path is not null
            && path.StartsWith(directory.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
                StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Real log from a Fortnite session: MainModule access was refused for every candidate process
+    /// (EasyAntiCheat-protected processes commonly block it), so IsUnder(null, ...) failed every
+    /// single one and the watcher never found the game at all - "Never saw a running process", even
+    /// though it was running the whole time. When the path genuinely can't be read, this trusts the
+    /// name match alone instead of silently dropping the process: candidateNames only ever contains
+    /// exe names actually found inside this specific game's own install folder, so an unrelated
+    /// process happening to share one of those exact names is effectively impossible. When the path
+    /// *can* be read, the strict install-dir check still applies unchanged.
+    /// </summary>
+    private static bool IsRunningThisGame(Process process, string installDir)
+    {
+        var path = SafeGetPath(process);
+        return path is null || IsUnder(path, installDir);
+    }
 }
