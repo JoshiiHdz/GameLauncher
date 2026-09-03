@@ -119,8 +119,13 @@ public partial class MainWindow : FluentWindow
     /// tray-icon apps specifically, and the Topmost-toggle below is the standard, widely-used
     /// workaround: forcing the window topmost and immediately releasing it makes Windows actually
     /// bring it to the front, where Activate() alone could not.
+    ///
+    /// Also called by App.OnStartup's single-instance listener: a second launch attempt (double-
+    /// clicking the exe/shortcut again) signals this instance instead of opening a duplicate window,
+    /// and lands here whether this window was hidden to tray, minimized, or just sitting behind
+    /// other windows - every one of those needs the same "get to the front" handling.
     /// </summary>
-    private void RestoreFromTray()
+    public void RestoreFromTray()
     {
         Logger.Info("Restoring window from tray.");
         Show();
