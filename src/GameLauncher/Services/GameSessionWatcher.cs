@@ -33,18 +33,31 @@ public sealed class GameSessionWatcher
     // How long to keep looking for a handoff process after the watched one(s) exit before believing
     // the game is actually closed. Found from real logs: gamelaunchhelper.exe (Xbox) and an EA
     // trial-launcher stub both exit within half a second of starting, well before the real game
-    // process exists yet, which made the launcher pop back out of the tray almost instantly.
-    // Was widened to 45s after a report of the launcher reappearing mid-splash-screen on Call of
-    // Duty - but that number was picked defensively with no real measurement behind it, and it made
-    // every single game close feel sluggish (a flat 45s tax before the window comes back, every
-    // time, whether or not a handoff was ever actually happening). The only real handoff timing
-    // measured since then - EA SPORTS FC 26's trial-to-anti-cheat handoff - took 7 seconds. 12s
-    // keeps real comfortable margin above that one data point without reintroducing the old
-    // pops-back-in-half-a-second problem. If a large title's window pops back mid-load again, that's
-    // a real, useful signal this needs to go back up (or the self-correcting redesign below is worth
-    // doing) - send the log and it'll get tuned again from real numbers, not another guess.
+    // process exists yet, which made the launcher pop back out of the tray almost instantly. This is
+    // ONLY the wait applied to a process that itself only just started (see LongSessionThreshold
+    // below) - a launcher stub or anti-cheat init stage. The only real handoff timing measured so far
+    // (EA SPORTS FC 26's trial-to-anti-cheat handoff) took 7 seconds; 12s keeps comfortable margin
+    // above that without reintroducing the old pops-back-in-half-a-second problem.
     private static readonly TimeSpan HandoffGracePeriod = TimeSpan.FromSeconds(12);
+
+    // Applied instead of HandoffGracePeriod when the process that just exited had clearly been the
+    // real game (see LongSessionThreshold) - a genuine "I'm done playing" exit has no handoff to wait
+    // for, so this is just one quick poll-or-two rather than a real wait, kept non-zero only to still
+    // catch the rare legitimate case of a game restarting itself internally (an update-and-relaunch
+    // cycle) rather than assuming that can never happen.
+    private static readonly TimeSpan LongSessionHandoffCheck = TimeSpan.FromSeconds(2);
+
     private static readonly TimeSpan HandoffPollInterval = TimeSpan.FromSeconds(1);
+
+    // A bootstrapper/anti-cheat-init stage realistically never runs this long before handing off or
+    // dying; if a watched process lived at least this long before exiting, it was almost certainly
+    // the actual game being played, not a stub - so its exit gets the near-instant check above
+    // instead of the full handoff wait. Uptime is read via GetProcessTimes (see GetStartTimeUtc); if
+    // that fails for a given process (some anti-cheat implementations deny even the minimal access
+    // level it needs), its uptime is simply unknown rather than assumed either way, and the batch
+    // falls back to the normal HandoffGracePeriod - this optimization is purely additive, never a
+    // source of the false-early-restore bug it's designed to avoid.
+    private static readonly TimeSpan LongSessionThreshold = TimeSpan.FromSeconds(60);
 
     // Widened from 3 to 6 after the same report: if a game's real executable lives deeper in its
     // install folder than this scan goes (common for titles that split content into many nested
@@ -107,6 +120,11 @@ public sealed class GameSessionWatcher
         Logger.Info($"Watching {running.Count} process(es) for '{game.Name}': "
             + string.Join(", ", running.Select(p => $"{SafeGetProcessName(p)} (pid {p.Id}) <- {SafeGetPath(p) ?? "path unknown"}")));
 
+        // Captured up front, right while these processes are still alive - once a process exits its
+        // PID can't be reopened to ask the OS when it started, so this has to be read now and carried
+        // forward to whenever that process actually exits below.
+        var startTimes = running.ToDictionary(p => p.Id, GetStartTimeUtc);
+
         while (!ct.IsCancellationRequested)
         {
             foreach (var process in running)
@@ -125,28 +143,40 @@ public sealed class GameSessionWatcher
                 }
             }
 
+            // If any of the processes that just exited had clearly been running for a while, this
+            // was a real "I'm done playing" exit, not a bootstrapper handing off - skip the long
+            // wait. Unknown uptimes (null) don't count either way, so a batch this can't measure at
+            // all safely falls back to the full wait instead of guessing. Reads startTimes.Values
+            // directly rather than touching the `running` process objects again - they were just
+            // disposed above, and re-reading a disposed Process's .Id throws.
+            var wasLongSession = startTimes.Values.Any(started =>
+                started is { } s && DateTime.UtcNow - s >= LongSessionThreshold);
+            var gracePeriod = wasLongSession ? LongSessionHandoffCheck : HandoffGracePeriod;
+
             // A launcher process commonly hands off to the real game and exits well before it's up,
             // so don't trust a single immediate recheck - keep looking for a replacement for a while.
-            var replacement = await WaitForHandoffAsync(game, candidateNames, ct);
+            var replacement = await WaitForHandoffAsync(game, candidateNames, gracePeriod, ct);
             if (replacement.Count == 0)
             {
-                Logger.Info($"'{game.Name}' exited - no replacement process found under "
-                    + $"'{game.InstallDir}' within the {HandoffGracePeriod.TotalSeconds:0}s handoff window.");
+                Logger.Info($"'{game.Name}' exited{(wasLongSession ? " (was a real play session)" : "")} - "
+                    + $"no replacement process found under '{game.InstallDir}' within the "
+                    + $"{gracePeriod.TotalSeconds:0}s handoff window.");
                 return true;
             }
 
             Logger.Info($"'{game.Name}' handed off to {replacement.Count} new process(es), still watching: "
                 + string.Join(", ", replacement.Select(p => $"{SafeGetProcessName(p)} (pid {p.Id}) <- {SafeGetPath(p) ?? "path unknown"}")));
             running = replacement;
+            startTimes = running.ToDictionary(p => p.Id, GetStartTimeUtc);
         }
 
         return false;
     }
 
     private static async Task<List<Process>> WaitForHandoffAsync(
-        GameEntry game, HashSet<string> candidateNames, CancellationToken ct)
+        GameEntry game, HashSet<string> candidateNames, TimeSpan gracePeriod, CancellationToken ct)
     {
-        var deadline = DateTime.UtcNow + HandoffGracePeriod;
+        var deadline = DateTime.UtcNow + gracePeriod;
 
         while (true)
         {
@@ -276,7 +306,41 @@ public sealed class GameSessionWatcher
     private static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, StringBuilder lpExeName, ref int lpdwSize);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetProcessTimes(IntPtr hProcess, out long lpCreationTime, out long lpExitTime, out long lpKernelTime, out long lpUserTime);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    /// <summary>
+    /// When a watched process started, so its exit can be judged as "a real play session ending" vs
+    /// "a bootstrapper stub dying" by how long it actually lived - see LongSessionThreshold. Uses the
+    /// same PROCESS_QUERY_LIMITED_INFORMATION handle as SafeGetPath (GetProcessTimes needs no more
+    /// than that), so this succeeds in every case the path lookup does. Null on any failure - a
+    /// process this can't be read for is simply of unknown uptime, never assumed short or long.
+    /// </summary>
+    private static DateTime? GetStartTimeUtc(Process process)
+    {
+        var handle = IntPtr.Zero;
+        try
+        {
+            handle = OpenProcess(ProcessQueryLimitedInformation, false, process.Id);
+            if (handle == IntPtr.Zero)
+                return null;
+
+            return GetProcessTimes(handle, out var creation, out _, out _, out _)
+                ? DateTime.FromFileTimeUtc(creation)
+                : null;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or SystemException)
+        {
+            return null;
+        }
+        finally
+        {
+            if (handle != IntPtr.Zero)
+                CloseHandle(handle);
+        }
+    }
 
     /// <summary>
     /// Process.MainModule.FileName requests PROCESS_QUERY_INFORMATION + PROCESS_VM_READ under the
