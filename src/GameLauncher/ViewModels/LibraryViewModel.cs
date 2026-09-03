@@ -47,6 +47,21 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasFavorites;
 
+    /// <summary>User's toggle for whether the Hidden section is expanded - deliberately not
+    /// persisted, so a fresh launch never opens straight onto a wall of games the user hid.</summary>
+    [ObservableProperty]
+    private bool _showHiddenGames;
+
+    /// <summary>Whether any game is currently hidden - drives the toolbar toggle's visibility, since
+    /// there's nothing useful for it to reveal when nothing is hidden.</summary>
+    [ObservableProperty]
+    private bool _hasHiddenGames;
+
+    /// <summary>ShowHiddenGames AND HasHiddenGames - the section itself should only appear once both
+    /// the user asked to see it and there's actually something in it.</summary>
+    [ObservableProperty]
+    private bool _showHiddenSection;
+
     [ObservableProperty]
     private string _steamGridDbApiKey = string.Empty;
 
@@ -141,6 +156,8 @@ public partial class LibraryViewModel : ObservableObject
 
     public ObservableCollection<GameEntry> FavoriteGames { get; } = new();
 
+    public ObservableCollection<GameEntry> HiddenGames { get; } = new();
+
     public ObservableCollection<WatchedFolder> WatchedFolders { get; } = new();
 
     /// <summary>Only the drives games were actually detected on, not every drive on the system - a
@@ -220,6 +237,9 @@ public partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     private void ToggleSidebar() => IsSidebarExpanded = !IsSidebarExpanded;
 
+    [RelayCommand]
+    private void ToggleShowHidden() => ShowHiddenGames = !ShowHiddenGames;
+
     partial void OnSteamGridDbApiKeyChanged(string value)
     {
         _settings.SteamGridDbApiKey = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -239,6 +259,14 @@ public partial class LibraryViewModel : ObservableObject
     partial void OnSearchTextChanged(string value) => ApplyFilter();
 
     partial void OnSortOptionChanged(GameSortOption value) => ApplyFilter();
+
+    partial void OnShowHiddenGamesChanged(bool value) => ShowHiddenSection = value && HasHiddenGames;
+
+    /// <summary>Raised at the end of a successful scan, once Games/FavoriteGames/HiddenGames/Drives
+    /// all reflect the new results - MainWindow uses it to grow the window to fit the sidebar's
+    /// actual content instead of leaving the user to resize it by hand every time a new drive or
+    /// launcher shows up.</summary>
+    public event Action? LibraryRefreshed;
 
     [RelayCommand]
     private async Task RefreshAsync()
@@ -261,6 +289,8 @@ public partial class LibraryViewModel : ObservableObject
             StatusText = shown == totalFound
                 ? $"{shown} {shownWord} found"
                 : $"{shown} of {totalFound} {shownWord} shown ({totalFound - shown} hidden by disabled sources)";
+
+            LibraryRefreshed?.Invoke();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -365,16 +395,38 @@ public partial class LibraryViewModel : ObservableObject
 
         game.Favorite = !game.Favorite;
 
-        if (!_settings.Overrides.TryGetValue(game.ExecutablePath, out var over))
+        if (!_settings.Overrides.TryGetValue(game.Id, out var over))
         {
             over = new GameOverride();
-            _settings.Overrides[game.ExecutablePath] = over;
+            _settings.Overrides[game.Id] = over;
         }
 
         over.Favorite = game.Favorite;
         _settingsService.Save(_settings);
 
         // Always re-filter: the game has to move between the Favorites section and the main grid.
+        ApplyFilter();
+    }
+
+    /// <summary>Toggles a game's Hidden state - shared by the card's "Hide" button and the Hidden
+    /// section's "Unhide" button, since it's the same flip either direction.</summary>
+    [RelayCommand]
+    private void ToggleHidden(GameEntry? game)
+    {
+        if (game is null)
+            return;
+
+        game.Hidden = !game.Hidden;
+
+        if (!_settings.Overrides.TryGetValue(game.Id, out var over))
+        {
+            over = new GameOverride();
+            _settings.Overrides[game.Id] = over;
+        }
+
+        over.Hidden = game.Hidden;
+        _settingsService.Save(_settings);
+
         ApplyFilter();
     }
 
@@ -501,11 +553,27 @@ public partial class LibraryViewModel : ObservableObject
 
         HasFavorites = FavoriteGames.Count > 0;
 
+        // Hidden games: same source filter and search text as everything else, but sourced from
+        // g.Hidden directly rather than the `filtered` sequence above, since that sequence already
+        // excludes them by design (they must never leak into Games/FavoriteGames).
+        IEnumerable<GameEntry> hidden = _allGames.Where(g => g.Hidden && IsSourceEnabled(g.Source));
+        if (!string.IsNullOrWhiteSpace(SearchText))
+            hidden = hidden.Where(g => g.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+
+        HiddenGames.Clear();
+        foreach (var game in hidden.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
+            HiddenGames.Add(game);
+
+        HasHiddenGames = HiddenGames.Count > 0;
+        ShowHiddenSection = ShowHiddenGames && HasHiddenGames;
+
         // Driven by what's actually on screen (Games + FavoriteGames), not the raw scan count -
         // toggling off every source leaves _allGames non-empty but nothing visible, and the empty
         // state (with its "Scan Now" / "Add Folder" actions) should show exactly when the grid is
-        // genuinely blank, whatever the reason.
-        HasNoGames = Games.Count == 0 && FavoriteGames.Count == 0;
+        // genuinely blank, whatever the reason. HiddenGames counts too: a library that's entirely
+        // hidden games shouldn't tell the user to go scan or add a folder - it should just show the
+        // (reachable via the header toggle) Hidden section instead.
+        HasNoGames = Games.Count == 0 && FavoriteGames.Count == 0 && HiddenGames.Count == 0;
         LibraryHeaderText = $"My Library ({Games.Count} {(Games.Count == 1 ? "Game" : "Games")})";
     }
 }

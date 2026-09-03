@@ -1,5 +1,7 @@
 using System.Drawing;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows.Media.Imaging;
 using GameLauncher.Models;
 
@@ -20,7 +22,15 @@ public static class IconService
         try
         {
             Directory.CreateDirectory(CacheDir);
-            var cachePath = Path.Combine(CacheDir, $"{game.Id}.png");
+
+            // Keying purely by game.Id (stable across an exe-repick, by design - see GameOverride)
+            // meant a fixed scanner heuristic that starts pointing at a different exe would still
+            // load the old exe's stale cached icon forever, since the old cache file was never
+            // invalidated. Folding a short hash of the actual resolved ExecutablePath into the
+            // filename means a changed exe naturally lands on a new cache file instead; the old one
+            // is just an orphan on disk (a handful of small PNGs - not worth cleaning up).
+            var pathHash = Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(game.ExecutablePath.ToLowerInvariant())))[..8];
+            var cachePath = Path.Combine(CacheDir, $"{game.Id}-{pathHash}.png");
             if (File.Exists(cachePath))
                 return cachePath;
 

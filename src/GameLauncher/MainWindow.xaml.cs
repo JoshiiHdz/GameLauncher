@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using GameLauncher.Models;
@@ -26,6 +27,13 @@ public partial class MainWindow : FluentWindow
             vm.GameLaunched += OnGameLaunched;
             vm.VibrantBackgroundChanged += ApplyBackdrop;
             ApplyBackdrop(vm.VibrantBackground);
+
+            // The sidebar's real content (how many source rows, how many drives) isn't known until
+            // the first scan finishes - growing the window here, and again after every rescan, means
+            // a PC with a lot of drives/launchers opens tall enough to show them without the user
+            // ever having to drag the window bigger by hand.
+            vm.LibraryRefreshed += () => FitWindowToSidebar();
+            vm.PropertyChanged += Vm_PropertyChanged;
 
             // Covers both launching a game and minimizing by hand.
             StateChanged += (_, _) =>
@@ -163,5 +171,53 @@ public partial class MainWindow : FluentWindow
 
         var settingsWindow = new SettingsWindow(vm) { Owner = this };
         settingsWindow.ShowDialog();
+    }
+
+    private void Vm_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // Re-expanding the sidebar can reveal content (source rows, drives) that was hidden while
+        // collapsed and never factored into the window's height - re-check then too, not just after
+        // a scan.
+        if (e.PropertyName == nameof(LibraryViewModel.IsSidebarExpanded)
+            && DataContext is LibraryViewModel { IsSidebarExpanded: true })
+        {
+            FitWindowToSidebar();
+        }
+    }
+
+    /// <summary>
+    /// Grows the window (never shrinks it - never fights a size the user chose on purpose) so the
+    /// sidebar's actual content fits without needing its own scrollbar. The sidebar's inner content
+    /// is measured directly with Measure(..., PositiveInfinity) rather than read off ActualHeight,
+    /// since ActualHeight only reflects whatever space the Border/ScrollViewer were already given -
+    /// exactly the constrained number that hides the "your window is too small" problem this exists
+    /// to fix. MainWindow.xaml's sidebar ScrollViewer is the fallback for whenever this still isn't
+    /// enough (a monitor too short to fit everything even at the work-area cap below).
+    /// </summary>
+    private void FitWindowToSidebar()
+    {
+        if (DataContext is not LibraryViewModel { IsSidebarExpanded: true } || WindowState != WindowState.Normal)
+            return;
+
+        UpdateLayout();
+
+        var probeWidth = SidebarBorder.ActualWidth > 0 ? SidebarBorder.ActualWidth : 200;
+        SidebarChromeTop.Measure(new Size(probeWidth, double.PositiveInfinity));
+        SidebarScrollableContent.Measure(new Size(probeWidth, double.PositiveInfinity));
+
+        const double sidebarTopMargin = 12; // the DockPanel's own Margin="0,12,0,0"
+        const double bottomBreathingRoom = 16;
+        var neededSidebarHeight = sidebarTopMargin + SidebarChromeTop.DesiredSize.Height
+            + SidebarScrollableContent.DesiredSize.Height + bottomBreathingRoom;
+
+        var neededGridHeight = AppTitleBar.ActualHeight + neededSidebarHeight + MainStatusBar.ActualHeight;
+        var windowChrome = ActualHeight - RootGrid.ActualHeight; // non-client chrome, if any (normally ~0)
+        var neededWindowHeight = neededGridHeight + windowChrome;
+
+        var maxHeight = SystemParameters.WorkArea.Height - 40;
+        neededWindowHeight = Math.Min(neededWindowHeight, maxHeight);
+
+        if (neededWindowHeight > Height)
+            Height = neededWindowHeight;
     }
 }

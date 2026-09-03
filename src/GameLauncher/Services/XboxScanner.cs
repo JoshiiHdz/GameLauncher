@@ -100,50 +100,11 @@ public static class XboxScanner
         return games;
     }
 
-    private static string? FindGameExe(string gameDir)
-    {
-        // Xbox layout is usually <Game>\Content\<game>.exe, but check the game folder itself too.
-        var searchDirs = new List<string> { gameDir };
-
-        try
-        {
-            searchDirs.AddRange(Directory.EnumerateDirectories(gameDir));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-
-        FileInfo? best = null;
-
-        foreach (var dir in searchDirs)
-        {
-            try
-            {
-                foreach (var exe in Directory.EnumerateFiles(dir, "*.exe"))
-                {
-                    var fileName = Path.GetFileNameWithoutExtension(exe).ToLowerInvariant();
-                    // "trial"/"anticheat": same false-pick class confirmed real in EaScanner (a
-                    // bundled trial/anti-cheat-launcher exe outweighing the real game by file size) -
-                    // this scanner has its own separate exclude list (not GameExeFinder's, since Xbox's
-                    // search scope - install dir + immediate subdirs only - is narrower than the shared
-                    // helper's default), so it needs the same additions independently.
-                    if (fileName.Contains("unins") || fileName.Contains("redist") || fileName.Contains("crash")
-                        || fileName.Contains("trial") || fileName.Contains("anticheat"))
-                        continue;
-
-                    var info = new FileInfo(exe);
-                    if (best is null || info.Length > best.Length)
-                        best = info;
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-            }
-        }
-
-        return best?.FullName;
-    }
+    // Xbox layout is usually <Game>\Content\<game>.exe, but check the game folder itself too - never
+    // deeper than that. GameExeFinder's default exclude list is a strict superset of what this used
+    // to check by hand (unins/redist/crash/trial/anticheat, plus touchup/activation/vcredist/directx
+    // /dxsetup/setup on top), so routing through it is a pure safety upgrade, not a behavior change.
+    private static string? FindGameExe(string gameDir) => GameExeFinder.FindLargestExe(gameDir, maxDepth: 1);
 
     /// <summary>Matches an Xbox game folder name against Get-StartApps entries, returning the real
     /// display name alongside the AUMID. Ranks every candidate (exact match or contains-match) by

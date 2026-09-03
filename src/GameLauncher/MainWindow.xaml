@@ -93,6 +93,31 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Same bare-template shape as FavoriteStarStyle, without the Favorite-specific color swap -
+             this one hosts the hide/unhide glyph pair instead of a single star character. -->
+        <Style x:Key="CardIconButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="#A6FFFFFF" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- One card definition shared by the Favorites section and the main library grid -->
         <DataTemplate x:Key="GameCardTemplate">
             <Button Style="{StaticResource GameCardStyle}"
@@ -163,6 +188,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Column="0" Text="{Binding Name}"
@@ -172,11 +198,25 @@
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
 
                             <Button Grid.Column="1" Style="{StaticResource FavoriteStarStyle}"
-                                       Margin="0,0,5,0"
                                        Content="{Binding Favorite, Converter={StaticResource BoolToStarConverter}}"
                                        ToolTip="Favorite"
                                        Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                        CommandParameter="{Binding}" />
+
+                            <!-- Hide/unhide: same button and command either way, just a different glyph
+                                 and tooltip depending on which side of the toggle the card is currently on. -->
+                            <Button Grid.Column="2" Style="{StaticResource CardIconButtonStyle}"
+                                       Margin="0,0,5,0"
+                                       ToolTip="{Binding Hidden, Converter={x:Static conv:HiddenToTooltipConverter.Instance}}"
+                                       Command="{Binding DataContext.ToggleHiddenCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                       CommandParameter="{Binding}">
+                                <Grid Width="14" Height="14">
+                                    <ui:SymbolIcon Symbol="EyeOff24" FontSize="13"
+                                                   Visibility="{Binding Hidden, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                                    <ui:SymbolIcon Symbol="Eye24" FontSize="13"
+                                                   Visibility="{Binding Hidden, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                                </Grid>
+                            </Button>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -231,7 +271,7 @@
         </Style>
     </Window.Resources>
 
-    <Grid>
+    <Grid x:Name="RootGrid">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -254,43 +294,54 @@
             </tb:TaskbarIcon.ContextMenu>
         </tb:TaskbarIcon>
 
-        <ui:TitleBar Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Title="Game Launcher" />
+        <ui:TitleBar x:Name="AppTitleBar" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Title="Game Launcher" />
 
         <!-- Left sidebar: source toggles moved out of Settings since they're reached for far more
              often than the rest of that dialog - collapses to a bare rail to give the library room. -->
-        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource SidebarStyle}"
+        <Border x:Name="SidebarBorder" Grid.Row="1" Grid.Column="0" Style="{StaticResource SidebarStyle}"
                 HorizontalAlignment="Left" Background="#14000000"
                 BorderThickness="0,0,1,0" BorderBrush="#14FFFFFF">
-            <DockPanel LastChildFill="False" Margin="0,12,0,0">
-                <ui:Button DockPanel.Dock="Top" HorizontalAlignment="Right" Margin="0,0,10,10"
-                           Appearance="Transparent" BorderThickness="0"
-                           ToolTip="Collapse sidebar"
-                           Command="{Binding ToggleSidebarCommand}">
-                    <Grid Width="20" Height="20">
-                        <ui:SymbolIcon Symbol="ChevronLeft24"
-                                       Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                        <ui:SymbolIcon Symbol="ChevronRight24"
-                                       Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
-                    </Grid>
-                </ui:Button>
+            <!-- LastChildFill so the ScrollViewer below takes all remaining height - everything above
+                 it (collapse button, logo header, divider) is fixed chrome; everything inside it
+                 (source rows, drives) scrolls instead of being silently clipped when it doesn't fit
+                 the window - a real problem on a PC with enough drives/launchers detected that the
+                 old fixed-height sidebar ran past the bottom of the window with no way to reach the
+                 rest short of manually resizing. MainWindow.xaml.cs also proactively grows the window
+                 to fit this content on load/rescan so scrolling is the fallback, not the norm. -->
+            <DockPanel LastChildFill="True" Margin="0,12,0,0">
+                <StackPanel x:Name="SidebarChromeTop" DockPanel.Dock="Top">
+                    <ui:Button HorizontalAlignment="Right" Margin="0,0,10,10"
+                               Appearance="Transparent" BorderThickness="0"
+                               ToolTip="Collapse sidebar"
+                               Command="{Binding ToggleSidebarCommand}">
+                        <Grid Width="20" Height="20">
+                            <ui:SymbolIcon Symbol="ChevronLeft24"
+                                           Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                            <ui:SymbolIcon Symbol="ChevronRight24"
+                                           Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                        </Grid>
+                    </ui:Button>
 
-                <!-- Big brand header while expanded - the sidebar's top slot, not a footer afterthought -->
-                <StackPanel DockPanel.Dock="Top" HorizontalAlignment="Center" Margin="0,0,0,18"
-                            Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                    <Image Source="/Assets/AppIcon.png" Width="96" Height="96"
-                           RenderOptions.BitmapScalingMode="HighQuality" HorizontalAlignment="Center" />
-                    <TextBlock Text="Game Launcher" FontSize="15" FontWeight="SemiBold" Margin="0,12,0,0"
-                               HorizontalAlignment="Center" />
-                    <TextBlock FontSize="10" Opacity="0.45" HorizontalAlignment="Center" Margin="0,2,0,0">
-                        <Run Text="v" /><Run Text="{x:Static services:AppInfo.Version}" />
-                    </TextBlock>
+                    <!-- Big brand header while expanded - the sidebar's top slot, not a footer afterthought -->
+                    <StackPanel HorizontalAlignment="Center" Margin="0,0,0,18"
+                                Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Image Source="/Assets/AppIcon.png" Width="96" Height="96"
+                               RenderOptions.BitmapScalingMode="HighQuality" HorizontalAlignment="Center" />
+                        <TextBlock Text="Game Launcher" FontSize="15" FontWeight="SemiBold" Margin="0,12,0,0"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock FontSize="10" Opacity="0.45" HorizontalAlignment="Center" Margin="0,2,0,0">
+                            <Run Text="v" /><Run Text="{x:Static services:AppInfo.Version}" />
+                        </TextBlock>
+                    </StackPanel>
+
+                    <!-- Edge-to-edge, unlike the indented rows below - a true full-bleed divider -->
+                    <Border Height="1" Background="#14FFFFFF" Margin="0,0,0,16"
+                            Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                 </StackPanel>
 
-                <!-- Edge-to-edge, unlike the indented rows below - a true full-bleed divider -->
-                <Border DockPanel.Dock="Top" Height="1" Background="#14FFFFFF" Margin="0,0,0,16"
-                        Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-
-                <StackPanel DockPanel.Dock="Top" Margin="10,0,10,0"
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="SidebarScrollableContent">
+                <StackPanel Margin="10,0,10,0"
                             Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                     <TextBlock Text="SOURCES" FontWeight="SemiBold" FontSize="11" Opacity="0.5"
                                Margin="8,0,0,10"
@@ -313,7 +364,8 @@
                                            RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="Steam" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="Steam" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectSteam}" />
                         </Grid>
@@ -336,7 +388,8 @@
                                            RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="Epic Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="Epic Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectEpic}" />
                         </Grid>
@@ -359,7 +412,8 @@
                                            RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="GOG" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="GOG" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectGog}" />
                         </Grid>
@@ -381,7 +435,8 @@
                                 <ui:SymbolIcon Symbol="XboxController24" FontSize="14" Opacity="0.9"
                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Grid.Column="1" Text="Xbox" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="Xbox" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectXbox}" />
                         </Grid>
@@ -404,7 +459,8 @@
                                            RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="EA app" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="EA app" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectEa}" />
                         </Grid>
@@ -427,7 +483,8 @@
                                            RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="Ubisoft Connect" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="Ubisoft Connect" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectUbisoft}" />
                         </Grid>
@@ -450,7 +507,8 @@
                                            RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="Battle.net" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="Battle.net" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectBattleNet}" />
                         </Grid>
@@ -473,7 +531,8 @@
                                            RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="Rockstar Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="Rockstar Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectRockstar}" />
                         </Grid>
@@ -496,7 +555,8 @@
                                            RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
                             </Border>
-                            <TextBlock Grid.Column="1" Text="Amazon Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <TextBlock Grid.Column="1" Text="Amazon Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
                                               IsChecked="{Binding DetectAmazonGames}" />
                         </Grid>
@@ -504,7 +564,7 @@
                 </StackPanel>
 
                 <!-- Drives: only the ones games actually live on, re-checked after every scan -->
-                <StackPanel DockPanel.Dock="Top" Margin="10,20,10,0"
+                <StackPanel Margin="10,20,10,0"
                             Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                     <TextBlock Text="DRIVES" FontWeight="SemiBold" FontSize="11" Opacity="0.5"
                                Margin="8,0,0,10"
@@ -543,6 +603,8 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
+                </StackPanel>
+                </ScrollViewer>
             </DockPanel>
         </Border>
 
@@ -566,6 +628,19 @@
                               ItemsSource="{Binding SortOptions}"
                               DisplayMemberPath="Label" SelectedValuePath="Value"
                               SelectedValue="{Binding SortOption}" />
+
+                    <!-- Only shows up once something is actually hidden - nothing to toggle otherwise. -->
+                    <ui:Button Margin="6,0,0,0" Appearance="Transparent" BorderThickness="0"
+                               ToolTip="Show/hide the Hidden Games section"
+                               Command="{Binding ToggleShowHiddenCommand}"
+                               Visibility="{Binding HasHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid Width="20" Height="20">
+                            <ui:SymbolIcon Symbol="EyeOff24"
+                                           Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                            <ui:SymbolIcon Symbol="Eye24"
+                                           Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        </Grid>
+                    </ui:Button>
 
                     <ui:Button Margin="6,0,0,0" Appearance="Transparent" BorderThickness="0"
                                Icon="{ui:SymbolIcon ArrowSync24}"
@@ -628,11 +703,30 @@
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                     </ItemsControl>
+
+                    <!-- Hidden section - only when the user has both hidden something AND asked to see
+                         the section via the header toggle; reuses the same card template and the same
+                         ToggleHiddenCommand button on each card (now labeled "Unhide") to bring one back. -->
+                    <StackPanel Visibility="{Binding ShowHiddenSection, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"
+                                Margin="0,24,0,0">
+                        <Separator Margin="0,0,0,20" Opacity="0.4" />
+                        <TextBlock Text="Hidden" FontSize="17" FontWeight="SemiBold" Margin="2,0,0,12" Opacity="0.7" />
+
+                        <ItemsControl ItemsSource="{Binding HiddenGames}"
+                                      ItemTemplate="{StaticResource GameCardTemplate}"
+                                      Opacity="0.65">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
         </DockPanel>
 
-        <StatusBar Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Background="Transparent">
+        <StatusBar x:Name="MainStatusBar" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Background="Transparent">
             <StatusBarItem>
                 <TextBlock Text="{Binding StatusText}" Margin="16,0" FontSize="12" Opacity="0.7" />
             </StatusBarItem>

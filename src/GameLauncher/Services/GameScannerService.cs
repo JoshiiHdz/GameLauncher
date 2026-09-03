@@ -43,10 +43,10 @@ public sealed class GameScannerService
 
             foreach (var game in deduped)
             {
-                if (!settings.Overrides.TryGetValue(game.ExecutablePath, out var over))
+                if (!settings.Overrides.TryGetValue(game.Id, out var over))
                 {
                     over = new GameOverride { DateAdded = DateTime.UtcNow };
-                    settings.Overrides[game.ExecutablePath] = over;
+                    settings.Overrides[game.Id] = over;
                 }
                 over.DateAdded ??= DateTime.UtcNow;
 
