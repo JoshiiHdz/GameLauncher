@@ -34,10 +34,16 @@ public sealed class GameSessionWatcher
     // the game is actually closed. Found from real logs: gamelaunchhelper.exe (Xbox) and an EA
     // trial-launcher stub both exit within half a second of starting, well before the real game
     // process exists yet, which made the launcher pop back out of the tray almost instantly.
-    // Widened from 20s to 45s after a report of the launcher reappearing exactly when a game's
-    // splash screen closed - large modern titles (Call of Duty was the one reported) can take longer
-    // than 20s between the loader exiting and the real game window/process being fully up.
-    private static readonly TimeSpan HandoffGracePeriod = TimeSpan.FromSeconds(45);
+    // Was widened to 45s after a report of the launcher reappearing mid-splash-screen on Call of
+    // Duty - but that number was picked defensively with no real measurement behind it, and it made
+    // every single game close feel sluggish (a flat 45s tax before the window comes back, every
+    // time, whether or not a handoff was ever actually happening). The only real handoff timing
+    // measured since then - EA SPORTS FC 26's trial-to-anti-cheat handoff - took 7 seconds. 12s
+    // keeps real comfortable margin above that one data point without reintroducing the old
+    // pops-back-in-half-a-second problem. If a large title's window pops back mid-load again, that's
+    // a real, useful signal this needs to go back up (or the self-correcting redesign below is worth
+    // doing) - send the log and it'll get tuned again from real numbers, not another guess.
+    private static readonly TimeSpan HandoffGracePeriod = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan HandoffPollInterval = TimeSpan.FromSeconds(1);
 
     // Widened from 3 to 6 after the same report: if a game's real executable lives deeper in its
