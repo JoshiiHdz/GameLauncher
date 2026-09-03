@@ -12,6 +12,7 @@ public partial class MainWindow : FluentWindow
 {
     private readonly GameSessionWatcher _sessionWatcher = new();
     private CancellationTokenSource? _sessionCts;
+    private GameEntry? _watchedGame;
 
     public MainWindow()
     {
@@ -62,7 +63,15 @@ public partial class MainWindow : FluentWindow
         game.IsRunning = true;
 
         // Only one game session is tracked at a time; launching again supersedes the previous watch.
+        // Clear the superseded game's badge right here, rather than trusting the cancelled watch to
+        // do it on its way out - WaitForExitAsync swallows OperationCanceledException internally on
+        // every await path and returns a plain bool instead, so the code below can't reliably tell
+        // "cancelled" apart from "exited" for the game that just got superseded.
         _sessionCts?.Cancel();
+        if (_watchedGame is { } previouslyWatched && previouslyWatched != game)
+            previouslyWatched.IsRunning = false;
+        _watchedGame = game;
+
         _sessionCts = new CancellationTokenSource();
         var token = _sessionCts.Token;
 
@@ -83,9 +92,7 @@ public partial class MainWindow : FluentWindow
         }
         catch (OperationCanceledException)
         {
-            // Superseded by a newer launch - that one owns the badge/tray state now, this game's
-            // own "running" flag still needs clearing since nothing else will do it.
-            game.IsRunning = false;
+            // Superseded by a newer launch - that launch already cleared this game's badge above.
             return;
         }
 

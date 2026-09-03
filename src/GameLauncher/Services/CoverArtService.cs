@@ -10,7 +10,12 @@ namespace GameLauncher.Services;
 /// </summary>
 public static class CoverArtService
 {
-    public static void Apply(GameEntry game, AppSettings settings)
+    /// <summary>steamGridDbApiKey is a snapshot of AppSettings.SteamGridDbApiKey taken by the caller,
+    /// not a live AppSettings reference - GameScannerService runs this from a background thread, and
+    /// AppSettings is a mutable object the UI thread can be editing at the same moment (Settings
+    /// window key entry, among others). Taking just the one string value it actually needs avoids
+    /// retaining any live, shared-mutable-state reference on the worker thread.</summary>
+    public static void Apply(GameEntry game, string? steamGridDbApiKey)
     {
         if (game.Source == GameSource.Steam)
         {
@@ -27,9 +32,9 @@ public static class CoverArtService
         }
 
         // A key entered in Settings wins; otherwise fall back to the key compiled into the build.
-        var apiKey = string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey)
+        var apiKey = string.IsNullOrWhiteSpace(steamGridDbApiKey)
             ? DefaultApiKey.SteamGridDb
-            : settings.SteamGridDbApiKey;
+            : steamGridDbApiKey;
 
         if (!string.IsNullOrWhiteSpace(apiKey))
         {

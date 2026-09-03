@@ -17,6 +17,7 @@ public partial class LibraryViewModel : ObservableObject
     private readonly GameScannerService _scannerService = new();
     private readonly AppSettings _settings;
     private List<GameEntry> _allGames = new();
+    private CancellationTokenSource? _refreshCts;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -271,12 +272,82 @@ public partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     private async Task RefreshAsync()
     {
+        // Cancel-and-replace: AddFolder/RemoveFolder and a manual Refresh can each trigger a scan
+        // while a previous one is still running (e.g. adding a folder before the initial startup scan
+        // finishes). Both used to run to completion and write _allGames/Games/Drives/IsLoading in
+        // whichever order they happened to finish, so a slower-but-older scan could silently overwrite
+        // a newer one's results. Cancelling the previous token here, and only ever applying the
+        // results of whichever scan is current when it completes (see the finally block below), means
+        // exactly one scan's output ever reaches the UI.
+        _refreshCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _refreshCts = cts;
+        var token = cts.Token;
+
         IsLoading = true;
         StatusText = "Scanning...";
         try
         {
-            _allGames = await _scannerService.ScanAllAsync(_settings);
-            _settingsService.Save(_settings); // persists any newly-assigned DateAdded values
+            var result = await _scannerService.ScanAllAsync(_settings, token);
+
+            // GameScannerService checks the token internally too, but only cooperatively - a
+            // cancelled scan can still be mid-flight on a background thread pool thread when this
+            // await resumes (e.g. blocked in a synchronous cover-art HTTP call) and, depending on
+            // exactly where cancellation landed, can complete "successfully" with a result that's
+            // already stale. This is the one check that actually matters: nothing below may touch
+            // _allGames, _settings, the Games/FavoriteGames/HiddenGames/Drives collections, StatusText,
+            // or LibraryRefreshed unless this call is still the current refresh.
+            if (!ReferenceEquals(_refreshCts, cts))
+                return;
+
+            _allGames = result.Games;
+
+            // Merged here, on the UI thread, rather than written straight into _settings.Overrides
+            // from the background scan thread - see GameScannerService.ScanAllAsync's remarks on why
+            // that's a real Dictionary-corruption risk, not just a staleness one.
+            foreach (var (id, dateAdded) in result.NewDateAddedByGameId)
+            {
+                if (!_settings.Overrides.TryGetValue(id, out var over))
+                {
+                    over = new GameOverride();
+                    _settings.Overrides[id] = over;
+                }
+                over.DateAdded ??= dateAdded;
+            }
+
+            // Same idea for any watched folder WatchedFolderResolver healed during this scan (a
+            // first-time volume anchor, or a re-derived path after a drive-letter change) - the scan
+            // only ever touched its own private copies (see GameScannerService.ScanAllAsync), so the
+            // healed values are applied to the live, UI-bound object here instead. Matched by the path
+            // the folder had when this scan started, since the healed Path may itself have changed.
+            foreach (var healed in result.HealedWatchedFolders)
+            {
+                var live = _settings.WatchedFolders.FirstOrDefault(w =>
+                    string.Equals(w.Path, healed.OriginalPath, StringComparison.OrdinalIgnoreCase));
+                if (live is null)
+                    continue; // removed while this scan was running - nothing to heal anymore
+
+                live.Path = healed.HealedPath;
+                live.VolumeSerialNumber = healed.VolumeSerialNumber;
+                live.RelativePath = healed.RelativePath;
+            }
+
+            // Re-applied here, on the UI thread, rather than trusting the Hidden/Favorite/CustomName
+            // GameScannerService already baked into each GameEntry: those came from an Overrides
+            // snapshot taken when this scan started, and ToggleFavorite/ToggleHidden stay usable the
+            // whole time a scan is running. Without this, a toggle made mid-scan would visibly revert
+            // the instant this scan's results are published, even though the live settings (and so a
+            // later refresh) were correct the entire time.
+            foreach (var game in _allGames)
+            {
+                _settings.Overrides.TryGetValue(game.Id, out var over);
+                if (!string.IsNullOrWhiteSpace(over?.CustomName))
+                    game.Name = over.CustomName;
+                game.Hidden = over?.Hidden ?? false;
+                game.Favorite = over?.Favorite ?? false;
+            }
+
+            _settingsService.Save(_settings); // persists the DateAdded/watched-folder changes merged above
             ApplyFilter();
             RefreshDrives();
 
@@ -292,23 +363,45 @@ public partial class LibraryViewModel : ObservableObject
 
             LibraryRefreshed?.Invoke();
         }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer refresh - that one owns IsLoading/StatusText/the results now.
+            return;
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Logger.Error("Scan failed.", ex);
-            StatusText = $"Scan failed: {ex.Message}";
+
+            // A superseded scan can still fault after being cancelled (it's cooperative, not
+            // instant) - without this check, an old scan's failure could stomp "Scan failed" over
+            // whatever the newer, still-running refresh has already put in StatusText.
+            if (ReferenceEquals(_refreshCts, cts))
+                StatusText = $"Scan failed: {ex.Message}";
         }
         finally
         {
-            IsLoading = false;
+            // Only the still-current refresh clears IsLoading/trims memory - a superseded refresh
+            // reaching this point after being cancelled must not stomp on the state of whichever
+            // refresh superseded it and is still in flight.
+            if (ReferenceEquals(_refreshCts, cts))
+            {
+                IsLoading = false;
 
-            // A scan is a burst of allocation (file/registry walking, decoding cover art) and the
-            // app goes idle straight after. Hand back what that burst left resident.
-            MemoryTrimmer.Trim("after scan");
+                // A scan is a burst of allocation (file/registry walking, decoding cover art) and the
+                // app goes idle straight after. Hand back what that burst left resident.
+                MemoryTrimmer.Trim("after scan");
+            }
         }
     }
 
+    // Async (and awaiting the refresh below) rather than firing RefreshCommand and discarding the
+    // task: a discarded task's exceptions only ever surface via App.xaml.cs's global
+    // UnobservedTaskException logging, well after the fact and with no way to reflect the failure in
+    // this command's own state. Awaiting it here means a failure is observed at the actual call site,
+    // and the generated AddFolderCommand/RemoveFolderCommand stay IAsyncRelayCommand - the same
+    // ICommand-compatible type XAML already binds to (see MainWindow.xaml / SettingsWindow.xaml).
     [RelayCommand]
-    private void AddFolder()
+    private async Task AddFolderAsync()
     {
         var dialog = new OpenFolderDialog { Title = "Select a games folder" };
         if (dialog.ShowDialog() != true)
@@ -324,11 +417,11 @@ public partial class LibraryViewModel : ObservableObject
         _settings.WatchedFolders.Add(watched);
         _settingsService.Save(_settings);
 
-        _ = RefreshAsync();
+        await RefreshCommand.ExecuteAsync(null);
     }
 
     [RelayCommand]
-    private void RemoveFolder(WatchedFolder? folder)
+    private async Task RemoveFolderAsync(WatchedFolder? folder)
     {
         if (folder is null)
             return;
@@ -337,7 +430,7 @@ public partial class LibraryViewModel : ObservableObject
         _settings.WatchedFolders.Remove(folder);
         _settingsService.Save(_settings);
 
-        _ = RefreshAsync();
+        await RefreshCommand.ExecuteAsync(null);
     }
 
     [RelayCommand]

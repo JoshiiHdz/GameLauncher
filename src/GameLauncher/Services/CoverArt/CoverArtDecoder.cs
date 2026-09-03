@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Media.Imaging;
 
 namespace GameLauncher.Services.CoverArt;
@@ -13,16 +14,30 @@ public static class CoverArtDecoder
     /// </summary>
     private const int DecodeWidth = 320;
 
-    public static BitmapImage Decode(byte[] bytes)
+    /// <summary>Null on anything but a clean decode. Cover art bytes come from a network response or
+    /// a locally-cached file written by a previous run - either can be truncated or corrupt (an
+    /// interrupted download, a write cut short by a crash), and WPF's imaging stack throws a mix of
+    /// exception types for that (not just IOException) that callers weren't catching, crashing the
+    /// whole scan instead of just this one game falling back to its exe icon.</summary>
+    public static BitmapImage? Decode(byte[] bytes)
     {
-        var bitmap = new BitmapImage();
-        using var stream = new MemoryStream(bytes);
-        bitmap.BeginInit();
-        bitmap.CacheOption = BitmapCacheOption.OnLoad;
-        bitmap.DecodePixelWidth = DecodeWidth;
-        bitmap.StreamSource = stream;
-        bitmap.EndInit();
-        bitmap.Freeze();
-        return bitmap;
+        try
+        {
+            var bitmap = new BitmapImage();
+            using var stream = new MemoryStream(bytes);
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.DecodePixelWidth = DecodeWidth;
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or FileFormatException or ArgumentException
+                                        or OverflowException or COMException)
+        {
+            Logger.Warn("Cover art image data was corrupt or an unsupported format.", ex);
+            return null;
+        }
     }
 }

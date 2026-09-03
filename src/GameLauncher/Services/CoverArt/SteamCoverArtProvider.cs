@@ -25,12 +25,28 @@ public sealed class SteamCoverArtProvider : ICoverArtProvider
             Directory.CreateDirectory(CacheDir);
             var cachePath = Path.Combine(CacheDir, $"steam-{appId}.jpg");
             if (File.Exists(cachePath))
-                return LoadBitmap(File.ReadAllBytes(cachePath));
+            {
+                var cached = LoadBitmap(File.ReadAllBytes(cachePath));
+                if (cached is not null)
+                    return cached;
+
+                // Corrupt cache file (e.g. an interrupted write from a previous crash) - without
+                // deleting it, this would fail identically on every future scan forever. Fall through
+                // to re-download instead of returning null for good.
+                Logger.Warn($"  art: '{game.Name}' had a corrupt cached Steam cover - deleting and re-fetching.");
+                File.Delete(cachePath);
+            }
 
             var bytes = Http.GetByteArrayAsync(
                 $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/library_600x900.jpg").GetAwaiter().GetResult();
-            File.WriteAllBytes(cachePath, bytes);
-            return LoadBitmap(bytes);
+
+            // Decode before caching: writing unvalidated bytes to disk first means a bad response
+            // (truncated download, an HTML error page served with a 200) becomes a corrupt cache file
+            // that fails identically - and gets deleted and re-fetched - on every future scan.
+            var decoded = LoadBitmap(bytes);
+            if (decoded is not null)
+                File.WriteAllBytes(cachePath, bytes);
+            return decoded;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException
                                         or UnauthorizedAccessException)
@@ -48,5 +64,5 @@ public sealed class SteamCoverArtProvider : ICoverArtProvider
             : null;
     }
 
-    private static BitmapImage LoadBitmap(byte[] bytes) => CoverArtDecoder.Decode(bytes);
+    private static BitmapImage? LoadBitmap(byte[] bytes) => CoverArtDecoder.Decode(bytes);
 }

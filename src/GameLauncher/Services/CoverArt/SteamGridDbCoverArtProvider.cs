@@ -45,7 +45,17 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
             Directory.CreateDirectory(CacheDir);
             var cachePath = Path.Combine(CacheDir, $"{game.Id}-v{CacheVersion}.png");
             if (File.Exists(cachePath))
-                return LoadBitmap(File.ReadAllBytes(cachePath));
+            {
+                var cached = LoadBitmap(File.ReadAllBytes(cachePath));
+                if (cached is not null)
+                    return cached;
+
+                // Corrupt cache file (e.g. an interrupted write from a previous crash) - without
+                // deleting it, this would fail identically on every future scan forever. Fall through
+                // to re-search/re-download instead of returning null for good.
+                Logger.Warn($"SteamGridDB: '{game.Name}' had a corrupt cached cover - deleting and re-fetching.");
+                File.Delete(cachePath);
+            }
 
             var gameId = SearchGameId(game);
             if (gameId is null)
@@ -62,8 +72,14 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
             }
 
             var bytes = Http.GetByteArrayAsync(imageUrl).GetAwaiter().GetResult();
-            File.WriteAllBytes(cachePath, bytes);
-            return LoadBitmap(bytes);
+
+            // Decode before caching: writing unvalidated bytes to disk first means a bad response
+            // (truncated download, an HTML error page served with a 200) becomes a corrupt cache file
+            // that fails identically - and gets deleted and re-fetched - on every future scan.
+            var decoded = LoadBitmap(bytes);
+            if (decoded is not null)
+                File.WriteAllBytes(cachePath, bytes);
+            return decoded;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException
                                         or IOException or UnauthorizedAccessException)
@@ -155,5 +171,5 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         return data.GetArrayLength() == 0 ? null : data[0].GetProperty("url").GetString();
     }
 
-    private static BitmapImage LoadBitmap(byte[] bytes) => CoverArtDecoder.Decode(bytes);
+    private static BitmapImage? LoadBitmap(byte[] bytes) => CoverArtDecoder.Decode(bytes);
 }
