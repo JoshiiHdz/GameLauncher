@@ -10,12 +10,23 @@ namespace GameLauncher.Services;
 /// </summary>
 public static class GameExeFinder
 {
+    // Generic installer/tool/crash-reporter noise that is never the real game and never something
+    // worth tracking as a running process either - safe to exclude both when picking which exe to
+    // launch (below) and when GameSessionWatcher decides which exe names are worth polling for.
+    // Deliberately NOT here: "trial"/"anticheat". Both can be a legitimate part of a game's actual
+    // running process tree (EAAntiCheat.GameServiceLauncher is the confirmed real handoff target for
+    // EA SPORTS FC 26's anti-cheat init), so excluding them everywhere would make the session watcher
+    // blind to a handoff it needs to see - they're excluded only from the exe-picking pool below,
+    // where the concern is different ("don't launch the trial build," not "don't ever watch for it").
+    internal static readonly string[] NoiseExcludePatterns =
+        { "unins", "redist", "crash", "touchup", "activation", "vcredist", "directx", "dxsetup", "setup",
+          "dotnetfx", "installer", "prereq", "cleanup" };
+
     // "trial"/"anticheat" found from a real log: EA SPORTS FC 26 launched "FC26_Trial.exe" instead
     // of the real "FC26.exe" sitting right next to it, because the trial build happened to be the
     // largest unexcluded exe in the folder - a paying owner should never get routed into trial mode.
     private static readonly string[] DefaultExcludePatterns =
-        { "unins", "redist", "crash", "touchup", "activation", "vcredist", "directx", "dxsetup", "setup",
-          "trial", "anticheat" };
+        NoiseExcludePatterns.Concat(new[] { "trial", "anticheat" }).ToArray();
 
     public static string? FindLargestExe(string installDir, int maxDepth = 2, IEnumerable<string>? extraExcludePatterns = null)
     {

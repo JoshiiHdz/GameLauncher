@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 using GameLauncher.Models;
 
 namespace GameLauncher.Services;
@@ -19,6 +21,15 @@ public sealed class GameSessionWatcher
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
 
+    // Generous on purpose: real logs showed anti-cheat-heavy titles taking well over the old
+    // 2-minute cap to spawn their real process, and this only exists as an outer sanity bound, not
+    // the normal path - every confirmed-working launch in those same logs discovered its process
+    // within 15 seconds. Past this, a launch that's still found nothing has most likely failed
+    // outright (crashed, blocked on a prompt, cancelled) rather than still being "slow," so it's
+    // treated the same as a real exit - restore the window rather than leave it stuck hidden for a
+    // launch that's never coming back, the way the old un-timed-out version briefly was before this.
+    private static readonly TimeSpan DiscoveryTimeout = TimeSpan.FromMinutes(10);
+
     // How long to keep looking for a handoff process after the watched one(s) exit before believing
     // the game is actually closed. Found from real logs: gamelaunchhelper.exe (Xbox) and an EA
     // trial-launcher stub both exit within half a second of starting, well before the real game
@@ -37,10 +48,11 @@ public sealed class GameSessionWatcher
     private const int MaxExeScanDepth = 6;
 
     /// <summary>
-    /// Returns once the game appears to have exited. Discovery itself never gives up on its own -
-    /// this only returns false if there were no candidate exe names to watch for in the first place,
-    /// or if ct is cancelled (a newer launch superseded this one, or the app is closing). The caller
-    /// should treat false as "leave the window alone," never as "assume the game is closed."
+    /// Returns once the game appears to have exited, or once it's given up waiting for the game to
+    /// even start. Returns false only when ct is cancelled (a newer launch superseded this one, or
+    /// the app is closing) - the caller should treat false as "leave the window alone," since
+    /// something else now owns the state. Every other outcome, including a discovery timeout, returns
+    /// true - both mean "this launch is over, safe to restore the window."
     /// </summary>
     public async Task<bool> WaitForExitAsync(GameEntry game, Process? launched, CancellationToken ct = default)
     {
@@ -54,18 +66,10 @@ public sealed class GameSessionWatcher
             return false;
         }
 
-        // Deliberately no discovery deadline: real logs from anti-cheat-heavy titles (Marvel Rivals,
-        // Fortnite) showed the actual game process can take well over the old 2-minute cap to appear
-        // - Steam/the Xbox app can spend that long on update checks, and EAC/NetEase-style anti-cheat
-        // services take their own time to initialize before the real exe even spawns. Once discovery
-        // gave up, nothing ever tried again, so the window sat hidden in the tray for the rest of the
-        // session even though the game launched fine and the user was actively playing it. Polling
-        // here costs almost nothing (a name lookup every couple seconds), and cancellation (a new
-        // launch, or the app closing) is still the way this ever stops on its own - the tray icon
-        // remains the manual override if a launch genuinely never starts.
+        var discoveryDeadline = DateTime.UtcNow + DiscoveryTimeout;
         List<Process> running = [];
 
-        while (!ct.IsCancellationRequested)
+        while (DateTime.UtcNow < discoveryDeadline && !ct.IsCancellationRequested)
         {
             running = FindRunning(game, candidateNames, launched);
             if (running.Count > 0)
@@ -83,10 +87,15 @@ public sealed class GameSessionWatcher
 
         if (running.Count == 0)
         {
-            // Only reachable via cancellation (ct.IsCancellationRequested) now that discovery has no
-            // deadline of its own - a superseding launch or app shutdown, not a genuine give-up.
-            Logger.Info($"Stopped watching for '{game.Name}' to start (superseded or shutting down).");
-            return false;
+            if (ct.IsCancellationRequested)
+            {
+                Logger.Info($"Stopped watching for '{game.Name}' to start (superseded or shutting down).");
+                return false;
+            }
+
+            Logger.Warn($"Never saw a running process for '{game.Name}' within "
+                + $"{DiscoveryTimeout.TotalMinutes:0} minutes - assuming the launch failed and restoring the window.");
+            return true;
         }
 
         Logger.Info($"Watching {running.Count} process(es) for '{game.Name}': "
@@ -205,7 +214,12 @@ public sealed class GameSessionWatcher
     }
 
     /// <summary>Executable names inside the install dir, used to cheaply shortlist processes by
-    /// name before doing the more expensive path check on just those.</summary>
+    /// name before doing the more expensive path check on just those. Generic installer/crash-
+    /// reporter noise (GameExeFinder.NoiseExcludePatterns) is filtered out here too: without this, a
+    /// name match against something like UnityCrashHandler64.exe or a redist installer could trip the
+    /// anti-cheat path-unreadable fallback below and make an unrelated crash/installer process look
+    /// like "the game is still running." Deliberately keeps "trial"/"anticheat"-named exes as valid
+    /// candidates unlike the exe-picker - those can be genuine handoff targets to watch for.</summary>
     private static HashSet<string> GetCandidateProcessNames(GameEntry game)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -220,7 +234,11 @@ public sealed class GameSessionWatcher
             try
             {
                 foreach (var exe in Directory.EnumerateFiles(dir, "*.exe"))
-                    names.Add(Path.GetFileNameWithoutExtension(exe));
+                {
+                    var name = Path.GetFileNameWithoutExtension(exe);
+                    if (!GameExeFinder.NoiseExcludePatterns.Any(p => name.Contains(p, StringComparison.OrdinalIgnoreCase)))
+                        names.Add(name);
+                }
 
                 foreach (var sub in Directory.EnumerateDirectories(dir))
                     Collect(sub, depth + 1);
@@ -243,16 +261,50 @@ public sealed class GameSessionWatcher
         }
     }
 
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, StringBuilder lpExeName, ref int lpdwSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    /// <summary>
+    /// Process.MainModule.FileName requests PROCESS_QUERY_INFORMATION + PROCESS_VM_READ under the
+    /// hood (it has to walk the module list, not just read one string), which anti-cheat-protected
+    /// and elevated processes routinely deny even to an admin-equivalent caller - that's exactly the
+    /// gap IsRunningThisGame's name-only trust fallback exists for. QueryFullProcessImageName only
+    /// needs PROCESS_QUERY_LIMITED_INFORMATION, the access level Windows specifically carves out for
+    /// "let any caller see this process's own image path without touching anything else" - it
+    /// succeeds against far more protected processes than MainModule does, which means the strict
+    /// path-verified branch now covers more cases and the "trust the name alone" fallback (a wider,
+    /// if still narrow, false-positive surface) is needed less often.
+    /// </summary>
     private static string? SafeGetPath(Process process)
     {
+        var handle = IntPtr.Zero;
         try
         {
-            return process.MainModule?.FileName;
+            handle = OpenProcess(ProcessQueryLimitedInformation, false, process.Id);
+            if (handle == IntPtr.Zero)
+                return null;
+
+            var buffer = new StringBuilder(1024);
+            var size = buffer.Capacity;
+            return QueryFullProcessImageName(handle, 0, buffer, ref size) ? buffer.ToString(0, size) : null;
         }
         catch (Exception ex) when (ex is InvalidOperationException or SystemException)
         {
-            // Anti-cheat, elevated, or already-exited processes refuse this - just skip them.
+            // Already-exited process, or some other access denial even at this minimal level.
             return null;
+        }
+        finally
+        {
+            if (handle != IntPtr.Zero)
+                CloseHandle(handle);
         }
     }
 
