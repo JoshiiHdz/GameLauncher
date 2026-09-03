@@ -100,8 +100,13 @@ public partial class MainWindow : FluentWindow
 
         game.IsRunning = false;
 
-        if (vm.MinimizeToTrayWhileGaming)
-            RestoreFromTray();
+        // Restore regardless of which way the window was put away - RestoreFromTray() handles a
+        // plain minimized window fine too (Show()/WindowState=Normal/Activate all still apply, and
+        // collapsing an already-collapsed tray icon is a no-op). Previously this only ran when
+        // MinimizeToTrayWhileGaming was on, so with that setting off the window stayed minimized on
+        // the taskbar forever after the game closed - IsRunning cleared correctly, but nothing ever
+        // brought the window back, which read as "it doesn't reopen when the game closes."
+        RestoreFromTray();
     }
 
     private void HideToTray()

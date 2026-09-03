@@ -17,7 +17,6 @@ namespace GameLauncher.Services;
 /// </summary>
 public sealed class GameSessionWatcher
 {
-    private static readonly TimeSpan DiscoveryTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
 
     // How long to keep looking for a handoff process after the watched one(s) exit before believing
@@ -38,9 +37,10 @@ public sealed class GameSessionWatcher
     private const int MaxExeScanDepth = 6;
 
     /// <summary>
-    /// Returns once the game appears to have exited. Returns false if the game's processes were
-    /// never found - in that case the caller should leave the window alone rather than popping it
-    /// over a game that is probably still running.
+    /// Returns once the game appears to have exited. Discovery itself never gives up on its own -
+    /// this only returns false if there were no candidate exe names to watch for in the first place,
+    /// or if ct is cancelled (a newer launch superseded this one, or the app is closing). The caller
+    /// should treat false as "leave the window alone," never as "assume the game is closed."
     /// </summary>
     public async Task<bool> WaitForExitAsync(GameEntry game, Process? launched, CancellationToken ct = default)
     {
@@ -54,10 +54,18 @@ public sealed class GameSessionWatcher
             return false;
         }
 
-        var deadline = DateTime.UtcNow + DiscoveryTimeout;
+        // Deliberately no discovery deadline: real logs from anti-cheat-heavy titles (Marvel Rivals,
+        // Fortnite) showed the actual game process can take well over the old 2-minute cap to appear
+        // - Steam/the Xbox app can spend that long on update checks, and EAC/NetEase-style anti-cheat
+        // services take their own time to initialize before the real exe even spawns. Once discovery
+        // gave up, nothing ever tried again, so the window sat hidden in the tray for the rest of the
+        // session even though the game launched fine and the user was actively playing it. Polling
+        // here costs almost nothing (a name lookup every couple seconds), and cancellation (a new
+        // launch, or the app closing) is still the way this ever stops on its own - the tray icon
+        // remains the manual override if a launch genuinely never starts.
         List<Process> running = [];
 
-        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested)
         {
             running = FindRunning(game, candidateNames, launched);
             if (running.Count > 0)
@@ -75,7 +83,9 @@ public sealed class GameSessionWatcher
 
         if (running.Count == 0)
         {
-            Logger.Info($"Never saw a running process for '{game.Name}' - not watching for exit.");
+            // Only reachable via cancellation (ct.IsCancellationRequested) now that discovery has no
+            // deadline of its own - a superseding launch or app shutdown, not a genuine give-up.
+            Logger.Info($"Stopped watching for '{game.Name}' to start (superseded or shutting down).");
             return false;
         }
 

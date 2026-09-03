@@ -23,7 +23,10 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
     // back corrupted ("Call of Dutyr"), which broke cover-art matching downstream since the mangled
     // name never matches the real game on SteamGridDB. Covers cached under a corrupted name need to
     // re-fetch under the real one.
-    private const int CacheVersion = 5;
+    // v6: StartAppsResolver's Base64 encoding fix means Xbox titles with special characters (Call of
+    // Duty(R), etc.) resolve to their real, correctly-decoded name instead of a mangled one - old
+    // cache entries keyed by the mangled name would otherwise never get re-fetched under the right one.
+    private const int CacheVersion = 6;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(AppPaths.DataDir, "CoverArtCache");

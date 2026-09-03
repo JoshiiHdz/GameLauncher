@@ -27,24 +27,27 @@ public static class StartAppsResolver
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
-                    // Real Start Menu titles often carry ®/™ (e.g. "Call of Duty®"). Without forcing
-                    // both sides to UTF-8, .NET reads the child process's stdout using the system's
-                    // ANSI codepage instead, silently mangling those characters (® became a stray "r")
-                    // - which then broke cover-art matching downstream, since the corrupted name never
-                    // matches the real game on SteamGridDB. Both the encoding .NET reads with and the
-                    // one PowerShell actually writes with have to agree, hence setting both.
+                    // Real Start Menu titles often carry ®/™ (e.g. "Call of Duty®"). A first attempt
+                    // forced [Console]::OutputEncoding = UTF8 on the child and StandardOutputEncoding
+                    // on the parent to match - verified working on the dev machine, but a real log from
+                    // a different PC still came back mangled ("Call of DutyÂ®" - the classic signature
+                    // of UTF-8 bytes read back as Windows-1252/Latin-1), meaning [Console]::OutputEncoding
+                    // doesn't reliably apply to a console-less redirected process across every Windows
+                    // PowerShell version/locale. Base64-encoding the JSON before it ever leaves
+                    // PowerShell sidesteps the whole problem: the Base64 alphabet (A-Z, a-z, 0-9, +, /,
+                    // =) is a subset of plain ASCII, so it reads back identically no matter which
+                    // codepage either side is using - there is no codepage left to disagree over.
                     Arguments = "-NoProfile -NonInteractive -Command "
-                        + "\"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                        + "Get-StartApps | ConvertTo-Json -Compress\"",
+                        + "\"Get-StartApps | ConvertTo-Json -Compress | "
+                        + "ForEach-Object { [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($_)) }\"",
                     RedirectStandardOutput = true,
-                    StandardOutputEncoding = Encoding.UTF8,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 },
             };
 
             process.Start();
-            var output = process.StandardOutput.ReadToEnd();
+            var base64Output = process.StandardOutput.ReadToEnd().Trim();
             if (!process.WaitForExit(10_000))
             {
                 process.Kill();
@@ -52,9 +55,10 @@ public static class StartAppsResolver
                 return [];
             }
 
-            if (string.IsNullOrWhiteSpace(output))
+            if (string.IsNullOrWhiteSpace(base64Output))
                 return [];
 
+            var output = Encoding.UTF8.GetString(Convert.FromBase64String(base64Output));
             using var doc = JsonDocument.Parse(output);
             var results = new List<(string, string)>();
 
@@ -77,7 +81,7 @@ public static class StartAppsResolver
             return results;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException
-                                        or JsonException or IOException)
+                                        or JsonException or IOException or FormatException)
         {
             Logger.Warn("Couldn't resolve Store app IDs via Get-StartApps.", ex);
             return [];
