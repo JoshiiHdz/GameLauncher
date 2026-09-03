@@ -7,6 +7,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{6C41761C-651
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameLauncher", "src\GameLauncher\GameLauncher.csproj", "{26BFD388-04A8-4CCC-BC4B-6BCD02959D82}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{B83D9F85-F60C-45D2-A928-7B24B0E6D1C6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameLauncher.Tests", "tests\GameLauncher.Tests\GameLauncher.Tests.csproj", "{49C17DEC-0394-4FF6-AE45-5914BAEFC92E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,8 +24,13 @@ Global
 		{26BFD388-04A8-4CCC-BC4B-6BCD02959D82}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{26BFD388-04A8-4CCC-BC4B-6BCD02959D82}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{26BFD388-04A8-4CCC-BC4B-6BCD02959D82}.Release|Any CPU.Build.0 = Release|Any CPU
+		{49C17DEC-0394-4FF6-AE45-5914BAEFC92E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{49C17DEC-0394-4FF6-AE45-5914BAEFC92E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{49C17DEC-0394-4FF6-AE45-5914BAEFC92E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{49C17DEC-0394-4FF6-AE45-5914BAEFC92E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{26BFD388-04A8-4CCC-BC4B-6BCD02959D82} = {6C41761C-651C-4D5F-BD90-728ACAC6E89D}
+		{49C17DEC-0394-4FF6-AE45-5914BAEFC92E} = {B83D9F85-F60C-45D2-A928-7B24B0E6D1C6}
 	EndGlobalSection
 EndGlobal

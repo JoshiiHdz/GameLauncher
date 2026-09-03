@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-and-test:
+    # net8.0-windows + UseWPF requires the Windows Desktop workload, which only exists on a Windows
+    # runner - this can't build on ubuntu-latest/macos-latest no matter how the project is configured.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore GameLauncher.sln
+
+      - name: Build
+        run: dotnet build GameLauncher.sln --no-restore -c Release
+
+      - name: Test
+        run: dotnet test GameLauncher.sln --no-build -c Release --logger "trx;LogFileName=test-results.trx"
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/test-results.trx'

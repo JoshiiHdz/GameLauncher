@@ -7,19 +7,33 @@ namespace GameLauncher.Services;
 
 public sealed class SettingsService
 {
-    private static readonly string SettingsPath = Path.Combine(AppPaths.DataDir, "settings.json");
+    private readonly string _dataDir;
+    private readonly string _settingsPath;
 
     // Written atomically alongside every successful save (see Save) so a live file left corrupt by a
     // crash/power-loss mid-write, or by hand-editing, still has a known-good fallback instead of Load
     // silently dropping straight to blank defaults - which would read as "lost my favorites/hidden
     // games/watched folders" for no reason discoverable from the UI.
-    private static readonly string BackupPath = SettingsPath + ".bak";
+    private readonly string _backupPath;
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    public SettingsService() : this(AppPaths.DataDir)
+    {
+    }
+
+    /// <summary>Lets tests point Load/Save at an isolated temp directory instead of the real
+    /// %AppData%\GameLauncher - production code always uses the parameterless constructor above.</summary>
+    public SettingsService(string dataDir)
+    {
+        _dataDir = dataDir;
+        _settingsPath = Path.Combine(dataDir, "settings.json");
+        _backupPath = _settingsPath + ".bak";
+    }
+
     public AppSettings Load()
     {
-        var settings = TryLoad(SettingsPath) ?? TryLoad(BackupPath);
+        var settings = TryLoad(_settingsPath) ?? TryLoad(_backupPath);
         if (settings is null)
             return new AppSettings();
 
@@ -64,16 +78,16 @@ public sealed class SettingsService
     {
         try
         {
-            Directory.CreateDirectory(AppPaths.DataDir);
+            Directory.CreateDirectory(_dataDir);
             var json = JsonSerializer.Serialize(settings, JsonOptions);
 
-            // Write-then-replace rather than a direct File.WriteAllText(SettingsPath, ...): writing in
+            // Write-then-replace rather than a direct File.WriteAllText(_settingsPath, ...): writing in
             // place means a crash, power loss, or antivirus lock mid-write leaves settings.json
             // truncated - the only copy - and the very next Load() falls back to blank defaults.
             // File.Replace swaps the temp file in as a single atomic filesystem operation and, in the
-            // same operation, saves whatever was previously at SettingsPath to BackupPath - so Load()
+            // same operation, saves whatever was previously at _settingsPath to _backupPath - so Load()
             // always has a last-known-good file to fall back to even if this process dies mid-save.
-            var tempPath = SettingsPath + ".tmp";
+            var tempPath = _settingsPath + ".tmp";
             var bytes = Encoding.UTF8.GetBytes(json);
             using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
@@ -85,10 +99,10 @@ public sealed class SettingsService
                 stream.Flush(true);
             }
 
-            if (File.Exists(SettingsPath))
-                File.Replace(tempPath, SettingsPath, BackupPath);
+            if (File.Exists(_settingsPath))
+                File.Replace(tempPath, _settingsPath, _backupPath);
             else
-                File.Move(tempPath, SettingsPath);
+                File.Move(tempPath, _settingsPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
