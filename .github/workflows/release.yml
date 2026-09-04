@@ -22,15 +22,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # fetch-depth: 0 (full history, all tags) is required for the annotated-tag check below to work
-      # at all - actions/checkout's default shallow (depth-1) fetch pulls only the tagged *commit*, not
-      # the tag object itself, so a genuinely annotated tag's local ref ends up pointing straight at
-      # the commit just like a lightweight one would - git cat-file -t reports "commit" either way, a
-      # false positive discovered by v1.17.0's actual release run failing this check despite being
-      # tagged with -a -m.
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -60,16 +52,25 @@ jobs:
       # PendingUpdateNotesService/VelopackAsset.NotesMarkdown) - one source of truth, no separate
       # changelog file to keep in sync. Fails fast on a lightweight tag rather than silently extracting
       # the tagged *commit's* message instead (git's actual behavior for %(contents) on one - not the
-      # empty string this used to assume) and shipping that as the release notes.
+      # empty string an earlier version of this step assumed) and shipping that as the release notes.
+      #
+      # Reads from a fresh fetch into refs/tags/__release_check__, not refs/tags/$GITHUB_REF_NAME
+      # directly - actions/checkout's own final step always re-fetches the triggering ref pinned to
+      # its resolved commit SHA (+<sha>:refs/tags/<name>), which silently rewrites the local tag ref to
+      # point straight at the commit. That strips the annotation from *any* tag's local ref, genuinely
+      # annotated or not, so both git cat-file -t and %(contents) on refs/tags/$GITHUB_REF_NAME itself
+      # are unreliable after checkout has run - confirmed by v1.17.0's actual first two release
+      # attempts, which failed/misbehaved this way despite the tag being properly annotated on GitHub.
       - name: Extract release notes from tag
         shell: bash
         run: |
-          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" != "tag" ]; then
+          git fetch --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/__release_check__"
+          if [ "$(git cat-file -t __release_check__)" != "tag" ]; then
             echo "::error::'$GITHUB_REF_NAME' is a lightweight tag, not an annotated one - re-tag with:" \
                  "git tag -a $GITHUB_REF_NAME -m \"release notes here\""
             exit 1
           fi
-          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
+          git tag -l --format='%(contents)' __release_check__ > release-notes.md
 
       # Pinned to match the Velopack package version referenced by GameLauncher.csproj - Velopack
       # only officially supports matching vpk CLI / SDK versions, and an unpinned "latest" here would
