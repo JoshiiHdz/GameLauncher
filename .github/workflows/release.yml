@@ -86,6 +86,19 @@ jobs:
       - name: Test
         run: dotnet test GameLauncher.sln -c Release
 
+      # default-api-key.txt is gitignored (see DefaultApiKey.cs's remarks - the key ships inside the
+      # built exe, never in source control), so a fresh checkout never has one. Without this step every
+      # public release silently ships with no default SteamGridDB key at all: Steam games still get
+      # real box art (a separate, keyless CDN lookup), but every other source falls back to the exe
+      # icon - or, for Xbox, no icon at all, since its MSIX package can't be extracted either - unless
+      # the user finds Settings and pastes in their own key. STEAMGRIDDB_API_KEY must be set as a repo
+      # secret (Settings > Secrets and variables > Actions) for this to have any effect; if it's unset
+      # this just writes an empty file, which DefaultApiKey.Load() already treats as "no default" - not
+      # a failure, just back to the same silently-missing-covers behavior this step exists to fix.
+      - name: Write default SteamGridDB key
+        shell: bash
+        run: echo -n "${{ secrets.STEAMGRIDDB_API_KEY }}" > src/GameLauncher/default-api-key.txt
+
       # Not PublishSingleFile: vpk pack does its own bundling on top of a plain multi-file
       # self-contained publish (see GameLauncher.csproj's remarks on the StartupObject property).
       # -p:Version overrides the csproj's <Version> for this build only, so the published exe's
@@ -105,13 +118,15 @@ jobs:
         run: vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
 
       # -u is Velopack's package/app id, not a display name - it's baked into every installed user's
-      # update-lock/shortcut/install-folder identity. "GameLauncher" alone is generic enough to
-      # plausibly collide with someone else's app of the same name; JoshiiHdz.GameLauncher is unique
-      # to this repo's owner. Set once, before the first real package - changing it after anyone has
-      # installed would orphan their existing install rather than update it.
+      # update-lock/shortcut/install-folder identity ("%LocalAppData%\<id>", the desktop shortcut's
+      # filename, etc.), so it's user-visible in a way that matters. Deliberately just "GameLauncher",
+      # not prefixed with an account/owner name - changing it after anyone has installed orphans their
+      # existing install (a new id is a new app identity as far as Velopack/the OS are concerned), so
+      # this was corrected immediately after the very first real release, before it had any real
+      # installs to orphan.
       - name: Pack
         run: >
-          vpk pack -u JoshiiHdz.GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe
+          vpk pack -u GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe
           --releaseNotes release-notes.md
 
       - name: Upload to GitHub Releases
