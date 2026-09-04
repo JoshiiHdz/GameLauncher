@@ -9,6 +9,22 @@
     <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <Version>1.16.0</Version>
+
+    <!-- Portable single-exe distribution: self-contained (no .NET install required on the target
+         PC) + single-file. Baked in here, not just passed on the publish command line, so every
+         future `dotnet publish -c Release -r win-x64` reproduces the same working build regardless
+         of who runs it or from where (including CI). -->
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+
+    <!-- WPF/WinForms apps are documented by Microsoft as not being reliable single-file candidates
+         by default: the single-file host's native-library-only extraction misses resources WPF's
+         window/interop layer needs at startup, which crashed on the gaming PC with
+         DllNotFoundException inside WindowsBase's SetWindowLongPtrWndProc - the very first native
+         window-creation call WPF makes - despite building and running fine here. Forcing every
+         bundled file to extract at startup, not just the native libraries the host guesses it
+         needs, is Microsoft's documented fix for exactly this failure mode. -->
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
