@@ -191,87 +191,6 @@ begin
   end;
 end;
 
-procedure InitializeWizard();
-begin
-  HasExistingInstall := DetectExistingInstall();
-  if not HasExistingInstall then
-    Exit;
-
-  // Only ever reached by a silent run now - an interactive one is intercepted by InitializeSetup's
-  // maintenance window before the wizard is even created (see this file's header). Left exactly as
-  // originally tested: locks the destination field to the existing install rather than leaving
-  // %LocalAppData% picked freely again, since a free choice here can silently orphan the original
-  // install directory instead of updating it in place.
-  WizardForm.DirEdit.Text := ExistingInstallPath;
-  WizardForm.DirEdit.Enabled := False;
-  WizardForm.DirBrowseButton.Enabled := False;
-
-  ExistingInstallNotice := TNewStaticText.Create(WizardForm);
-  ExistingInstallNotice.Parent := WizardForm.SelectDirPage;
-  ExistingInstallNotice.AutoSize := False;
-  ExistingInstallNotice.WordWrap := True;
-  ExistingInstallNotice.Left := WizardForm.DirEdit.Left;
-  ExistingInstallNotice.Top := WizardForm.DirEdit.Top + WizardForm.DirEdit.Height + 16;
-  ExistingInstallNotice.Width := WizardForm.DirEdit.Width;
-  ExistingInstallNotice.Height := 48;
-  ExistingInstallNotice.Caption :=
-    'Game Launcher is already installed here, so this will update that copy in place. To move it ' +
-    'to a different folder, first uninstall the existing copy from Windows Settings > Apps, then ' +
-    'run this installer again.';
-end;
-
-// Shared by the normal wizard's CurStepChanged and the maintenance window's Repair/Update action -
-// both ultimately just need "run the embedded Velopack installer at this exact path", the only
-// difference being where that path came from.
-function RunVelopackSetupTo(const TargetPath: string): Boolean;
-var
-  ResultCode: Integer;
-  Params: string;
-begin
-  ExtractTemporaryFile('{#VelopackSetupExeName}');
-  VelopackSetupPath := ExpandConstant('{tmp}\{#VelopackSetupExeName}');
-  Params := '--silent --installto "' + TargetPath + '"';
-
-  Result := Exec(VelopackSetupPath, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  if Result then
-    Result := (ResultCode = 0);
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  InstallExistsNow: Boolean;
-begin
-  if CurStep = ssInstall then
-  begin
-    // Deliberately calls DetectExistingInstall() again here rather than trusting
-    // HasExistingInstall/ExistingInstallPath from InitializeWizard - those are a snapshot from when
-    // the wizard first opened, and going stale is a real, reproducible case: open two copies of this
-    // wrapper before either one reaches this point, both cache "nothing installed yet", install the
-    // first to folder A, then let the second proceed to install to folder B - a version of this
-    // function that only checked the cached value would see nothing wrong and orphan folder A exactly
-    // as if this whole check didn't exist. Re-running the same detection here, immediately before
-    // Velopack's real installer runs, is what actually closes that: it can't be looking at stale state,
-    // because there's no meaningful gap left between this check and the install it's guarding.
-    InstallExistsNow := DetectExistingInstall();
-
-    if InstallExistsNow and
-       (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExistingInstallPath) <> 0) then
-    begin
-      MsgBox('Game Launcher is already installed at:' + #13#10 + ExistingInstallPath + #13#10#13#10 +
-        'To install it somewhere else, first uninstall the existing copy from Windows Settings > ' +
-        'Apps, then run this installer again.', mbCriticalError, MB_OK);
-      Abort;
-    end;
-
-    if not RunVelopackSetupTo(ExpandConstant('{app}')) then
-    begin
-      MsgBox('Game Launcher could not be installed. Please try again, or check ' +
-        '%LocalAppData%\velopack\velopack.log for details.', mbCriticalError, MB_OK);
-      Abort;
-    end;
-  end;
-end;
-
 // True only if S is a plain, non-empty, dot-separated run of numeric parts (e.g. "1.17.1") - used to
 // tell a genuinely-parsed version apart from a missing/corrupt one before CompareVersionStrings gets
 // anywhere near it. CompareVersionStrings itself can't make that distinction: StrToIntDef silently
@@ -319,54 +238,187 @@ begin
   end;
 end;
 
-// The maintenance window's "Repair"/"Update to vX.Y.Z" action. ExpectedPath is where the maintenance
-// window found Game Launcher installed when it was shown; re-verified fresh here rather than trusted,
-// for the same reason CurStepChanged re-verifies rather than trusting InitializeWizard's snapshot -
-// the window can sit open for a while, and something else (another installer instance, the raw
-// Velopack Setup.exe run directly, or the app's own in-app updater) could change the installed location
-// - or, just as importantly, the installed *version* - in the meantime.
-procedure RunMaintenanceRepair(const ExpectedPath: string);
+procedure InitializeWizard();
+begin
+  HasExistingInstall := DetectExistingInstall();
+  if not HasExistingInstall then
+    Exit;
+
+  // Only ever reached by a silent run now - an interactive one is intercepted by InitializeSetup's
+  // maintenance window before the wizard is even created (see this file's header). Left exactly as
+  // originally tested: locks the destination field to the existing install rather than leaving
+  // %LocalAppData% picked freely again, since a free choice here can silently orphan the original
+  // install directory instead of updating it in place.
+  WizardForm.DirEdit.Text := ExistingInstallPath;
+  WizardForm.DirEdit.Enabled := False;
+  WizardForm.DirBrowseButton.Enabled := False;
+
+  ExistingInstallNotice := TNewStaticText.Create(WizardForm);
+  ExistingInstallNotice.Parent := WizardForm.SelectDirPage;
+  ExistingInstallNotice.AutoSize := False;
+  ExistingInstallNotice.WordWrap := True;
+  ExistingInstallNotice.Left := WizardForm.DirEdit.Left;
+  ExistingInstallNotice.Top := WizardForm.DirEdit.Top + WizardForm.DirEdit.Height + 16;
+  ExistingInstallNotice.Width := WizardForm.DirEdit.Width;
+  ExistingInstallNotice.Height := 48;
+  ExistingInstallNotice.Caption :=
+    'Game Launcher is already installed here, so this will update that copy in place. To move it ' +
+    'to a different folder, first uninstall the existing copy from Windows Settings > Apps, then ' +
+    'run this installer again.';
+end;
+
+const
+  // RunVelopackSetupTo's result codes - see its own remarks for why these checks live there and not
+  // in its callers.
+  vsrSuccess = 0;
+  vsrPathMismatch = 1;   // something is installed elsewhere, or (RequireExisting) nothing is installed at all
+  vsrVersionUnknown = 2; // installed DisplayVersion is missing/malformed - can't prove it's safe not to downgrade
+  vsrNewerInstalled = 3; // installed version is newer than {#AppVersion} - running Setup.exe here would downgrade it
+  vsrExecFailed = 4;     // the embedded Velopack Setup.exe ran but didn't report success
+
+// Shared by the normal wizard's CurStepChanged and the maintenance window's Repair/Update action -
+// both ultimately just need "run the embedded Velopack installer at this exact path", the only
+// difference being where that path came from and whether an existing install is required there first
+// (RequireExisting - True for Repair/Update, which only makes sense against something that's actually
+// still there; False for the ordinary install path, where "nothing installed yet" is the normal case).
+//
+// The path/version re-validation below deliberately happens *after* ExtractTemporaryFile, immediately
+// before Exec, rather than in each caller before calling this function at all (which is how both
+// CurStepChanged and RunMaintenanceRepair originally did it, independently). ExtractTemporaryFile
+// pulls a multi-ten-megabyte payload out of this compressed installer, which takes real, measurable
+// time - and a caller-side check performed *before* that extraction leaves that entire window
+// unguarded: another Setup instance, a raw Velopack Setup.exe run directly, or the app's own in-app
+// updater could still repoint the registry to a different path (reopening the orphaning risk) or bump
+// the installed version past {#AppVersion} (reopening the downgrade risk) while this function was busy
+// extracting, before its caller's now-stale check ever gets to matter. Doing the check here instead -
+// after extraction, with nothing left between it and Exec - means every caller gets the same guarantee
+// automatically and can't accidentally regress it by restructuring their own call site.
+function RunVelopackSetupTo(const TargetPath: string; RequireExisting: Boolean): Integer;
 var
+  ResultCode: Integer;
+  Params: string;
+  InstallExistsNow: Boolean;
   FreshVersion: string;
 begin
-  if not (DetectExistingInstall() and
-          (CompareText(RemoveBackslashUnlessRoot(ExistingInstallPath), RemoveBackslashUnlessRoot(ExpectedPath)) = 0)) then
+  ExtractTemporaryFile('{#VelopackSetupExeName}');
+  VelopackSetupPath := ExpandConstant('{tmp}\{#VelopackSetupExeName}');
+
+  InstallExistsNow := DetectExistingInstall();
+
+  if InstallExistsNow then
   begin
-    MsgBox('Game Launcher''s installed location changed since this window opened. Please run this ' +
-      'installer again.', mbCriticalError, MB_OK);
+    if CompareText(RemoveBackslashUnlessRoot(ExistingInstallPath), RemoveBackslashUnlessRoot(TargetPath)) <> 0 then
+    begin
+      Result := vsrPathMismatch;
+      Exit;
+    end;
+
+    // A missing/malformed DisplayVersion is treated as unknown, not as older (see IsWellFormedVersion) -
+    // StrToIntDef's silent 0-default in CompareVersionStrings would otherwise make garbage look "less
+    // than" any real version and wave a downgrade through.
+    if not RegQueryStringValue(HKCU, UninstallRegKey, 'DisplayVersion', FreshVersion) then
+      FreshVersion := '';
+
+    if not IsWellFormedVersion(FreshVersion) then
+    begin
+      Result := vsrVersionUnknown;
+      Exit;
+    end;
+
+    if CompareVersionStrings(FreshVersion, '{#AppVersion}') > 0 then
+    begin
+      Result := vsrNewerInstalled;
+      Exit;
+    end;
+  end
+  else if RequireExisting then
+  begin
+    Result := vsrPathMismatch;
     Exit;
   end;
 
-  // The path check above isn't enough on its own: the same install directory can legitimately have
-  // been updated to a newer version while this window sat open, and the maintenance window's
-  // Repair/Update label was chosen from a snapshot taken back when the window first opened. Re-reading
-  // DisplayVersion here and re-comparing against this installer's own embedded version, immediately
-  // before running it, is what actually prevents that stale label from authorizing a real downgrade -
-  // an unreadable or malformed DisplayVersion is treated as unknown (see IsWellFormedVersion), not
-  // silently as "older", and blocks the repair rather than waving it through.
-  if not RegQueryStringValue(HKCU, UninstallRegKey, 'DisplayVersion', FreshVersion) then
-    FreshVersion := '';
-
-  if not IsWellFormedVersion(FreshVersion) then
-  begin
-    MsgBox('Game Launcher''s installed version could not be verified. Please close this window and ' +
-      'run Setup again.', mbCriticalError, MB_OK);
-    Exit;
-  end;
-
-  if CompareVersionStrings(FreshVersion, '{#AppVersion}') > 0 then
-  begin
-    MsgBox('A newer version of Game Launcher is now installed than this Setup can offer, so the ' +
-      'repair was cancelled to avoid downgrading it. Please close this window and run Setup again.',
-      mbCriticalError, MB_OK);
-    Exit;
-  end;
-
-  if RunVelopackSetupTo(ExpectedPath) then
-    MsgBox('Game Launcher has been repaired successfully.', mbInformation, MB_OK)
+  Params := '--silent --installto "' + TargetPath + '"';
+  if Exec(VelopackSetupPath, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+    Result := vsrSuccess
   else
-    MsgBox('Game Launcher could not be repaired. Please try again, or check ' +
-      '%LocalAppData%\velopack\velopack.log for details.', mbCriticalError, MB_OK);
+    Result := vsrExecFailed;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  SetupResult: Integer;
+begin
+  if CurStep = ssInstall then
+  begin
+    // No pre-check here anymore - RunVelopackSetupTo() now performs its own fresh detection
+    // immediately before Exec (see its remarks), which is strictly stronger than a check done here
+    // first: this function's own local variables would just be a second, earlier - and therefore
+    // equally stale-able - snapshot on top of the one it already takes internally.
+    SetupResult := RunVelopackSetupTo(ExpandConstant('{app}'), False);
+
+    case SetupResult of
+      vsrPathMismatch:
+        begin
+          MsgBox('Game Launcher is already installed at:' + #13#10 + ExistingInstallPath + #13#10#13#10 +
+            'To install it somewhere else, first uninstall the existing copy from Windows Settings > ' +
+            'Apps, then run this installer again.', mbCriticalError, MB_OK);
+          Abort;
+        end;
+      vsrVersionUnknown:
+        begin
+          MsgBox('Game Launcher''s installed version could not be verified, so this installer will not ' +
+            'run over it. Uninstall the existing copy from Windows Settings > Apps, then run this ' +
+            'installer again.', mbCriticalError, MB_OK);
+          Abort;
+        end;
+      vsrNewerInstalled:
+        begin
+          MsgBox('A newer version of Game Launcher is already installed. This installer will not ' +
+            'downgrade it.', mbCriticalError, MB_OK);
+          Abort;
+        end;
+      vsrExecFailed:
+        begin
+          MsgBox('Game Launcher could not be installed. Please try again, or check ' +
+            '%LocalAppData%\velopack\velopack.log for details.', mbCriticalError, MB_OK);
+          Abort;
+        end;
+    end;
+  end;
+end;
+
+// The maintenance window's "Repair"/"Update to vX.Y.Z" action. ExpectedPath is where the maintenance
+// window found Game Launcher installed when it was shown, but that's only used to report a meaningful
+// error if RunVelopackSetupTo rejects the call - the actual path/version re-verification, immediately
+// before Exec rather than here, now lives entirely inside RunVelopackSetupTo (see its remarks), since
+// a check performed here first would just be an earlier, equally stale-able snapshot on top of the one
+// it already takes internally. RequireExisting=True: unlike a fresh install, "Repair" only makes sense
+// against something that's actually still there - if the install vanished entirely (e.g. uninstalled
+// from Windows Settings while this window sat open) this must not silently fall back to installing
+// fresh.
+procedure RunMaintenanceRepair(const ExpectedPath: string);
+var
+  SetupResult: Integer;
+begin
+  SetupResult := RunVelopackSetupTo(ExpectedPath, True);
+
+  case SetupResult of
+    vsrSuccess:
+      MsgBox('Game Launcher has been repaired successfully.', mbInformation, MB_OK);
+    vsrPathMismatch:
+      MsgBox('Game Launcher''s installed location changed since this window opened. Please run this ' +
+        'installer again.', mbCriticalError, MB_OK);
+    vsrVersionUnknown:
+      MsgBox('Game Launcher''s installed version could not be verified. Please close this window and ' +
+        'run Setup again.', mbCriticalError, MB_OK);
+    vsrNewerInstalled:
+      MsgBox('A newer version of Game Launcher is now installed than this Setup can offer, so the ' +
+        'repair was cancelled to avoid downgrading it. Please close this window and run Setup again.',
+        mbCriticalError, MB_OK);
+    vsrExecFailed:
+      MsgBox('Game Launcher could not be repaired. Please try again, or check ' +
+        '%LocalAppData%\velopack\velopack.log for details.', mbCriticalError, MB_OK);
+  end;
 end;
 
 // The maintenance window's "Uninstall" action - runs the *existing* installation's own Update.exe
@@ -419,9 +471,12 @@ end;
 // InitializeSetup), not a step within it. RepairCaption is 'Repair', 'Update to vX.Y.Z', or '' (see
 // AllowRepair) depending on how the installed version compares to this installer's own - computed by
 // the caller, not here, since that comparison has nothing to do with building the dialog itself.
+// VersionUnknown mirrors RunVelopackSetupTo's own IsWellFormedVersion check (see its remarks) - kept
+// in sync deliberately, so this window never offers a Repair/Update button that a stale/malformed
+// DisplayVersion would have made RunMaintenanceRepair reject anyway the moment it was clicked.
 // Returns mrYes (Open), mrRetry (Repair/Update), mrNo (Uninstall), or mrCancel (Close/closed).
 function ShowMaintenanceForm(const InstalledVersion, InstallPath, RepairCaption: string;
-  AllowRepair, NewerInstalled: Boolean): Integer;
+  AllowRepair, NewerInstalled, VersionUnknown: Boolean): Integer;
 var
   F: TSetupForm;
   TitleLabel, VersionLabel, LocationLabel, NoticeLabel: TNewStaticText;
@@ -461,11 +516,14 @@ begin
 
     Y := LocationLabel.Top + LocationLabel.Height + ScaleY(4);
 
-    if NewerInstalled then
+    if VersionUnknown or NewerInstalled then
     begin
       NoticeLabel := TNewStaticText.Create(F);
       NoticeLabel.Parent := F;
-      NoticeLabel.Caption := 'A newer version is already installed - this installer will not downgrade it.';
+      if VersionUnknown then
+        NoticeLabel.Caption := 'Installed version could not be verified.'
+      else
+        NoticeLabel.Caption := 'A newer version is already installed - this installer will not downgrade it.';
       NoticeLabel.Left := ScaleX(20);
       NoticeLabel.Top := Y;
       NoticeLabel.Width := F.ClientWidth - ScaleX(40);
@@ -532,9 +590,9 @@ end;
 
 function InitializeSetup(): Boolean;
 var
-  InstalledVersion, InstallPath, RepairCaption: string;
+  RawVersion, DisplayedVersion, InstallPath, RepairCaption: string;
   VersionCompare: Integer;
-  AllowRepair, NewerInstalled: Boolean;
+  VersionKnown, AllowRepair, NewerInstalled: Boolean;
   Action, ResultCode: Integer;
 begin
   Result := True; // proceed to the normal wizard unless one of the cases below says otherwise
@@ -549,21 +607,40 @@ begin
     Exit; // nothing installed - normal wizard, fresh install
 
   InstallPath := ExistingInstallPath;
-  if not RegQueryStringValue(HKCU, UninstallRegKey, 'DisplayVersion', InstalledVersion) then
-    InstalledVersion := 'unknown';
+  if not RegQueryStringValue(HKCU, UninstallRegKey, 'DisplayVersion', RawVersion) then
+    RawVersion := '';
 
-  VersionCompare := CompareVersionStrings(InstalledVersion, '{#AppVersion}');
-  NewerInstalled := VersionCompare > 0;
-  AllowRepair := not NewerInstalled;
+  // Uses IsWellFormedVersion here too, not just CompareVersionStrings directly - without it, a
+  // missing/malformed DisplayVersion used to still produce a "Repair"/"Update to vX.Y.Z" button
+  // (CompareVersionStrings' StrToIntDef silently treats it as "0.0.0", i.e. older than almost
+  // anything), only for RunMaintenanceRepair's own, stricter check to reject that exact case the
+  // moment the button was actually clicked. Deciding it the same way here keeps the button this window
+  // offers from ever being a promise a click can't keep.
+  VersionKnown := IsWellFormedVersion(RawVersion);
+  if VersionKnown then
+  begin
+    DisplayedVersion := RawVersion;
+    VersionCompare := CompareVersionStrings(RawVersion, '{#AppVersion}');
+    NewerInstalled := VersionCompare > 0;
+    AllowRepair := not NewerInstalled;
 
-  if VersionCompare = 0 then
-    RepairCaption := 'Repair'
-  else if VersionCompare < 0 then
-    RepairCaption := 'Update to v{#AppVersion}'
+    if VersionCompare = 0 then
+      RepairCaption := 'Repair'
+    else if VersionCompare < 0 then
+      RepairCaption := 'Update to v{#AppVersion}'
+    else
+      RepairCaption := '';
+  end
   else
+  begin
+    DisplayedVersion := 'unknown';
+    NewerInstalled := False;
+    AllowRepair := False;
     RepairCaption := '';
+  end;
 
-  Action := ShowMaintenanceForm(InstalledVersion, InstallPath, RepairCaption, AllowRepair, NewerInstalled);
+  Action := ShowMaintenanceForm(DisplayedVersion, InstallPath, RepairCaption, AllowRepair, NewerInstalled,
+    not VersionKnown);
 
   case Action of
     mrYes: // Open Game Launcher
