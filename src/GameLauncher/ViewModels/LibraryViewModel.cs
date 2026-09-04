@@ -161,8 +161,9 @@ public partial class LibraryViewModel : ObservableObject
     // Same launcher-exe icon extraction the game card platform badges already use, so the sidebar
     // shows each launcher's real logo when it's installed on this PC - null (falls back to a
     // letter badge in the view) for whichever ones aren't. Xbox has no equivalent property: its
-    // MSIX package icon can never be extracted by path, on any PC, so the view renders a fixed
-    // built-in Xbox glyph for that row instead of attempting extraction at all.
+    // MSIX package icon can never be extracted by path, on any PC, so the view renders the
+    // hardcoded real Xbox logo (Assets\XboxLogo.png) for that row instead of attempting extraction
+    // at all.
     public BitmapImage? SteamIcon => PlatformIconService.GetIcon(GameSource.Steam);
     public BitmapImage? EpicIcon => PlatformIconService.GetIcon(GameSource.Epic);
     public BitmapImage? GogIcon => PlatformIconService.GetIcon(GameSource.Gog);

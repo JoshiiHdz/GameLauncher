@@ -154,10 +154,28 @@
                                 <Grid Width="14" Height="14">
                                     <Image Source="{Binding PlatformIcon}"
                                            RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <!-- Hardcoded Xbox logo: its MSIX package icon can never be
+                                         extracted, so PlatformIcon is always null for an Xbox game -
+                                         this fills that same slot with the real logo instead of the
+                                         generic fallback glyph below. -->
+                                    <Image Source="/Assets/XboxLogo.png" RenderOptions.BitmapScalingMode="HighQuality">
+                                        <Image.Visibility>
+                                            <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForXboxLogo}">
+                                                <Binding Path="Source" />
+                                                <Binding Path="PlatformIcon" />
+                                            </MultiBinding>
+                                        </Image.Visibility>
+                                    </Image>
                                     <ui:SymbolIcon Symbol="{Binding Source, Converter={x:Static conv:GameSourceToFallbackSymbolConverter.Instance}}"
                                                    FontSize="10" Foreground="#8CFFFFFF"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                   Visibility="{Binding PlatformIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <ui:SymbolIcon.Visibility>
+                                            <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForFallbackSymbol}">
+                                                <Binding Path="Source" />
+                                                <Binding Path="PlatformIcon" />
+                                            </MultiBinding>
+                                        </ui:SymbolIcon.Visibility>
+                                    </ui:SymbolIcon>
                                 </Grid>
                             </Border>
 
@@ -431,9 +449,9 @@
                                 <!-- The Xbox app's icon lives inside an ACL-locked MSIX package and can
                                      never be extracted by path, on any PC - so unlike the other sources
                                      this one skips the live-extraction attempt entirely and always shows
-                                     a real, recognizable built-in Xbox controller glyph. -->
-                                <ui:SymbolIcon Symbol="XboxController24" FontSize="14" Opacity="0.9"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                     the real Xbox logo, hardcoded as Assets\XboxLogo.png. -->
+                                <Image Source="/Assets/XboxLogo.png" Width="16" Height="16"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
                             </Border>
                             <TextBlock Grid.Column="1" Text="Xbox" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
                                        TextTrimming="CharacterEllipsis" />

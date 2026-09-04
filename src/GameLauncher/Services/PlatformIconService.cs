@@ -11,7 +11,10 @@ namespace GameLauncher.Services;
 /// this machine - so the badge shows the real launcher mark without the app shipping any brand
 /// artwork. Returns null when the launcher isn't installed, the source has no conventional launcher
 /// exe to extract from (manual folders), or its icon can never be read by path regardless of PC
-/// (Xbox's MSIX package) - the UI falls back to a generic glyph in all three cases.
+/// (Xbox's MSIX package). The UI falls back to a generic glyph for manual folders and a not-installed
+/// launcher; Xbox is the one exception - MainWindow.xaml shows the hardcoded real Xbox logo
+/// (Assets\XboxLogo.png) in that slot instead, since this method is guaranteed to always return null
+/// for it.
 /// Resolved at most once per source per run.
 /// </summary>
 public static class PlatformIconService
@@ -49,7 +52,8 @@ public static class PlatformIconService
             GameSource.Rockstar => FindRockstarExe(),
             GameSource.AmazonGames => FindAmazonGamesExe(),
             // Xbox: the Xbox app is an MSIX package under WindowsApps, which is ACL-locked, so its
-            // icon can't be read by path. Those fall back to the generic badge.
+            // icon can't be read by path - MainWindow.xaml shows the hardcoded real Xbox logo instead
+            // of relying on this ever returning something for it (see this class's remarks).
             _ => null,
         };
 

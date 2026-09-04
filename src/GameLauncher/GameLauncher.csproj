@@ -28,6 +28,10 @@
          Absent (e.g. a fresh clone) the app simply starts with no default key. -->
     <EmbeddedResource Include="default-api-key.txt" Condition="Exists('default-api-key.txt')" />
     <Resource Include="Assets\AppIcon.png" />
+    <!-- Real Xbox logo, hardcoded here for the same reason the sidebar/platform-badge comments already
+         explain: an Xbox game's MSIX package icon is ACL-locked and can never be extracted at runtime
+         like every other launcher's icon is, so this ships as a fixed asset instead. -->
+    <Resource Include="Assets\XboxLogo.png" />
   </ItemGroup>
 
   <ItemGroup>
