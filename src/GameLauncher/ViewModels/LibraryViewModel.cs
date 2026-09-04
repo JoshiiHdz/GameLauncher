@@ -17,6 +17,7 @@ public partial class LibraryViewModel : ObservableObject
     private readonly SettingsService _settingsService;
     private readonly GameScannerService _scannerService = new();
     private readonly UpdateService _updateService = new();
+    private readonly PendingUpdateNotesService _pendingUpdateNotesService;
     private readonly AppSettings _settings;
     private List<GameEntry> _allGames = new();
     private CancellationTokenSource? _refreshCts;
@@ -146,6 +147,17 @@ public partial class LibraryViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(DownloadUpdateCommand))]
     private bool _isUpdating;
 
+    /// <summary>Drives the "What's New" dialog - true for exactly one launch, the one right after
+    /// DownloadUpdateAsync applied an update and restarted the app. See PendingUpdateNotesService.</summary>
+    [ObservableProperty]
+    private bool _showWhatsNew;
+
+    [ObservableProperty]
+    private string _whatsNewVersion = string.Empty;
+
+    [ObservableProperty]
+    private string _whatsNewNotes = string.Empty;
+
     // Same launcher-exe icon extraction the game card platform badges already use, so the sidebar
     // shows each launcher's real logo when it's installed on this PC - null (falls back to a
     // letter badge in the view) for whichever ones aren't. Xbox has no equivalent property: its
@@ -224,16 +236,22 @@ public partial class LibraryViewModel : ObservableObject
         new("Recently Added", GameSortOption.RecentlyAdded),
     ];
 
-    public LibraryViewModel() : this(new SettingsService())
+    public LibraryViewModel() : this(new SettingsService(), new PendingUpdateNotesService())
     {
     }
 
-    /// <summary>Lets tests point settings load/save at an isolated temp directory instead of the real
-    /// %AppData%\GameLauncher - production code always uses the parameterless constructor above. Same
-    /// idea as SettingsService's own testable constructor overload.</summary>
-    internal LibraryViewModel(SettingsService settingsService)
+    /// <summary>Lets tests point settings and pending-update-notes storage at isolated temp
+    /// directories instead of the real %AppData%\GameLauncher - production code always uses the
+    /// parameterless constructor above. Same idea as SettingsService's/PendingUpdateNotesService's own
+    /// testable constructor overloads. There is deliberately no settings-only overload: a shortcut
+    /// that isolated settings but left pending-update-notes defaulting to the real path is exactly how
+    /// this suite ended up able to delete a real user's pending marker (see
+    /// LibraryViewModelRunningGameTests, which doesn't care about update notes at all but still must
+    /// not touch real %AppData%).</summary>
+    internal LibraryViewModel(SettingsService settingsService, PendingUpdateNotesService pendingUpdateNotesService)
     {
         _settingsService = settingsService;
+        _pendingUpdateNotesService = pendingUpdateNotesService;
         _settings = _settingsService.Load();
         foreach (var folder in _settings.WatchedFolders)
             WatchedFolders.Add(folder);
@@ -255,6 +273,31 @@ public partial class LibraryViewModel : ObservableObject
         Logger.WriteEnvironment(_settings);
         RefreshShortcutState();
 
+        // Checked unconditionally, regardless of the CheckForUpdates toggle: the marker only ever
+        // exists because DownloadUpdateAsync itself just applied an update and restarted, which is
+        // an explicit action the user already took, not a background check they may have opted out
+        // of. A non-destructive read, not a consume - the marker stays on disk until
+        // AcknowledgeWhatsNew confirms the dialog was actually shown and closed, so a crash or forced
+        // shutdown between here and then just tries again next launch instead of losing the notes.
+        var pendingNotes = _pendingUpdateNotesService.TryRead();
+        if (pendingNotes is not null && string.Equals(pendingNotes.Version, AppInfo.Version, StringComparison.OrdinalIgnoreCase))
+        {
+            WhatsNewVersion = pendingNotes.Version;
+            WhatsNewNotes = string.IsNullOrWhiteSpace(pendingNotes.NotesMarkdown)
+                ? "No release notes were provided for this update."
+                : pendingNotes.NotesMarkdown;
+            ShowWhatsNew = true;
+        }
+        else if (pendingNotes is not null)
+        {
+            // Present but for some other version - either ApplyUpdatesAndRestart failed right after
+            // Save (this is still the old version) or the marker is otherwise stale/malformed (an
+            // empty Version never equals a real AppInfo.Version, so that case lands here too). It will
+            // never legitimately match, so unlike the case above there's nothing to wait for - discard
+            // it now rather than let it linger and re-check forever.
+            _pendingUpdateNotesService.Discard();
+        }
+
         // Fire-and-forget by design, not awaited from the constructor: UpdateService is fully
         // defensive internally (see its remarks) and never throws, so there's nothing here for a
         // caller to observe or react to beyond the UpdateAvailable/AvailableUpdateVersion properties
@@ -262,6 +305,16 @@ public partial class LibraryViewModel : ObservableObject
         // there's nothing to gain from checking again until the app restarts.
         if (_checkForUpdates)
             _ = CheckForUpdateInBackgroundAsync();
+    }
+
+    /// <summary>Called by MainWindow right after the "What's New" dialog closes, however it closed
+    /// (the "Got it" button, the window chrome's own close button, Alt+F4, ...) - the one point that's
+    /// guaranteed to mean the notes were actually shown to the user, which is what makes it safe to
+    /// delete the marker now instead of at read time. See PendingUpdateNotesService's remarks.</summary>
+    public void AcknowledgeWhatsNew()
+    {
+        _pendingUpdateNotesService.Acknowledge();
+        ShowWhatsNew = false;
     }
 
     private async Task CheckForUpdateInBackgroundAsync()

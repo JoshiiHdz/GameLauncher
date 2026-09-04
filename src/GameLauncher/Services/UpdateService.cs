@@ -26,6 +26,7 @@ public sealed class UpdateService
 {
     private const string RepoUrl = "https://github.com/JoshiiHdz/GameLauncher";
 
+    private readonly PendingUpdateNotesService _pendingNotes = new();
     private UpdateManager? _manager;
 
     // Constructed lazily, on first actual use, rather than as a field initializer: UpdateManager's
@@ -91,7 +92,24 @@ public sealed class UpdateService
         Logger.Info($"Downloading update v{update.TargetFullRelease.Version}...");
         await GetManager().DownloadUpdatesAsync(update, p => progress?.Report(p));
 
+        // Written before the restart below, not after: ApplyUpdatesAndRestart exits this process, so
+        // there is no "after" - anything the next launch needs to show a "What's New" dialog has to
+        // already be on disk by the time that call is made.
+        _pendingNotes.Save(update.TargetFullRelease);
+
         Logger.Info("Update downloaded - applying and restarting.");
-        GetManager().ApplyUpdatesAndRestart(update);
+        try
+        {
+            GetManager().ApplyUpdatesAndRestart(update);
+        }
+        catch
+        {
+            // The update never actually took effect - this process is still running the OLD version,
+            // and will keep running it (the caller surfaces this failure to the user rather than
+            // retrying). Without removing the marker here, that old version's *next* ordinary launch
+            // would find it and falsely announce "Updated to vX" for an update that never happened.
+            _pendingNotes.Discard();
+            throw;
+        }
     }
 }

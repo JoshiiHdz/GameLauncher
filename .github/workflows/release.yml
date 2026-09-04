@@ -1,8 +1,13 @@
 name: Release
 
-# Triggered by pushing a version tag (git tag v1.17.0 && git push origin v1.17.0), not by every
-# commit - unlike ci.yml, this actually publishes a public GitHub Release with an installer attached,
-# so it only runs when a release is explicitly being cut.
+# Triggered by pushing an ANNOTATED version tag (git tag -a v1.17.0 -m "..." && git push origin v1.17.0),
+# not by every commit - unlike ci.yml, this actually publishes a public GitHub Release with an
+# installer attached, so it only runs when a release is explicitly being cut. Must be annotated
+# (-a -m), not a plain "git tag v1.17.0": the release-notes step below reads this tag's own message,
+# and a lightweight tag has no message of its own - git resolves %(contents) for one by falling
+# through to the *tagged commit's* message instead, which would silently ship whatever that commit
+# message happened to say as the release notes and the in-app "What's New" text. The workflow fails
+# fast in that case rather than doing that.
 on:
   push:
     tags:
@@ -23,10 +28,40 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      # Enforces a plain vX.Y.Z tag (no prerelease suffix, no 4th component) - AppInfo.Version reduces
+      # the running app's AssemblyVersion to exactly 3 numeric components, and LibraryViewModel's
+      # "What's New" dialog compares that directly against the marker's Version (the full string
+      # vpk pack -v/VelopackAsset.Version.ToString() produced). A tag like v1.17.0-beta1 or v1.17.0.5
+      # would still publish and successfully update, but AppInfo.Version could never equal it - the
+      # update would silently work while the "What's New" dialog silently never appears. Failing here
+      # keeps the version contract exact without having to carry a full SemanticVersion through
+      # AssemblyVersion (which can't represent a prerelease suffix at all) just to compare it later.
       - name: Extract version from tag
         id: get-version
         shell: bash
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' isn't a plain vX.Y.Z version (no prerelease suffix, exactly 3 numeric components) - see this step's remarks for why that's required. Use a tag like v1.17.0."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The tag's own annotation message becomes both this release's notes file (fed to vpk pack below)
+      # and the in-app "What's New" dialog's content after the next update (see
+      # PendingUpdateNotesService/VelopackAsset.NotesMarkdown) - one source of truth, no separate
+      # changelog file to keep in sync. Fails fast on a lightweight tag rather than silently extracting
+      # the tagged *commit's* message instead (git's actual behavior for %(contents) on one - not the
+      # empty string this used to assume) and shipping that as the release notes.
+      - name: Extract release notes from tag
+        shell: bash
+        run: |
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" != "tag" ]; then
+            echo "::error::'$GITHUB_REF_NAME' is a lightweight tag, not an annotated one - re-tag with:" \
+                 "git tag -a $GITHUB_REF_NAME -m \"release notes here\""
+            exit 1
+          fi
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
 
       # Pinned to match the Velopack package version referenced by GameLauncher.csproj - Velopack
       # only officially supports matching vpk CLI / SDK versions, and an unpinned "latest" here would
@@ -66,7 +101,9 @@ jobs:
       # to this repo's owner. Set once, before the first real package - changing it after anyone has
       # installed would orphan their existing install rather than update it.
       - name: Pack
-        run: vpk pack -u JoshiiHdz.GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe
+        run: >
+          vpk pack -u JoshiiHdz.GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe
+          --releaseNotes release-notes.md
 
       - name: Upload to GitHub Releases
         run: >

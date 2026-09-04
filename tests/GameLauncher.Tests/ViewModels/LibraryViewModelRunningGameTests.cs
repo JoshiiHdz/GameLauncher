@@ -13,8 +13,12 @@ namespace GameLauncher.Tests.ViewModels;
 /// off object identity alone (instead of the stable GameEntry.Id and a session id, as implemented
 /// here) silently loses track of an active session.
 ///
-/// Uses the internal SettingsService-injecting constructor to point settings at an isolated temp
-/// directory rather than the real %AppData%\GameLauncher - same idea as SettingsServiceTests.
+/// Uses the internal SettingsService/PendingUpdateNotesService-injecting constructor to point both at
+/// an isolated temp directory rather than the real %AppData%\GameLauncher - same idea as
+/// SettingsServiceTests. Both, not just settings: this suite doesn't care about update notes at all,
+/// but LibraryViewModel's constructor still reads a pending-update marker if one exists, and a
+/// settings-only isolation seam would let these tests delete a real one out from under an installed
+/// copy that happened to have one pending.
 /// </summary>
 public class LibraryViewModelRunningGameTests : IDisposable
 {
@@ -24,7 +28,7 @@ public class LibraryViewModelRunningGameTests : IDisposable
     public LibraryViewModelRunningGameTests()
     {
         _dataDir = Path.Combine(Path.GetTempPath(), "GameLauncherTests-" + Guid.NewGuid());
-        _sut = new LibraryViewModel(new SettingsService(_dataDir));
+        _sut = new LibraryViewModel(new SettingsService(_dataDir), new PendingUpdateNotesService(_dataDir));
     }
 
     public void Dispose()

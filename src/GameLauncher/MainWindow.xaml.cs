@@ -45,6 +45,22 @@ public partial class MainWindow : FluentWindow
             };
 
             await vm.RefreshCommand.ExecuteAsync(null);
+
+            // ShowWhatsNew is only ever true on the one launch right after DownloadUpdateAsync applied
+            // an update and restarted the app (see PendingUpdateNotesService) - shown after the scan,
+            // not before, so it appears in front of the user's actual library rather than the empty
+            // state.
+            if (vm.ShowWhatsNew)
+            {
+                var whatsNewWindow = new WhatsNewWindow(vm) { Owner = this };
+                whatsNewWindow.ShowDialog();
+
+                // Only reached once the window has actually closed, regardless of how (the "Got it"
+                // button, the title bar's close button, Alt+F4, ...) - the marker is only deleted here,
+                // never at read time, so the notes survive to try again on a later launch if the app
+                // never gets this far (a crash, a forced shutdown, a scan that hangs).
+                vm.AcknowledgeWhatsNew();
+            }
         };
 
         Closed += (_, _) =>
