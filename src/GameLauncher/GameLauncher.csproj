@@ -27,4 +27,11 @@
     <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Lets GameLauncher.Tests reach GameSessionWatcher's internal test-seam constructor/overload
+         (fake TimeProvider, IProcessProvider, IExecutableNameDiscovery) without making them public
+         API. -->
+    <InternalsVisibleTo Include="GameLauncher.Tests" />
+  </ItemGroup>
+
 </Project>
