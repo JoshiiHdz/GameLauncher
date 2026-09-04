@@ -88,7 +88,7 @@ jobs:
       - name: Install Inno Setup
         shell: pwsh
         run: |
-          choco install innosetup --version=6.7.3 -y --no-progress
+          choco install innosetup --version=6.7.1 -y --no-progress
           $iscc = Get-ChildItem -Path "$env:ProgramFiles(x86)","$env:ProgramFiles" -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
           Add-Content -Path $env:GITHUB_PATH -Value $iscc.DirectoryName
@@ -160,12 +160,16 @@ jobs:
           /DVelopackSetupExe=${{ github.workspace }}\Releases\GameLauncher-win-Setup.exe
           installer\GameLauncher.iss
 
-      - name: Upload to GitHub Releases
+      # No --publish here - this deliberately leaves the release as a draft (invisible to normal users
+      # browsing releases) until the wrapped installer is confirmed attached below. Publishing here,
+      # before that, would mean any failure in the next two steps leaves a *public* release missing the
+      # installer most users are meant to download - exactly what happened in an earlier version of
+      # this workflow that published first and attached second.
+      - name: Upload to GitHub Releases (draft)
         run: >
           vpk upload github
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
-          --publish
           --releaseName "Game Launcher v${{ steps.get-version.outputs.version }}"
           --tag ${{ github.ref_name }}
 
@@ -173,11 +177,25 @@ jobs:
       # upload github only knows how to handle its own known Velopack asset types (nupkg, delta,
       # RELEASES feed, its own Setup.exe/Portable.zip) - keeping the wrapped installer's upload fully
       # decoupled avoids depending on vpk's upload step tolerating (or worse, silently mishandling) a
-      # file type it was never written to expect. --clobber allows re-running this job for the same
-      # tag (e.g. after a workflow fix) to replace the asset instead of failing on a duplicate name.
+      # file type it was never written to expect. --clobber only makes *this* step idempotent (replaces
+      # the wrapper asset by name if it's already there) - it does not make the whole job safely
+      # re-runnable: a second run for the same tag would still fail earlier, at the "Upload to GitHub
+      # Releases" step above, since vpk upload github has no equivalent upsert behavior of its own
+      # against a release that already exists (there's a --merge flag for that, not used here). A
+      # failed run currently needs the tag's draft release deleted before retrying.
       - name: Attach wrapped installer to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
           gh release upload ${{ github.ref_name }} installer\Output\GameLauncher-Setup.exe
           --repo ${{ github.repository }} --clobber
+
+      # Only now, with both the Velopack feed assets and the wrapped installer confirmed present, does
+      # the release actually become visible. --latest explicitly marks it as the newest release rather
+      # than relying on publish-time ordering to decide that on its own.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release edit ${{ github.ref_name }} --repo ${{ github.repository }}
+          --draft=false --latest

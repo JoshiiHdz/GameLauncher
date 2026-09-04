@@ -3,5 +3,8 @@ obj/
 dist/
 *.user
 
+# Inno Setup compiler output (installer/GameLauncher.iss) - CI builds this fresh every release
+installer/Output/
+
 # Baked-in default SteamGridDB key - deliberately not committed
 default-api-key.txt

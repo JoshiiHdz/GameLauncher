@@ -22,6 +22,20 @@
 ; doesn't need special uninstall handling: Velopack's own uninstall searches the Desktop for *any*
 ; shortcut whose target points at its install directory and removes it, regardless of who created it,
 ; confirmed directly against a real installed copy before this script was written.
+;
+; Because Uninstallable=no, this installer (unlike a normal Inno installer) has no memory of its own
+; between runs - Inno's usual "remember the previous install location/task selections" only works via
+; the uninstall registry entry it would otherwise own. Left alone, re-running this installer while a
+; Velopack install already exists elsewhere (e.g. a custom directory picked the first time) would show
+; the plain %LocalAppData% default again, and running Velopack's Setup.exe --installto against that
+; different path creates a second, independent install: a second registry entry under the same
+; "GameLauncher" key (last write wins), a second shortcut - and the *original* directory silently
+; orphaned, with nothing left pointing at it once the registry key moves. The [Code] section below
+; closes this gap directly: it reads the same registry key Velopack itself writes
+; (HKCU\...\Uninstall\GameLauncher's InstallLocation) before the destination page ever shows, and if a
+; real install is found there, locks the destination field to it instead of leaving it free-form -
+; relocating requires uninstalling the existing copy first, exactly as a normal Inno installer would
+; behave anyway once something is already registered at a path.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -45,6 +59,7 @@ DefaultDirName={localappdata}\GameLauncher
 DisableProgramGroupPage=yes
 Uninstallable=no
 PrivilegesRequired=lowest
+ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputBaseFilename=GameLauncher-Setup
 SetupIconFile=..\src\GameLauncher\Assets\AppIcon.ico
@@ -70,9 +85,66 @@ Source: "{#VelopackSetupExe}"; DestDir: "{tmp}"; Flags: dontcopy
 ; Desktop (see release.yml) so this checkbox is the only thing that controls it.
 Name: "{autodesktop}\Game Launcher"; Filename: "{app}\GameLauncher.exe"; Tasks: desktopicon
 
+[Run]
+; --silent below suppresses Velopack's own normal post-install auto-launch, so this is the only thing
+; that offers to start the app - a standard Inno finish-page checkbox instead, checked by default,
+; skipped automatically for a /SILENT or /VERYSILENT run (skipifsilent).
+Filename: "{app}\GameLauncher.exe"; Description: "Launch Game Launcher"; Flags: postinstall nowait skipifsilent
+
 [Code]
 var
   VelopackSetupPath: string;
+  ExistingInstallPath: string;
+  HasExistingInstall: Boolean;
+  ExistingInstallNotice: TNewStaticText;
+
+const
+  UninstallRegKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\GameLauncher';
+
+// True only if the registry points at a directory that still genuinely looks like a Velopack install
+// (not just a stale key left behind by a manual delete) - checked via Update.exe's presence, the one
+// file every real Velopack install always has at its root regardless of version or install path.
+function DetectExistingInstall(): Boolean;
+var
+  InstallLocation: string;
+begin
+  Result := False;
+  if RegQueryStringValue(HKCU, UninstallRegKey, 'InstallLocation', InstallLocation) then
+  begin
+    if (InstallLocation <> '') and FileExists(AddBackslash(InstallLocation) + 'Update.exe') then
+    begin
+      ExistingInstallPath := RemoveBackslashUnlessRoot(InstallLocation);
+      Result := True;
+    end;
+  end;
+end;
+
+procedure InitializeWizard();
+begin
+  HasExistingInstall := DetectExistingInstall();
+  if not HasExistingInstall then
+    Exit;
+
+  // Locks the destination field to the existing install rather than leaving %LocalAppData% picked
+  // freely again - see this file's header remarks for why a free choice here can silently orphan the
+  // original install directory instead of updating it in place.
+  WizardForm.DirEdit.Text := ExistingInstallPath;
+  WizardForm.DirEdit.Enabled := False;
+  WizardForm.DirBrowseButton.Enabled := False;
+
+  ExistingInstallNotice := TNewStaticText.Create(WizardForm);
+  ExistingInstallNotice.Parent := WizardForm.SelectDirPage;
+  ExistingInstallNotice.AutoSize := False;
+  ExistingInstallNotice.WordWrap := True;
+  ExistingInstallNotice.Left := WizardForm.DirEdit.Left;
+  ExistingInstallNotice.Top := WizardForm.DirEdit.Top + WizardForm.DirEdit.Height + 16;
+  ExistingInstallNotice.Width := WizardForm.DirEdit.Width;
+  ExistingInstallNotice.Height := 48;
+  ExistingInstallNotice.Caption :=
+    'Game Launcher is already installed here, so this will update that copy in place. To move it ' +
+    'to a different folder, first uninstall the existing copy from Windows Settings > Apps, then ' +
+    'run this installer again.';
+end;
 
 function RunVelopackSetup(): Boolean;
 var
