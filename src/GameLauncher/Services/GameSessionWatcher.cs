@@ -133,6 +133,15 @@ public sealed class GameSessionWatcher
                 }
             }
 
+            // A cancelled `await process.WaitForExitAsync(ct)` above throws OperationCanceledException
+            // - a SystemException subtype - which the catch above swallows the same way it swallows a
+            // genuine "process already gone". Without this check, a launch superseded/shutting down
+            // right here would fall through to WaitForHandoffAsync and could easily conclude "no
+            // replacement found" -> return true, misreporting "this launch is over" when really
+            // something else now owns the state. See WaitForExitAsync's doc comment for the contract.
+            if (ct.IsCancellationRequested)
+                return false;
+
             // If any of the processes that just exited had clearly been running for a while, this
             // was a real "I'm done playing" exit, not a bootstrapper handing off - skip the long
             // wait. Unknown uptimes (null) don't count either way, so a batch this can't measure at
@@ -146,6 +155,20 @@ public sealed class GameSessionWatcher
             // A launcher process commonly hands off to the real game and exits well before it's up,
             // so don't trust a single immediate recheck - keep looking for a replacement for a while.
             var replacement = await WaitForHandoffAsync(game, candidateNames, gracePeriod, ct);
+
+            // Same reasoning as above: WaitForHandoffAsync swallows cancellation into an ordinary
+            // empty result, indistinguishable from a genuine handoff timeout unless checked here.
+            // It's still possible for it to return a *non-empty* match on the very tick cancellation
+            // landed (found.Count > 0 short-circuits before the token is even checked - see
+            // WaitForHandoffAsync) - those wrappers are disposed here rather than leaked, since
+            // nothing else will ever get to use or dispose them once this returns false.
+            if (ct.IsCancellationRequested)
+            {
+                foreach (var p in replacement)
+                    p.Dispose();
+                return false;
+            }
+
             if (replacement.Count == 0)
             {
                 Logger.Info($"'{game.Name}' exited{(wasLongSession ? " (was a real play session)" : "")} - "

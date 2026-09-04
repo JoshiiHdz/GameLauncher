@@ -115,16 +115,14 @@ public class GameSessionWatcherTests
     }
 
     [Fact]
-    public async Task Cancellation_DuringHandoffWait_DoesNotReturnFalse()
+    public async Task Cancellation_DuringHandoffWait_ReturnsFalse()
     {
-        // KNOWN GAP, pinned down rather than fixed here (this refactor is behavior-preserving): once
-        // the watched process has genuinely exited and GameSessionWatcher is waiting to see whether
-        // anything hands off from it, cancelling ct while blocked in WaitForHandoffAsync's own
-        // Task.Delay makes it return "no replacement found" - indistinguishable, to the caller, from a
-        // genuine handoff timeout. Both conclude true, even though this launch was actually
-        // superseded/shutting down, not finished. MainWindow.xaml.cs works around this today by
-        // clearing the game's "Running" badge at the point it cancels, rather than trusting this
-        // return value.
+        // Once the watched process has genuinely exited and GameSessionWatcher is waiting to see
+        // whether anything hands off from it, cancelling ct while blocked in WaitForHandoffAsync's own
+        // Task.Delay makes it return "no replacement found" - indistinguishable, on its own, from a
+        // genuine handoff timeout. The explicit ct.IsCancellationRequested check right after
+        // WaitForHandoffAsync returns (see WaitForExitAsync) is what tells these two apart and reports
+        // false here instead of incorrectly concluding "this launch is over".
         var f = CreateFixture("game");
         var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), f.TimeProvider.GetUtcNow());
         using var cts = new CancellationTokenSource();
@@ -138,8 +136,21 @@ public class GameSessionWatcherTests
         cts.Cancel();
 
         var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.True(result); // documents the current (surprising) behavior, not the desired one
+        Assert.False(result);
     }
+
+    // No dedicated test for "WaitForHandoffAsync returns a genuine match on the exact tick
+    // cancellation lands" (the case the disposal loop right after WaitForHandoffAsync in
+    // WaitForExitAsync guards against): confirmed by hand, empirically, that it can't be forced
+    // deterministically from outside. Task.Delay(TimeSpan, TimeProvider, CancellationToken) always
+    // observes cancellation immediately rather than waiting for the next timer tick, so cancelling
+    // while WaitForHandoffAsync is suspended in its own Task.Delay short-circuits straight to "no
+    // replacement" (covered by Cancellation_DuringHandoffWait_ReturnsFalse above) - it never gets to
+    // re-run FindRunning and observe a process added in the meantime. The only way found.Count > 0
+    // and ct.IsCancellationRequested could both be true on the same check is a same-instant race
+    // between this method's own synchronous fast path and another thread calling Cancel() - a
+    // zero-width window, not something a black-box test can reliably land on. The disposal loop is
+    // kept as cheap, correct defense for that case regardless.
 
     // ---- Short-stub handoff ---------------------------------------------------------------------
 
