@@ -58,6 +58,15 @@ AppPublisher=Game Launcher
 DefaultDirName={localappdata}\GameLauncher
 DisableProgramGroupPage=yes
 Uninstallable=no
+; Per Inno's own docs, a second copy of *this wrapper* launched while one is already running gets a
+; "Setup is already running - close it and click OK to continue, or Cancel" prompt at startup. Useful,
+; cheap defense-in-depth - but it's a launch-time warning a user could click through without actually
+; closing the other copy, it says nothing about a raw Velopack Setup.exe run directly and concurrently,
+; and the exact moment the mutex releases isn't documented precisely enough to lean on. None of that
+; matters for correctness here, because it isn't what actually prevents orphaning: the fresh registry
+; re-check in CurStepChanged below, immediately before Velopack's real installer runs, is the one
+; check that can't be stale by the time it matters, regardless of what did or didn't happen at launch.
+SetupMutex=GameLauncherWrapperSetup_7F3E9A1C4D624B8F9A5E1C8B6D2F0E3A
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -71,6 +80,14 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
+; Uninstallable=no means Inno has nothing to read a previous task selection back from (the usual
+; UsePreviousTasks mechanism needs the uninstall registry entry this installer deliberately doesn't
+; create - see this file's header). Accepted, not fixed: on a rerun this defaults to checked again
+; regardless of what was chosen last time, and unchecking it on a rerun does not remove a shortcut an
+; earlier run already created (Velopack's own uninstall still cleans it up correctly either way, same
+; as any shortcut it finds pointing at its install directory - see the header remarks). Reasonable
+; given this installer only meaningfully runs once per machine in practice; Velopack owns every update
+; after the first install, so "rerun the wrapper" is already an edge case, not the normal path.
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Files]
@@ -161,16 +178,23 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  InstallExistsNow: Boolean;
 begin
   if CurStep = ssInstall then
   begin
-    // Disabling the destination field in InitializeWizard only stops the *normal UI* from changing
-    // it - a scripted/unattended run (Setup.exe /VERYSILENT /DIR="somewhere else") sets {app} straight
-    // from the command line and never touches that disabled control at all. This is the check that
-    // actually can't be bypassed: it re-reads the same registry state InitializeWizard used, and
-    // compares it against whatever {app} finally resolved to, right before Velopack's real installer
-    // ever runs - the one point that actually matters, regardless of how {app} got set.
-    if HasExistingInstall and
+    // Deliberately calls DetectExistingInstall() again here rather than trusting
+    // HasExistingInstall/ExistingInstallPath from InitializeWizard - those are a snapshot from when
+    // the wizard first opened, and going stale is a real, reproducible case: open two copies of this
+    // wrapper before either one reaches this point, both cache "nothing installed yet", install the
+    // first to folder A, then let the second proceed to install to folder B - a version of this
+    // function that only checked the cached value would see nothing wrong and orphan folder A exactly
+    // as if this whole check didn't exist. Re-running the same detection here, immediately before
+    // Velopack's real installer runs, is what actually closes that: it can't be looking at stale state,
+    // because there's no meaningful gap left between this check and the install it's guarding.
+    InstallExistsNow := DetectExistingInstall();
+
+    if InstallExistsNow and
        (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExistingInstallPath) <> 0) then
     begin
       MsgBox('Game Launcher is already installed at:' + #13#10 + ExistingInstallPath + #13#10#13#10 +
