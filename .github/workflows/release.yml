@@ -78,6 +78,21 @@ jobs:
       - name: Install vpk
         run: dotnet tool install -g vpk --version 1.2.0
 
+      # Compiles installer/GameLauncher.iss below - a real wizard (destination folder, optional
+      # desktop icon) wrapped around Velopack's own one-click Setup.exe, since Velopack's installer
+      # deliberately never shows either of those (confirmed against Velopack's own docs - see the
+      # .iss file's remarks). choco ships preinstalled on windows-latest runners. A step's PATH
+      # changes aren't visible to a plain new process in a *later* step on this runner, so ISCC.exe's
+      # actual install folder is located here and appended to $GITHUB_PATH explicitly, rather than
+      # guessing choco's internal package layout and hardcoding that path in the build step below.
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --version=6.7.3 -y --no-progress
+          $iscc = Get-ChildItem -Path "$env:ProgramFiles(x86)","$env:ProgramFiles" -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
+          Add-Content -Path $env:GITHUB_PATH -Value $iscc.DirectoryName
+
       - name: Restore
         run: dotnet restore GameLauncher.sln
 
@@ -124,10 +139,26 @@ jobs:
       # existing install (a new id is a new app identity as far as Velopack/the OS are concerned), so
       # this was corrected immediately after the very first real release, before it had any real
       # installs to orphan.
+      # --shortcuts StartMenuRoot (Velopack's default is Desktop,StartMenuRoot) deliberately drops the
+      # Desktop shortcut - installer/GameLauncher.iss's own desktop-icon checkbox is now the only thing
+      # that creates one, so it isn't created unconditionally regardless of what the user chose there.
       - name: Pack
         run: >
           vpk pack -u GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe
-          --releaseNotes release-notes.md
+          --releaseNotes release-notes.md --shortcuts StartMenuRoot
+
+      # Wraps the real, unmodified Setup.exe vpk pack just produced (Releases\GameLauncher-win-Setup.exe)
+      # as a payload inside the wizard-driven installer - see installer/GameLauncher.iss's remarks for
+      # exactly how it preserves Velopack's install layout, app identity, and uninstall/update
+      # ownership. AppVersion drives the wizard's title bar ("Setup - Game Launcher version X.Y.Z");
+      # VelopackSetupExe points the [Files] payload at the real file instead of the placeholder name
+      # used for local script testing.
+      - name: Build wrapped installer
+        run: >
+          ISCC.exe
+          /DAppVersion=${{ steps.get-version.outputs.version }}
+          /DVelopackSetupExe=${{ github.workspace }}\Releases\GameLauncher-win-Setup.exe
+          installer\GameLauncher.iss
 
       - name: Upload to GitHub Releases
         run: >
@@ -137,3 +168,16 @@ jobs:
           --publish
           --releaseName "Game Launcher v${{ steps.get-version.outputs.version }}"
           --tag ${{ github.ref_name }}
+
+      # A second, separate upload rather than copying into Releases\ before the step above: vpk
+      # upload github only knows how to handle its own known Velopack asset types (nupkg, delta,
+      # RELEASES feed, its own Setup.exe/Portable.zip) - keeping the wrapped installer's upload fully
+      # decoupled avoids depending on vpk's upload step tolerating (or worse, silently mishandling) a
+      # file type it was never written to expect. --clobber allows re-running this job for the same
+      # tag (e.g. after a workflow fix) to replace the asset instead of failing on a duplicate name.
+      - name: Attach wrapped installer to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload ${{ github.ref_name }} installer\Output\GameLauncher-Setup.exe
+          --repo ${{ github.repository }} --clobber
