@@ -21,8 +21,8 @@ jobs:
   release:
     runs-on: windows-2025
     # Generous but finite - this job used to have no cap at all (GitHub's own default is 360 minutes),
-    # so a hung step (see "Locate preinstalled Inno Setup" below - Chocolatey's own feed hanging is what
-    # motivated dropping it) could sit "in_progress" indefinitely instead of failing visibly.
+    # so a hung step (see "Verify Inno Setup is available" below for the two separate ways that's
+    # already bitten this workflow) could sit "in_progress" indefinitely instead of failing visibly.
     timeout-minutes: 30
 
     steps:
@@ -87,33 +87,38 @@ jobs:
       # deliberately never shows either of those (confirmed against Velopack's own docs - see the
       # .iss file's remarks).
       #
-      # Previously installed via `choco install innosetup`, which v1.17.1's first release attempt
-      # exposed as an unnecessary network dependency: the Chocolatey feed hung mid-install with no
-      # output for 12+ minutes on a step that normally takes seconds, and because this job had no
-      # timeout at all, GitHub Actions would have let it sit "in_progress" indefinitely. windows-2025
-      # ships Inno Setup 6.7.1 preinstalled (confirmed against the runner image's own software manifest:
-      # https://github.com/actions/runner-images), so this just locates the already-installed ISCC.exe
-      # instead of fetching and installing anything - no external feed to hang on. A step's PATH changes
-      # aren't visible to a plain new process in a *later* step on this runner, so ISCC.exe's actual
-      # folder is located here and appended to $GITHUB_PATH explicitly, rather than hardcoding a path
-      # that could shift between runner image versions. Fails fast (with a short timeout so a problem
-      # here shows up in seconds, not by exhausting the job-level timeout) if the image ever stops
-      # shipping it or ships an unexpected major version, rather than silently trying to compile with
-      # whatever happens to be on PATH.
-      - name: Locate preinstalled Inno Setup
-        timeout-minutes: 2
+      # Previously installed via `choco install innosetup` at job runtime, which v1.17.1's first
+      # release attempt exposed as an unnecessary network dependency: the Chocolatey feed hung mid-
+      # install with no output for 12+ minutes on a step that normally takes seconds, and because this
+      # job had no timeout at all, GitHub Actions would have let it sit "in_progress" indefinitely.
+      # windows-2025 already bakes Inno Setup 6.7.1 into the image at *build* time via Chocolatey -
+      # confirmed directly against actions/runner-images' own test suite
+      # (images/windows/scripts/tests/ChocoPackages.Tests.ps1), which verifies it the same way this step
+      # does: `Get-Command` resolving ISCC.exe as an Application, because Chocolatey's image-build-time
+      # install already shimmed it onto the system PATH, the same as `choco`, `jq`, or `nuget` are on
+      # this same image. So there's nothing to install, search for, or add to $env:GITHUB_PATH here.
+      #
+      # A first attempt at this fix (still not installing anything, but not trusting PATH resolution
+      # alone either) used a recursive Get-ChildItem search across both entire Program Files trees to
+      # locate ISCC.exe defensively - that search never completed within its own 2-minute timeout,
+      # exactly the kind of slow, unbounded filesystem walk that motivated dropping Chocolatey-at-
+      # runtime in the first place. Get-Command is a direct PATH lookup, not a filesystem walk, so it
+      # can't have that failure mode. The `choco list` check alongside it is local-only in Chocolatey
+      # 2.x (queries the machine's installed-package database, not the network feed - confirmed via
+      # Chocolatey's own docs), so it adds a second, independent confirmation of the package version
+      # without reintroducing any network dependency.
+      - name: Verify Inno Setup is available
+        timeout-minutes: 1
         shell: pwsh
         run: |
-          $iscc = Get-ChildItem -Path "$env:ProgramFiles(x86)","$env:ProgramFiles" -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $iscc) {
-            throw "ISCC.exe not found on this runner image - windows-2025 is expected to ship Inno Setup 6.x preinstalled. See this step's remarks."
+          $iscc = Get-Command ISCC.exe -CommandType Application -ErrorAction Stop
+          $installed = choco list innosetup --exact --limit-output | Select-Object -First 1
+
+          if ($installed -notmatch '(?i)^innosetup\|6\.') {
+            throw "Expected preinstalled Inno Setup 6.x; found '$installed'."
           }
-          $productVersion = $iscc.VersionInfo.ProductVersion
-          Write-Host "Found ISCC.exe at $($iscc.FullName), product version $productVersion"
-          if ($productVersion -notlike '6.*') {
-            throw "Preinstalled Inno Setup is version '$productVersion', expected a 6.x release. See this step's remarks."
-          }
-          Add-Content -Path $env:GITHUB_PATH -Value $iscc.DirectoryName
+
+          Write-Host "Using $($iscc.Source); package $installed"
 
       - name: Restore
         run: dotnet restore GameLauncher.sln
