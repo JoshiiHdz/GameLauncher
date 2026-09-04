@@ -19,7 +19,11 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: windows-2025
+    # Generous but finite - this job used to have no cap at all (GitHub's own default is 360 minutes),
+    # so a hung step (see "Locate preinstalled Inno Setup" below - Chocolatey's own feed hanging is what
+    # motivated dropping it) could sit "in_progress" indefinitely instead of failing visibly.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -81,16 +85,34 @@ jobs:
       # Compiles installer/GameLauncher.iss below - a real wizard (destination folder, optional
       # desktop icon) wrapped around Velopack's own one-click Setup.exe, since Velopack's installer
       # deliberately never shows either of those (confirmed against Velopack's own docs - see the
-      # .iss file's remarks). choco ships preinstalled on windows-latest runners. A step's PATH
-      # changes aren't visible to a plain new process in a *later* step on this runner, so ISCC.exe's
-      # actual install folder is located here and appended to $GITHUB_PATH explicitly, rather than
-      # guessing choco's internal package layout and hardcoding that path in the build step below.
-      - name: Install Inno Setup
+      # .iss file's remarks).
+      #
+      # Previously installed via `choco install innosetup`, which v1.17.1's first release attempt
+      # exposed as an unnecessary network dependency: the Chocolatey feed hung mid-install with no
+      # output for 12+ minutes on a step that normally takes seconds, and because this job had no
+      # timeout at all, GitHub Actions would have let it sit "in_progress" indefinitely. windows-2025
+      # ships Inno Setup 6.7.1 preinstalled (confirmed against the runner image's own software manifest:
+      # https://github.com/actions/runner-images), so this just locates the already-installed ISCC.exe
+      # instead of fetching and installing anything - no external feed to hang on. A step's PATH changes
+      # aren't visible to a plain new process in a *later* step on this runner, so ISCC.exe's actual
+      # folder is located here and appended to $GITHUB_PATH explicitly, rather than hardcoding a path
+      # that could shift between runner image versions. Fails fast (with a short timeout so a problem
+      # here shows up in seconds, not by exhausting the job-level timeout) if the image ever stops
+      # shipping it or ships an unexpected major version, rather than silently trying to compile with
+      # whatever happens to be on PATH.
+      - name: Locate preinstalled Inno Setup
+        timeout-minutes: 2
         shell: pwsh
         run: |
-          choco install innosetup --version=6.7.1 -y --no-progress
           $iscc = Get-ChildItem -Path "$env:ProgramFiles(x86)","$env:ProgramFiles" -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
+          if (-not $iscc) {
+            throw "ISCC.exe not found on this runner image - windows-2025 is expected to ship Inno Setup 6.x preinstalled. See this step's remarks."
+          }
+          $productVersion = $iscc.VersionInfo.ProductVersion
+          Write-Host "Found ISCC.exe at $($iscc.FullName), product version $productVersion"
+          if ($productVersion -notlike '6.*') {
+            throw "Preinstalled Inno Setup is version '$productVersion', expected a 6.x release. See this step's remarks."
+          }
           Add-Content -Path $env:GITHUB_PATH -Value $iscc.DirectoryName
 
       - name: Restore
