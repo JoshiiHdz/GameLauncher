@@ -143,98 +143,103 @@ begin
   end;
 end;
 
-// Numeric X.Y.Z comparison (release.yml enforces exactly that tag shape - see its "Extract version
-// from tag" step - so there's no prerelease suffix to worry about on either side here). Missing/non-
-// numeric components compare as 0, so this degrades gracefully rather than raising if the installed
-// DisplayVersion is ever something unexpected. Returns <0, 0, or >0 the same way CompareText does.
-function CompareVersionStrings(const A, B: string): Integer;
-var
-  ARest, BRest, APart, BPart: string;
-  ANum, BNum: Integer;
-  DotPos: Integer;
-begin
-  ARest := A;
-  BRest := B;
-  Result := 0;
-  while (Result = 0) and ((ARest <> '') or (BRest <> '')) do
-  begin
-    DotPos := Pos('.', ARest);
-    if DotPos > 0 then
-    begin
-      APart := Copy(ARest, 1, DotPos - 1);
-      ARest := Copy(ARest, DotPos + 1, MaxInt);
-    end
-    else
-    begin
-      APart := ARest;
-      ARest := '';
-    end;
-
-    DotPos := Pos('.', BRest);
-    if DotPos > 0 then
-    begin
-      BPart := Copy(BRest, 1, DotPos - 1);
-      BRest := Copy(BRest, DotPos + 1, MaxInt);
-    end
-    else
-    begin
-      BPart := BRest;
-      BRest := '';
-    end;
-
-    ANum := StrToIntDef(APart, 0);
-    BNum := StrToIntDef(BPart, 0);
-    if ANum < BNum then
-      Result := -1
-    else if ANum > BNum then
-      Result := 1;
-  end;
-end;
-
-// True only if S is a plain, non-empty, dot-separated run of numeric parts (e.g. "1.17.1") - used to
-// tell a genuinely-parsed version apart from a missing/corrupt one before CompareVersionStrings gets
-// anywhere near it. CompareVersionStrings itself can't make that distinction: StrToIntDef silently
-// turns any non-numeric or missing part into 0, so an unreadable DisplayVersion would otherwise compare
-// as "0.0.0" - lower than virtually any real release - and look like a safe, ordinary downgrade target
-// instead of the "we don't actually know" case it really is.
-function IsWellFormedVersion(const S: string): Boolean;
+// The one and only version-string parser this script uses - both IsWellFormedVersion and
+// CompareVersionStrings are thin wrappers around it, so a version string can never be judged "valid"
+// by one and parsed differently by the other. Requires *exactly* three components, none of them empty
+// (rejects "1", "1.17", "1.17.1.0", "1.17.", ".1.17", "1..17"), each made up only of digits (rejects
+// "1.17.x"), and each short enough to convert without overflowing Inno's 32-bit Integer - a component
+// longer than 9 digits is rejected outright rather than handed to StrToIntDef, which would otherwise
+// silently overflow something like "999999999999" down to some smaller/wraparound number and let a
+// corrupt-looking version compare as ordinary instead of being caught here. 9 digits (max 999999999)
+// is comfortably inside Integer's 10-digit range (max 2147483647), so nothing that reaches StrToIntDef
+// below can actually overflow it.
+function TryParseVersion(const S: string; var Major, Minor, Patch: Integer): Boolean;
 var
   Rest, Part: string;
-  DotPos, I: Integer;
+  Parsed: array[0..2] of Integer;
+  DotPos, CharIndex, ComponentIndex: Integer;
 begin
-  Result := (S <> '');
-  if not Result then
-    Exit;
-
+  Result := False;
   Rest := S;
-  while Rest <> '' do
+
+  for ComponentIndex := 0 to 2 do
   begin
     DotPos := Pos('.', Rest);
-    if DotPos > 0 then
+    if ComponentIndex < 2 then
     begin
+      if DotPos = 0 then
+        Exit; // fewer than 3 components left
       Part := Copy(Rest, 1, DotPos - 1);
       Rest := Copy(Rest, DotPos + 1, MaxInt);
     end
     else
     begin
+      if DotPos > 0 then
+        Exit; // a 4th component follows the 3rd
       Part := Rest;
-      Rest := '';
     end;
 
     if Part = '' then
-    begin
-      Result := False;
-      Exit;
-    end;
+      Exit; // empty component - leading/trailing/doubled dot
 
-    for I := 1 to Length(Part) do
-    begin
-      if (Part[I] < '0') or (Part[I] > '9') then
-      begin
-        Result := False;
+    for CharIndex := 1 to Length(Part) do
+      if (Part[CharIndex] < '0') or (Part[CharIndex] > '9') then
         Exit;
-      end;
-    end;
+
+    if Length(Part) > 9 then
+      Exit;
+
+    Parsed[ComponentIndex] := StrToIntDef(Part, -1);
+    if Parsed[ComponentIndex] < 0 then
+      Exit;
+  end;
+
+  Major := Parsed[0];
+  Minor := Parsed[1];
+  Patch := Parsed[2];
+  Result := True;
+end;
+
+// True only if S is exactly a well-formed X.Y.Z version - see TryParseVersion for the precise rules.
+function IsWellFormedVersion(const S: string): Boolean;
+var
+  Major, Minor, Patch: Integer;
+begin
+  Result := TryParseVersion(S, Major, Minor, Patch);
+end;
+
+// Numeric X.Y.Z comparison, built on the same TryParseVersion every caller already checks their input
+// with via IsWellFormedVersion before comparing (see RunVelopackSetupTo/InitializeSetup) - release.yml
+// enforces that exact shape for {#AppVersion} (see its "Extract version from tag" step), and every
+// DisplayVersion read from the registry is checked the same way before it ever reaches here. Returns 0
+// if either side doesn't actually parse; that should never happen given callers' own checks, and this
+// deliberately doesn't try to guess a fallback ordering for a version it can't parse - a caller relying
+// on this without checking IsWellFormedVersion first is a bug to fix there, not to paper over here.
+// Returns <0, 0, or >0 the same way CompareText does.
+function CompareVersionStrings(const A, B: string): Integer;
+var
+  AMajor, AMinor, APatch, BMajor, BMinor, BPatch: Integer;
+begin
+  Result := 0;
+  if not TryParseVersion(A, AMajor, AMinor, APatch) then
+    Exit;
+  if not TryParseVersion(B, BMajor, BMinor, BPatch) then
+    Exit;
+
+  if AMajor <> BMajor then
+  begin
+    if AMajor < BMajor then Result := -1 else Result := 1;
+    Exit;
+  end;
+  if AMinor <> BMinor then
+  begin
+    if AMinor < BMinor then Result := -1 else Result := 1;
+    Exit;
+  end;
+  if APatch <> BPatch then
+  begin
+    if APatch < BPatch then Result := -1 else Result := 1;
+    Exit;
   end;
 end;
 
