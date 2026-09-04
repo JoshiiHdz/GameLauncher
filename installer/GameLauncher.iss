@@ -272,18 +272,93 @@ begin
   end;
 end;
 
+// True only if S is a plain, non-empty, dot-separated run of numeric parts (e.g. "1.17.1") - used to
+// tell a genuinely-parsed version apart from a missing/corrupt one before CompareVersionStrings gets
+// anywhere near it. CompareVersionStrings itself can't make that distinction: StrToIntDef silently
+// turns any non-numeric or missing part into 0, so an unreadable DisplayVersion would otherwise compare
+// as "0.0.0" - lower than virtually any real release - and look like a safe, ordinary downgrade target
+// instead of the "we don't actually know" case it really is.
+function IsWellFormedVersion(const S: string): Boolean;
+var
+  Rest, Part: string;
+  DotPos, I: Integer;
+begin
+  Result := (S <> '');
+  if not Result then
+    Exit;
+
+  Rest := S;
+  while Rest <> '' do
+  begin
+    DotPos := Pos('.', Rest);
+    if DotPos > 0 then
+    begin
+      Part := Copy(Rest, 1, DotPos - 1);
+      Rest := Copy(Rest, DotPos + 1, MaxInt);
+    end
+    else
+    begin
+      Part := Rest;
+      Rest := '';
+    end;
+
+    if Part = '' then
+    begin
+      Result := False;
+      Exit;
+    end;
+
+    for I := 1 to Length(Part) do
+    begin
+      if (Part[I] < '0') or (Part[I] > '9') then
+      begin
+        Result := False;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
 // The maintenance window's "Repair"/"Update to vX.Y.Z" action. ExpectedPath is where the maintenance
 // window found Game Launcher installed when it was shown; re-verified fresh here rather than trusted,
 // for the same reason CurStepChanged re-verifies rather than trusting InitializeWizard's snapshot -
 // the window can sit open for a while, and something else (another installer instance, the raw
-// Velopack Setup.exe run directly) could change the installed location in the meantime.
+// Velopack Setup.exe run directly, or the app's own in-app updater) could change the installed location
+// - or, just as importantly, the installed *version* - in the meantime.
 procedure RunMaintenanceRepair(const ExpectedPath: string);
+var
+  FreshVersion: string;
 begin
   if not (DetectExistingInstall() and
           (CompareText(RemoveBackslashUnlessRoot(ExistingInstallPath), RemoveBackslashUnlessRoot(ExpectedPath)) = 0)) then
   begin
     MsgBox('Game Launcher''s installed location changed since this window opened. Please run this ' +
       'installer again.', mbCriticalError, MB_OK);
+    Exit;
+  end;
+
+  // The path check above isn't enough on its own: the same install directory can legitimately have
+  // been updated to a newer version while this window sat open, and the maintenance window's
+  // Repair/Update label was chosen from a snapshot taken back when the window first opened. Re-reading
+  // DisplayVersion here and re-comparing against this installer's own embedded version, immediately
+  // before running it, is what actually prevents that stale label from authorizing a real downgrade -
+  // an unreadable or malformed DisplayVersion is treated as unknown (see IsWellFormedVersion), not
+  // silently as "older", and blocks the repair rather than waving it through.
+  if not RegQueryStringValue(HKCU, UninstallRegKey, 'DisplayVersion', FreshVersion) then
+    FreshVersion := '';
+
+  if not IsWellFormedVersion(FreshVersion) then
+  begin
+    MsgBox('Game Launcher''s installed version could not be verified. Please close this window and ' +
+      'run Setup again.', mbCriticalError, MB_OK);
+    Exit;
+  end;
+
+  if CompareVersionStrings(FreshVersion, '{#AppVersion}') > 0 then
+  begin
+    MsgBox('A newer version of Game Launcher is now installed than this Setup can offer, so the ' +
+      'repair was cancelled to avoid downgrading it. Please close this window and run Setup again.',
+      mbCriticalError, MB_OK);
     Exit;
   end;
 
@@ -315,6 +390,21 @@ begin
   if MsgBox('This will remove Game Launcher and all its files from:' + #13#10 + InstallPath + #13#10#13#10 +
        'Continue?', mbConfirmation, MB_YESNO) <> IDYES then
     Exit;
+
+  // Re-detect right before Exec, not just before the confirmation prompt above - the confirmation
+  // dialog can sit open for a while, and something else (a raw Velopack Setup.exe run directly to a
+  // different folder) could repoint the shared HKCU uninstall registry entry at a different install in
+  // the meantime. Running InstallPath's Update.exe unconditionally at that point would tear down
+  // whichever install currently owns that shared registry key/shortcut, not necessarily the one shown
+  // in this window - and could silently orphan the real, current install instead of removing anything
+  // the user actually asked to remove.
+  if not (DetectExistingInstall() and
+          (CompareText(RemoveBackslashUnlessRoot(ExistingInstallPath), RemoveBackslashUnlessRoot(InstallPath)) = 0)) then
+  begin
+    MsgBox('Game Launcher''s installed location changed since this window opened. Please run this ' +
+      'installer again.', mbCriticalError, MB_OK);
+    Exit;
+  end;
 
   if Exec(UpdateExePath, '--uninstall --silent', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and
      (ResultCode = 0) then
