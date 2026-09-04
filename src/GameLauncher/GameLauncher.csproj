@@ -10,21 +10,16 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <Version>1.16.0</Version>
 
-    <!-- Portable single-exe distribution: self-contained (no .NET install required on the target
-         PC) + single-file. Baked in here, not just passed on the publish command line, so every
-         future `dotnet publish -c Release -r win-x64` reproduces the same working build regardless
-         of who runs it or from where (including CI). -->
-    <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
-
-    <!-- WPF/WinForms apps are documented by Microsoft as not being reliable single-file candidates
-         by default: the single-file host's native-library-only extraction misses resources WPF's
-         window/interop layer needs at startup, which crashed on the gaming PC with
-         DllNotFoundException inside WindowsBase's SetWindowLongPtrWndProc - the very first native
-         window-creation call WPF makes - despite building and running fine here. Forcing every
-         bundled file to extract at startup, not just the native libraries the host guesses it
-         needs, is Microsoft's documented fix for exactly this failure mode. -->
-    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <!-- Distribution moved from a portable single-file exe to a Velopack-installed app (see
+         UpdateService.cs and App.xaml.cs's Main). Velopack does its own bundling via "vpk pack" on
+         top of a plain self-contained publish: "dotnet publish -c Release -r win-x64 -o publish"
+         with the self contained flag passed on that command line, and no PublishSingleFile or
+         IncludeAllContentForSelfExtract, per Velopack's documented publish shape
+         (docs.velopack.io/getting-started/csharp). Packaging still bundles the whole .NET runtime,
+         so end users still need nothing pre-installed; self-contained is set at publish time, not
+         baked in here, since "vpk pack" expects a plain multi-file publish output, not a
+         single-file one. -->
+    <StartupObject>GameLauncher.App</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
@@ -36,10 +31,21 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- App.xaml is normally auto-classified as ApplicationDefinition, which generates its own
+         Main() that skips straight to InitializeComponent()+Run(). Velopack must run before any of
+         that (VelopackApp.Build().Run() in App.xaml.cs's own explicit Main, set via StartupObject
+         above) so it can intercept the special install/update/uninstall relaunches it uses - this
+         reclassifies App.xaml as a plain Page so the SDK doesn't generate a competing Main. -->
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.11" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
 

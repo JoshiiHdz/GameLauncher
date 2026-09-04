@@ -655,6 +655,39 @@
                 </StackPanel>
             </Grid>
 
+            <!-- Update banner: sits above everything else (empty state included) so it's never missed,
+                 but is a plain dismissible strip rather than a modal - checking/applying an update is
+                 never allowed to block using the library in the meantime. -->
+            <Border DockPanel.Dock="Top" Margin="0,0,0,12" Padding="14,10" CornerRadius="8"
+                    Background="#1FFFFFFF"
+                    Visibility="{Binding UpdateAvailable, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <ui:SymbolIcon Grid.Column="0" Symbol="ArrowDownload24"
+                                   Foreground="{DynamicResource AccentFillColorDefaultBrush}"
+                                   VerticalAlignment="Center" />
+
+                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="13">
+                        <Run Text="Update available: v" /><Run Text="{Binding AvailableUpdateVersion}" />
+                    </TextBlock>
+
+                    <ui:Button Grid.Column="2" Appearance="Primary" Margin="0,0,8,0"
+                               Content="{Binding IsUpdating, Converter={x:Static conv:UpdatingButtonTextConverter.Instance}}"
+                               Command="{Binding DownloadUpdateCommand}" />
+
+                    <ui:Button Grid.Column="3" Appearance="Transparent" BorderThickness="0"
+                               Icon="{ui:SymbolIcon Dismiss24}" ToolTip="Dismiss"
+                               Command="{Binding DismissUpdateCommand}"
+                               IsEnabled="{Binding IsUpdating, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
+                </Grid>
+            </Border>
+
             <!-- Empty state: only when the library is genuinely empty, not when a search filters it out -->
             <Grid DockPanel.Dock="Top" Visibility="{Binding HasNoGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,80,0,0" MaxWidth="360">

@@ -8,16 +8,45 @@ using CommunityToolkit.Mvvm.Input;
 using GameLauncher.Models;
 using GameLauncher.Services;
 using Microsoft.Win32;
+using Velopack;
 
 namespace GameLauncher.ViewModels;
 
 public partial class LibraryViewModel : ObservableObject
 {
-    private readonly SettingsService _settingsService = new();
+    private readonly SettingsService _settingsService;
     private readonly GameScannerService _scannerService = new();
+    private readonly UpdateService _updateService = new();
     private readonly AppSettings _settings;
     private List<GameEntry> _allGames = new();
     private CancellationTokenSource? _refreshCts;
+
+    // Id of the game GameSessionWatcher is currently tracking, kept independent of any particular
+    // GameEntry instance. RefreshAsync replaces every entry in _allGames wholesale on each rescan,
+    // so tracking "is a game running" via GameEntry.IsRunning alone would let DownloadUpdateCommand's
+    // running-game guard go blind the moment a rescan happens mid-session - it would only ever see
+    // the freshly-scanned entries, which all start not-running. MainWindow owns the actual watcher
+    // lifecycle and calls MarkGameRunning/MarkGameNotRunning instead of touching GameEntry.IsRunning
+    // directly, so this id and the badge can never disagree.
+    private string? _runningGameId;
+
+    // Ownership token for the session identified by _runningGameId. MarkGameNotRunning only clears
+    // tracking when the session id it's given still matches this value. Without it, relaunching the
+    // *same* game right after a refresh is broken: MainWindow calls MarkGameRunning(newEntry) for the
+    // new session and then MarkGameNotRunning(oldEntry) to clean up the one it superseded - but
+    // oldEntry and newEntry share the same game id, so a plain id comparison in MarkGameNotRunning
+    // can't tell "the session I'm cleaning up" apart from "the session that just replaced it," and
+    // would wrongly clear the brand new session no matter which order the two calls happen in. A
+    // monotonically increasing session id makes that distinction unambiguous regardless of call
+    // order. See MarkGameRunning/MarkGameNotRunning.
+    private int _runningSessionId;
+    private int _sessionCounter;
+
+    // Held here rather than just exposing the version string: DownloadUpdateCommand needs to hand
+    // the actual UpdateInfo back to UpdateService.DownloadAndApplyAsync, and re-checking for updates
+    // a second time just to get it back would be wasteful and could race with a newer release
+    // appearing between the two calls.
+    private UpdateInfo? _pendingUpdate;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -102,6 +131,21 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _detectAmazonGames = true;
 
+    [ObservableProperty]
+    private bool _checkForUpdates = true;
+
+    /// <summary>Drives the update banner - true only once a real, confirmed-newer release has been
+    /// found, never speculatively (a failed/inconclusive check just leaves this false).</summary>
+    [ObservableProperty]
+    private bool _updateAvailable;
+
+    [ObservableProperty]
+    private string _availableUpdateVersion = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(DownloadUpdateCommand))]
+    private bool _isUpdating;
+
     // Same launcher-exe icon extraction the game card platform badges already use, so the sidebar
     // shows each launcher's real logo when it's installed on this PC - null (falls back to a
     // letter badge in the view) for whichever ones aren't. Xbox has no equivalent property: its
@@ -180,8 +224,16 @@ public partial class LibraryViewModel : ObservableObject
         new("Recently Added", GameSortOption.RecentlyAdded),
     ];
 
-    public LibraryViewModel()
+    public LibraryViewModel() : this(new SettingsService())
     {
+    }
+
+    /// <summary>Lets tests point settings load/save at an isolated temp directory instead of the real
+    /// %AppData%\GameLauncher - production code always uses the parameterless constructor above. Same
+    /// idea as SettingsService's own testable constructor overload.</summary>
+    internal LibraryViewModel(SettingsService settingsService)
+    {
+        _settingsService = settingsService;
         _settings = _settingsService.Load();
         foreach (var folder in _settings.WatchedFolders)
             WatchedFolders.Add(folder);
@@ -198,10 +250,196 @@ public partial class LibraryViewModel : ObservableObject
         _detectBattleNet = _settings.DetectBattleNet;
         _detectRockstar = _settings.DetectRockstar;
         _detectAmazonGames = _settings.DetectAmazonGames;
+        _checkForUpdates = _settings.CheckForUpdates;
 
         Logger.WriteEnvironment(_settings);
         RefreshShortcutState();
+
+        // Fire-and-forget by design, not awaited from the constructor: UpdateService is fully
+        // defensive internally (see its remarks) and never throws, so there's nothing here for a
+        // caller to observe or react to beyond the UpdateAvailable/AvailableUpdateVersion properties
+        // it sets on success. Runs once per app launch, not on every rescan - unlike the library scan,
+        // there's nothing to gain from checking again until the app restarts.
+        if (_checkForUpdates)
+            _ = CheckForUpdateInBackgroundAsync();
     }
+
+    private async Task CheckForUpdateInBackgroundAsync()
+    {
+        var result = await _updateService.CheckForUpdateAsync();
+        if (result.Status == UpdateCheckStatus.UpdateAvailable)
+            ApplyFoundUpdate(result.Update!);
+    }
+
+    /// <summary>Marks a game as the one session-watching currently tracks - called by MainWindow when
+    /// a launch starts, never by setting GameEntry.IsRunning directly, so the update guard's
+    /// _runningGameId can never drift out of sync with the badge. Returns a session id the caller
+    /// must hold onto and pass back to MarkGameNotRunning for this exact session - see
+    /// _runningSessionId's remarks for why that matters.</summary>
+    public int MarkGameRunning(GameEntry game)
+    {
+        var sessionId = ++_sessionCounter;
+        _runningGameId = game.Id;
+        _runningSessionId = sessionId;
+        game.IsRunning = true;
+        return sessionId;
+    }
+
+    /// <summary>Clears tracking for the session identified by sessionId once GameSessionWatcher
+    /// confirms the game exited (or it was superseded by a newer launch) - see MarkGameRunning. Two
+    /// cases:
+    /// - sessionId still owns the active session (a genuine, non-superseded exit): clears
+    ///   _runningGameId/_runningSessionId and the badge, both on game itself and on whichever entry
+    ///   in the *current* library actually shares its id (a rescan replaces every GameEntry wholesale,
+    ///   so that may be a different instance than game itself).
+    /// - sessionId has been superseded by a newer session: tracking state is left untouched (the newer
+    ///   session already owns it), and the badge is cleared *only* if the newer session is for a
+    ///   different game id. If it's the same id - a relaunch of this exact game, which is what makes
+    ///   the superseded and current sessions share a game id despite being different sessions - the
+    ///   badge belongs to that newer session and must be left alone, whether game is a stale pre-
+    ///   refresh instance or (see MarkGameRunning's remarks) the very same instance reused for the new
+    ///   session.</summary>
+    public void MarkGameNotRunning(GameEntry game, int sessionId)
+    {
+        if (sessionId == _runningSessionId)
+        {
+            _runningGameId = null;
+            _runningSessionId = 0;
+            ClearBadge(game);
+            return;
+        }
+
+        if (_runningGameId != game.Id)
+            ClearBadge(game);
+    }
+
+    /// <summary>Clears game's own badge, plus whichever entry in the *current* library shares its id
+    /// if that's a different instance (see MarkGameNotRunning).</summary>
+    private void ClearBadge(GameEntry game)
+    {
+        game.IsRunning = false;
+
+        var current = _allGames.FirstOrDefault(g => g.Id == game.Id);
+        if (current is not null && !ReferenceEquals(current, game))
+            current.IsRunning = false;
+    }
+
+    /// <summary>Reapplies the running badge to whichever entry in _allGames matches the tracked
+    /// session - called after RefreshAsync replaces every GameEntry wholesale, so an active session's
+    /// badge doesn't vanish just because a rescan happened mid-game. The update guard itself never
+    /// needs this: DownloadUpdateAsync checks _runningGameId directly, which isn't tied to any
+    /// particular GameEntry instance.</summary>
+    private void ReapplyRunningBadge()
+    {
+        if (_runningGameId is not { } runningId)
+            return;
+
+        var running = _allGames.FirstOrDefault(g => g.Id == runningId);
+        if (running is not null)
+            running.IsRunning = true;
+    }
+
+    /// <summary>The one place _allGames is ever replaced wholesale - RefreshAsync (a real scan) and
+    /// SimulateRefreshResult (the test seam standing in for one) both route through this, so the test
+    /// seam can never drift from what a real refresh actually does to running-game tracking.</summary>
+    private void ReplaceAllGames(List<GameEntry> games)
+    {
+        _allGames = games;
+        ReapplyRunningBadge();
+    }
+
+    /// <summary>Test seam: applies exactly the _allGames-replacement + running-badge-reconciliation a
+    /// real scan performs (see ReplaceAllGames), without requiring GameScannerService's real
+    /// filesystem/registry work behind it. Production code only ever reaches ReplaceAllGames via
+    /// RefreshAsync. See LibraryViewModelRunningGameTests.</summary>
+    internal void SimulateRefreshResult(List<GameEntry> games) => ReplaceAllGames(games);
+
+    /// <summary>Exposed for tests that need to assert on running-game tracking directly - exercising
+    /// it through DownloadUpdateCommand would also require faking a real update check just to
+    /// populate _pendingUpdate first. See LibraryViewModelRunningGameTests.</summary>
+    internal string? RunningGameId => _runningGameId;
+
+    private void ApplyFoundUpdate(UpdateInfo update)
+    {
+        _pendingUpdate = update;
+        AvailableUpdateVersion = update.TargetFullRelease.Version.ToString();
+        UpdateAvailable = true;
+    }
+
+    partial void OnCheckForUpdatesChanged(bool value)
+    {
+        _settings.CheckForUpdates = value;
+        _settingsService.Save(_settings);
+    }
+
+    [RelayCommand]
+    private void DismissUpdate() => UpdateAvailable = false;
+
+    /// <summary>The Settings window's "Check for Updates Now" button - runs regardless of the
+    /// CheckForUpdates toggle (an explicit click is a request to check right now, not a request to
+    /// change the toggle), and unlike the silent startup check, gives feedback either way so the
+    /// button doesn't look like it did nothing when already up to date.</summary>
+    [RelayCommand]
+    private async Task CheckForUpdateNowAsync()
+    {
+        StatusText = "Checking for updates...";
+        var result = await _updateService.CheckForUpdateAsync();
+
+        if (result.Status == UpdateCheckStatus.UpdateAvailable)
+        {
+            ApplyFoundUpdate(result.Update!);
+            StatusText = $"Update available: v{AvailableUpdateVersion}";
+            return;
+        }
+
+        StatusText = result.Status switch
+        {
+            UpdateCheckStatus.UpToDate => "You're on the latest version.",
+            UpdateCheckStatus.NotInstalled => "Update checks aren't available for this copy (not an installed build).",
+            _ => "Couldn't check for updates - try again later.",
+        };
+    }
+
+    [RelayCommand(CanExecute = nameof(CanDownloadUpdate))]
+    private async Task DownloadUpdateAsync()
+    {
+        if (_pendingUpdate is not { } update)
+            return;
+
+        // Never restart the app out from under an active play session - _runningGameId is set/cleared
+        // by MarkGameRunning/MarkGameNotRunning, the same calls that drive the "Running" badge, and
+        // unlike scanning _allGames it survives a rescan replacing every GameEntry mid-session.
+        if (_runningGameId is not null)
+        {
+            StatusText = "Can't update while a game is running - try again after it closes.";
+            return;
+        }
+
+        IsUpdating = true;
+        StatusText = $"Downloading update {AvailableUpdateVersion}...";
+        try
+        {
+            await _updateService.DownloadAndApplyAsync(update,
+                new Progress<int>(percent => StatusText = $"Downloading update {AvailableUpdateVersion}... {percent}%"));
+
+            // ApplyUpdatesAndRestart exits this process on success - nothing below normally runs.
+        }
+        catch (Exception ex)
+        {
+            // Broad by design: Velopack can fail in ways beyond plain I/O (checksum mismatch, a held
+            // update lock, a corrupt package) and every one of them must still land here rather than
+            // escape this command and leave the UI stuck showing "Updating..." forever - see the
+            // finally block below, which is what actually guarantees that can't happen.
+            Logger.Error("Failed to download/apply the update.", ex);
+            StatusText = $"Update failed: {ex.Message}";
+        }
+        finally
+        {
+            IsUpdating = false;
+        }
+    }
+
+    private bool CanDownloadUpdate() => !IsUpdating;
 
     partial void OnDetectSteamChanged(bool value) => SaveDetectSetting(v => _settings.DetectSteam = v, value);
     partial void OnDetectEpicChanged(bool value) => SaveDetectSetting(v => _settings.DetectEpic = v, value);
@@ -300,7 +538,7 @@ public partial class LibraryViewModel : ObservableObject
             if (!ReferenceEquals(_refreshCts, cts))
                 return;
 
-            _allGames = result.Games;
+            ReplaceAllGames(result.Games);
 
             // Merged here, on the UI thread, rather than written straight into _settings.Overrides
             // from the background scan thread - see GameScannerService.ScanAllAsync's remarks on why

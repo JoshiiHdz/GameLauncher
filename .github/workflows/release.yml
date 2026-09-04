@@ -1,0 +1,78 @@
+name: Release
+
+# Triggered by pushing a version tag (git tag v1.17.0 && git push origin v1.17.0), not by every
+# commit - unlike ci.yml, this actually publishes a public GitHub Release with an installer attached,
+# so it only runs when a release is explicitly being cut.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # vpk upload github creates/uploads release assets - the default GITHUB_TOKEN is
+                   # read-only on many repos, and this job would otherwise fail at the upload step.
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Extract version from tag
+        id: get-version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Pinned to match the Velopack package version referenced by GameLauncher.csproj - Velopack
+      # only officially supports matching vpk CLI / SDK versions, and an unpinned "latest" here would
+      # silently drift out of sync with the app the next time vpk cuts a release.
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Restore
+        run: dotnet restore GameLauncher.sln
+
+      # Same gate ci.yml enforces on every push/PR - a release is exactly the wrong place to skip it,
+      # since a tag push here goes straight to a public GitHub Release with no other review step.
+      - name: Test
+        run: dotnet test GameLauncher.sln -c Release
+
+      # Not PublishSingleFile: vpk pack does its own bundling on top of a plain multi-file
+      # self-contained publish (see GameLauncher.csproj's remarks on the StartupObject property).
+      # -p:Version overrides the csproj's <Version> for this build only, so the published exe's
+      # AssemblyVersion (and so AppInfo.Version, shown in Settings/About) always matches the tag
+      # that triggered this release, even if the checked-in csproj value has fallen behind.
+      - name: Publish
+        run: >
+          dotnet publish src/GameLauncher/GameLauncher.csproj -c Release -r win-x64 --self-contained -o publish
+          -p:Version=${{ steps.get-version.outputs.version }}
+
+      # Pulls the previous release's assets so vpk pack can compute a delta patch, not just a full
+      # installer - the whole point of using Velopack over a bare "replace the exe" updater. Skips
+      # silently (via continue-on-error) on the very first Velopack-based release, where there's
+      # nothing yet to diff against.
+      - name: Download previous release for delta patching
+        continue-on-error: true
+        run: vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+
+      # -u is Velopack's package/app id, not a display name - it's baked into every installed user's
+      # update-lock/shortcut/install-folder identity. "GameLauncher" alone is generic enough to
+      # plausibly collide with someone else's app of the same name; JoshiiHdz.GameLauncher is unique
+      # to this repo's owner. Set once, before the first real package - changing it after anyone has
+      # installed would orphan their existing install rather than update it.
+      - name: Pack
+        run: vpk pack -u JoshiiHdz.GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe
+
+      - name: Upload to GitHub Releases
+        run: >
+          vpk upload github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --publish
+          --releaseName "Game Launcher v${{ steps.get-version.outputs.version }}"
+          --tag ${{ github.ref_name }}

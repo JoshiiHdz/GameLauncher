@@ -30,4 +30,8 @@ public sealed class AppSettings
     /// for non-Steam games is fetched from SteamGridDB instead of falling back to the exe icon.
     /// </summary>
     public string? SteamGridDbApiKey { get; set; }
+
+    /// <summary>Check GitHub for a newer release on startup. Off just skips the check entirely -
+    /// UpdateService.CheckForUpdateAsync is never called, not merely ignored.</summary>
+    public bool CheckForUpdates { get; set; } = true;
 }

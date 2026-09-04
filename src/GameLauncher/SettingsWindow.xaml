@@ -101,6 +101,14 @@
                     <Run Text="Game Launcher &#8226; Version " /><Run Text="{x:Static services:AppInfo.Version}" />
                 </TextBlock>
 
+                <ui:ToggleSwitch Content="Check for updates on startup"
+                                 IsChecked="{Binding CheckForUpdates}" Margin="0,0,0,10" />
+
+                <ui:Button Content="Check for Updates Now"
+                           Command="{Binding CheckForUpdateNowCommand}"
+                           Icon="{ui:SymbolIcon ArrowSync24}"
+                           HorizontalAlignment="Stretch" Margin="0,0,0,8" />
+
                 <ui:Button Content="Open Logs Folder"
                            Command="{Binding OpenLogsFolderCommand}"
                            Icon="{ui:SymbolIcon DocumentText24}"

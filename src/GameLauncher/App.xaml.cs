@@ -3,12 +3,33 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 using GameLauncher.Services;
+using Velopack;
 using Wpf.Ui.Appearance;
 
 namespace GameLauncher;
 
 public partial class App : Application
 {
+    /// <summary>
+    /// Explicit entry point, replacing the Main() WPF would otherwise generate from App.xaml's
+    /// StartupUri (see the csproj: App.xaml is reclassified from ApplicationDefinition to a plain
+    /// Page specifically so that generated Main doesn't exist to conflict with this one).
+    /// VelopackApp.Build().Run() has to run before anything else in the app - after installing or
+    /// applying an update, Velopack relaunches the app with special arguments to run
+    /// install/update/uninstall hooks (e.g. creating/removing shortcuts), and this is what
+    /// intercepts those before any of the app's own startup logic (the single-instance mutex check
+    /// in OnStartup included) sees them. A normal launch passes straight through as a no-op.
+    /// </summary>
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        VelopackApp.Build().Run();
+
+        var app = new App();
+        app.InitializeComponent();
+        app.Run();
+    }
+
     // Sampled from the app icon itself (the dominant fill color across its red/orange artwork)
     // so every accented control - primary buttons, focus rings, the sort dropdown's selection -
     // matches the logo instead of WPF-UI's default Windows blue.

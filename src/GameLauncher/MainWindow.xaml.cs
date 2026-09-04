@@ -13,6 +13,7 @@ public partial class MainWindow : FluentWindow
     private readonly GameSessionWatcher _sessionWatcher = new();
     private CancellationTokenSource? _sessionCts;
     private GameEntry? _watchedGame;
+    private int _watchedSessionId;
 
     public MainWindow()
     {
@@ -58,9 +59,17 @@ public partial class MainWindow : FluentWindow
         if (DataContext is not LibraryViewModel vm)
             return;
 
-        // Session tracking (and so the "Running" badge) runs regardless of the tray setting -
-        // MinimizeToTrayWhileGaming only decides whether the window also hides/restores itself.
-        game.IsRunning = true;
+        // Session tracking (and so the "Running" badge and LibraryViewModel's update guard) runs
+        // regardless of the tray setting - MinimizeToTrayWhileGaming only decides whether the window
+        // also hides/restores itself. Routed through the view model rather than setting
+        // GameEntry.IsRunning directly, so its running-game tracking (which survives a rescan
+        // replacing every GameEntry) can never drift out of sync with the badge. The returned session
+        // id is what makes the cleanup call below safe regardless of call order: relaunching this
+        // exact game after a refresh means the superseded entry and the new one share the same game
+        // id, so only a session id - not the game id - can tell "the session being cleaned up" apart
+        // from "the session that just replaced it."
+        var previousSessionId = _watchedSessionId;
+        _watchedSessionId = vm.MarkGameRunning(game);
 
         // Only one game session is tracked at a time; launching again supersedes the previous watch.
         // Clear the superseded game's badge right here, rather than trusting the cancelled watch to
@@ -69,11 +78,17 @@ public partial class MainWindow : FluentWindow
         // "cancelled" apart from "exited" for the game that just got superseded.
         _sessionCts?.Cancel();
         if (_watchedGame is { } previouslyWatched && previouslyWatched != game)
-            previouslyWatched.IsRunning = false;
+            vm.MarkGameNotRunning(previouslyWatched, previousSessionId);
         _watchedGame = game;
 
         _sessionCts = new CancellationTokenSource();
         var token = _sessionCts.Token;
+
+        // Captured locally rather than read from _watchedSessionId after the await below: a newer
+        // launch can overwrite that field (and _watchedGame) before this session's watch resolves,
+        // and the cleanup call at the end of this method must always identify *this* session, not
+        // whatever the field currently holds.
+        var sessionId = _watchedSessionId;
 
         if (vm.MinimizeToTrayWhileGaming)
         {
@@ -105,7 +120,7 @@ public partial class MainWindow : FluentWindow
         if (!exited)
             return;
 
-        game.IsRunning = false;
+        vm.MarkGameNotRunning(game, sessionId);
 
         // Restore regardless of which way the window was put away - RestoreFromTray() handles a
         // plain minimized window fine too (Show()/WindowState=Normal/Activate all still apply, and
