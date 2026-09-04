@@ -22,7 +22,15 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # fetch-depth: 0 (full history, all tags) is required for the annotated-tag check below to work
+      # at all - actions/checkout's default shallow (depth-1) fetch pulls only the tagged *commit*, not
+      # the tag object itself, so a genuinely annotated tag's local ref ends up pointing straight at
+      # the commit just like a lightweight one would - git cat-file -t reports "commit" either way, a
+      # false positive discovered by v1.17.0's actual release run failing this check despite being
+      # tagged with -a -m.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
