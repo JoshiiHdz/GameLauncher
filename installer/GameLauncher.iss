@@ -164,6 +164,21 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
   begin
+    // Disabling the destination field in InitializeWizard only stops the *normal UI* from changing
+    // it - a scripted/unattended run (Setup.exe /VERYSILENT /DIR="somewhere else") sets {app} straight
+    // from the command line and never touches that disabled control at all. This is the check that
+    // actually can't be bypassed: it re-reads the same registry state InitializeWizard used, and
+    // compares it against whatever {app} finally resolved to, right before Velopack's real installer
+    // ever runs - the one point that actually matters, regardless of how {app} got set.
+    if HasExistingInstall and
+       (CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), ExistingInstallPath) <> 0) then
+    begin
+      MsgBox('Game Launcher is already installed at:' + #13#10 + ExistingInstallPath + #13#10#13#10 +
+        'To install it somewhere else, first uninstall the existing copy from Windows Settings > ' +
+        'Apps, then run this installer again.', mbCriticalError, MB_OK);
+      Abort;
+    end;
+
     if not RunVelopackSetup() then
     begin
       MsgBox('Game Launcher could not be installed. Please try again, or check ' +
