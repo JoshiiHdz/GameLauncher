@@ -5,7 +5,13 @@ namespace GameLauncher.Services.SessionTracking;
 /// millisecond-scale values (paired with a fake TimeProvider) instead of actually waiting the 2s/12s/
 /// 10-minute real-world durations production uses. Default reproduces exactly what was previously
 /// hardcoded as private static readonly fields on GameSessionWatcher - see each field below for the
-/// reasoning (taken from real gaming-PC logs) behind its value.
+/// reasoning behind its value. These are empirical heuristics calibrated against a small number of real
+/// gaming-PC logs, not vendor-documented or otherwise guaranteed bounds - Steam, Epic, EA, Ubisoft, and
+/// Rockstar launchers can all front a wide variety of downstream anti-cheat/bootstrapper processes with
+/// no common, documented timing contract between them, so a value here should be read as "long enough
+/// that every real chain logged so far fits comfortably on the right side of it," not as a proven upper
+/// or lower bound. Revisit the relevant value (with the new log, the same way each one below was
+/// originally set) if a genuine counterexample ever turns up.
 /// </summary>
 public sealed record GameSessionWatcherOptions(
     TimeSpan PollInterval,
@@ -48,19 +54,35 @@ public sealed record GameSessionWatcherOptions(
         // certainly the actual game being played, not a stub.
         LongSessionThreshold: TimeSpan.FromSeconds(60),
 
-        // A real FC26 session logged all the way through: the initial process was watched ~8.4s before
-        // handing off to EAAntiCheat.GameServiceLauncher, which itself ran ~49.2s before exiting - a
-        // continuous chain of ~57.7s, well past "still a bootstrapper" territory, but with neither
-        // individual batch ever reaching LongSessionThreshold on its own. GameSessionWatcher used to
-        // judge every handoff purely on that batch's own uptime, so this whole chain still fell back to
-        // the full 12s HandoffGracePeriod on its second handoff - the window sat un-restored for 12
-        // seconds after a session anyone would call "clearly real" had ended. ChainConfirmationThreshold
-        // lets GameSessionWatcher reach that same "this is a real session" conclusion from the sum of an
-        // uninterrupted handoff chain, not just a single batch's own runtime, and - once reached - stays
-        // confirmed for every later handoff in the same chain (see confirmedRealSession in
-        // GameSessionWatcher.WaitForExitAsync). Deliberately lower than LongSessionThreshold: 45s is
-        // comfortably past the ~15s "every confirmed-working launch discovers its process by here" figure
-        // DiscoveryTimeout's own remarks cite, so an early, still-unconfirmed launcher/bootstrapper
-        // handoff (the 7-8s cases HandoffGracePeriod exists for) can never accidentally cross it.
+        // Derived from a single real FC26 session logged all the way through. The log's own timestamps
+        // put ~8.4s between "began watching the initial process" and "EAAntiCheat.GameServiceLauncher
+        // observed running" - but that figure isn't purely the first process's own runtime, since it
+        // also folds in an unknown amount of exit-detection and handoff-polling delay, so it's not relied
+        // on here. What the log DOES directly evidence is EAAntiCheat.GameServiceLauncher itself: once
+        // observed, it ran for ~49.2s before disappearing - a figure bounded by two directly-observed
+        // events, not by proxy through an intermediate stage - and 49.2s alone already exceeds this 45s
+        // threshold, without needing the less certain first-stage figure at all. Neither stage individually
+        // reached LongSessionThreshold (60s). GameSessionWatcher used to judge every handoff purely on
+        // that batch's own uptime, so this whole chain still fell back to the full 12s HandoffGracePeriod
+        // on its second handoff - the window sat un-restored for 12 seconds after a stage that had, on
+        // its own, already run for longer than this threshold.
+        //
+        // ChainConfirmationThreshold lets GameSessionWatcher reach that same "this is probably a real
+        // session" conclusion from the sum of an uninterrupted chain's own ACTIVE running time - time a
+        // process was genuinely being watched, excluding handoff gaps spent waiting to see whether
+        // anything would replace it (see cumulativeActiveDuration in WaitForExitAsync) - not just a
+        // single batch's own runtime. This is an empirical heuristic calibrated against the one real
+        // chain logged so far, not a vendor-documented or otherwise guaranteed bound on how long a
+        // launcher/anti-cheat bootstrapper stage can legitimately run (see this record's own remarks) -
+        // treat 45s as "long enough that the one real chain logged so far crossed it, and no bootstrapper
+        // stage has yet been observed to," not as a proven ceiling. If a genuinely slow bootstrapper chain
+        // is ever found taking this long, this constant needs revisiting with that log.
+        //
+        // Once reached - via either signal - confirmation stays sticky for every later handoff in the
+        // same chain (see confirmedRealSession in GameSessionWatcher.WaitForExitAsync). Deliberately
+        // lower than LongSessionThreshold and comfortably past the ~15s "every confirmed-working launch
+        // discovers its process by here" figure DiscoveryTimeout's own remarks cite, so an early, still-
+        // unconfirmed launcher/bootstrapper handoff (the 7-8s cases HandoffGracePeriod exists for) is
+        // nowhere near it.
         ChainConfirmationThreshold: TimeSpan.FromSeconds(45));
 }

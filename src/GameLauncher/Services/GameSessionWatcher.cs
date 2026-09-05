@@ -115,13 +115,30 @@ public sealed class GameSessionWatcher
         // that process actually exits below.
         var startTimes = running.ToDictionary(p => p.Id, p => p.GetStartTimeUtc());
 
-        // Marks the start of this whole watch - the first moment a process was actually found, not any
-        // one batch's own start time. A launcher/anti-cheat-init/real-game handoff chain can run for a
-        // real, uninterrupted while without any single stage individually living past
-        // LongSessionThreshold (see ChainConfirmationThreshold's remarks for the real FC26 log this was
-        // measured from) - chainStartUtc is what lets the chain's *total* elapsed time count as evidence
-        // too, not just a single batch's.
-        var chainStartUtc = _timeProvider.GetUtcNow();
+        // When the CURRENT batch started being watched - reset every time a new batch takes over (see
+        // the bottom of the loop below), so "how long has this batch been active" always measures from
+        // the right starting point.
+        var batchWatchStartUtc = _timeProvider.GetUtcNow();
+
+        // Sum of each batch's own active watched duration - deliberately does NOT include the time
+        // spent inside WaitForHandoffAsync between batches (see cumulativeActiveDuration's update
+        // below), since that's time the game was NOT confirmed running, just time this watcher spent
+        // waiting to see whether anything would replace it. A launcher/anti-cheat-init/real-game handoff
+        // chain can add up to a real, substantial amount of *active* time this way without any single
+        // stage individually living past LongSessionThreshold (see ChainConfirmationThreshold's remarks
+        // for the real FC26 log this was measured from) - but a chain with long gaps between short-lived
+        // stages (a flaky launcher retrying, say) must NOT be able to rack up the same confirmation just
+        // by sitting in those gaps; only genuine running time should count.
+        //
+        // This is watcher-OBSERVED duration, not a perfectly exact measurement: batchWatchStartUtc marks
+        // the moment WaitForHandoffAsync's polling noticed the new batch, which can lag the moment it
+        // actually started running by up to one HandoffPollInterval (a process that spawns partway
+        // through a poll interval isn't "seen" until the next tick), so a batch is typically undercounted
+        // by up to that margin. This is an approximation, not a guarantee in either direction - exit-
+        // detection delays, thread scheduling, or a forward wall-clock adjustment could still make a
+        // batch read slightly high - so treat this as a close approximation of active time, not an exact
+        // or strictly conservative one.
+        var cumulativeActiveDuration = TimeSpan.Zero;
 
         // Sticky once set: a chain that has already proven itself "clearly a real session" (via either
         // signal below) doesn't un-prove itself just because the next stage in the same chain happens to
@@ -166,18 +183,37 @@ public sealed class GameSessionWatcher
             var wasLongSession = startTimes.Values.Any(started =>
                 started is { } s && _timeProvider.GetUtcNow() - s >= _options.LongSessionThreshold);
 
+            var batchActiveDuration = _timeProvider.GetUtcNow() - batchWatchStartUtc;
+            cumulativeActiveDuration += batchActiveDuration;
+
             // Second, independent way to reach the same "clearly a real session" conclusion: the whole
-            // uninterrupted chain has now run long enough on its own, even though no single batch in it
-            // ever individually crossed LongSessionThreshold. See ChainConfirmationThreshold's remarks
-            // for the real handoff chain (launcher -> anti-cheat init -> game) this was measured from.
-            var chainConfirmed = _timeProvider.GetUtcNow() - chainStartUtc >= _options.ChainConfirmationThreshold;
+            // chain's ACTIVE running time (excluding handoff gaps) has now added up to enough on its
+            // own, even though no single batch in it ever individually crossed LongSessionThreshold. See
+            // ChainConfirmationThreshold's remarks for the real handoff chain (launcher -> anti-cheat
+            // init -> game) this was measured from, and cumulativeActiveDuration's own remarks for why
+            // this is active time only, not wall-clock time since the chain started.
+            var chainConfirmed = cumulativeActiveDuration >= _options.ChainConfirmationThreshold;
+
+            var confirmationReason = wasLongSession ? "single batch exceeded LongSessionThreshold"
+                : chainConfirmed ? "cumulative watched duration exceeded ChainConfirmationThreshold"
+                : confirmedRealSession ? "already confirmed by an earlier handoff in this chain"
+                : "not yet confirmed";
 
             confirmedRealSession = confirmedRealSession || wasLongSession || chainConfirmed;
             var gracePeriod = confirmedRealSession ? _options.LongSessionHandoffCheck : _options.HandoffGracePeriod;
 
+            Logger.Info($"'{game.Name}' batch active for {batchActiveDuration.TotalSeconds:0.0}s "
+                + $"(cumulative watched {cumulativeActiveDuration.TotalSeconds:0.0}s) - {confirmationReason}, "
+                + $"selected grace period {gracePeriod.TotalSeconds:0}s.");
+
             // A launcher process commonly hands off to the real game and exits well before it's up,
             // so don't trust a single immediate recheck - keep looking for a replacement for a while.
+            // "Wait" rather than "gap": this measures time until a replacement was OBSERVED, not
+            // necessarily time with no process running at all - the replacement could already have been
+            // running for a while before this watcher's polling happened to notice it.
+            var handoffWaitStartUtc = _timeProvider.GetUtcNow();
             var replacement = await WaitForHandoffAsync(game, candidateNames, gracePeriod, ct);
+            var handoffWaitDuration = _timeProvider.GetUtcNow() - handoffWaitStartUtc;
 
             // Same reasoning as above: WaitForHandoffAsync swallows cancellation into an ordinary
             // empty result, indistinguishable from a genuine handoff timeout unless checked here.
@@ -196,14 +232,16 @@ public sealed class GameSessionWatcher
             {
                 Logger.Info($"'{game.Name}' exited{(confirmedRealSession ? " (confirmed real play session)" : "")} - "
                     + $"no replacement process found under '{game.InstallDir}' within the "
-                    + $"{gracePeriod.TotalSeconds:0}s handoff window.");
+                    + $"{gracePeriod.TotalSeconds:0}s handoff window (handoff wait: {handoffWaitDuration.TotalSeconds:0.0}s).");
                 return true;
             }
 
-            Logger.Info($"'{game.Name}' handed off to {replacement.Count} new process(es), still watching: "
+            Logger.Info($"'{game.Name}' handed off to {replacement.Count} new process(es), "
+                + $"time until replacement observed: {handoffWaitDuration.TotalSeconds:0.0}s, still watching: "
                 + string.Join(", ", replacement.Select(p => $"{p.ProcessName} (pid {p.Id}) <- {p.GetPath() ?? "path unknown"}")));
             running = replacement;
             startTimes = running.ToDictionary(p => p.Id, p => p.GetStartTimeUtc());
+            batchWatchStartUtc = _timeProvider.GetUtcNow();
         }
 
         return false;

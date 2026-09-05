@@ -408,6 +408,63 @@ public class GameSessionWatcherTests
     }
 
     [Fact]
+    public async Task ChainConfirmation_WallClockExceedsThresholdViaHandoffGapsAlone_StaysUnconfirmed()
+    {
+        // Distinguishes "cumulative time a process was actually running" from "wall-clock time since
+        // the chain started" - five short-lived batches (p0..p4), each active only ~0.5s, separated by
+        // four handoff gaps of ~11s each (just under the full 12s HandoffGracePeriod - the maximum a
+        // still-unconfirmed handoff can ever take). Wall-clock elapsed since the chain started is
+        // ~2.5s + 4*11s = ~46.5s, past ChainConfirmationThreshold (45s) - but cumulative ACTIVE duration
+        // is only ~2.5s, nowhere close. If confirmation were still measured from wall-clock chain-start
+        // (the pre-fix bug this test guards against), this chain would incorrectly confirm on its final
+        // handoff; measured from active watched-process time alone, it must not.
+        //
+        // Each gap is driven through ~10 individual 1-second polling steps with NO replacement process
+        // present yet, only adding one afterward and stepping one more poll to detect it (~11s total) -
+        // a single big Advance() with the replacement already added beforehand would have left it
+        // sitting in the fake process provider for the *entire* gap, which only proves the watcher wasn't
+        // polling during that time, not that the gap was genuinely process-free.
+        var names = new[] { "p0", "p1", "p2", "p3", "p4" };
+        var f = CreateFixture(names);
+
+        var current = f.ProcessProvider.AddRunning(1, "p0", Path.Combine(InstallDir, "p0.exe"), f.TimeProvider.GetUtcNow());
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+
+        for (var i = 1; i <= 4; i++)
+        {
+            f.TimeProvider.Advance(TimeSpan.FromSeconds(0.5)); // each batch is only briefly active
+            f.ProcessProvider.Exit(current);
+            await Task.Delay(50);
+
+            // ~10s with genuinely nothing present - no replacement process exists in the fake provider
+            // at all during this stretch, so this is a real process-free gap, not just unpolled time.
+            await StepAsync(f.TimeProvider, TimeSpan.FromSeconds(1), steps: 10, task);
+            Assert.False(task.IsCompleted); // still within the unconfirmed 12s window, nothing found yet
+
+            current = f.ProcessProvider.AddRunning(i + 1, names[i], Path.Combine(InstallDir, $"{names[i]}.exe"), f.TimeProvider.GetUtcNow());
+            await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.HandoffPollInterval, steps: 1, task);
+
+            Assert.True(current.ExitWaitPrepared); // detected ~11s into the gap - still within the unconfirmed 12s window
+            Assert.False(task.IsCompleted);
+        }
+
+        // Final batch (p4) exits with nothing left to replace it. Advancing by only the SHORT window
+        // must NOT be enough to conclude - proves this chain is still using the full 12s window despite
+        // wall-clock time since the chain started having long since exceeded ChainConfirmationThreshold.
+        f.TimeProvider.Advance(TimeSpan.FromSeconds(0.5));
+        f.ProcessProvider.Exit(current);
+        await Task.Delay(50);
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.LongSessionHandoffCheck);
+        await Task.Delay(50);
+        Assert.False(task.IsCompleted);
+
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.HandoffGracePeriod);
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result);
+    }
+
+    [Fact]
     public async Task ChainConfirmation_UnconfirmedChain_HandoffAfterSevenSeconds_StillDetectedWithinFullWindow()
     {
         // Guards against the fix over-correcting: an early, still-unconfirmed handoff (chain barely
