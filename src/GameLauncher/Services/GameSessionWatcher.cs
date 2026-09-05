@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using GameLauncher.Models;
@@ -147,17 +148,74 @@ public sealed class GameSessionWatcher
         // between the long and short grace periods depending on each individual stage's own runtime.
         var confirmedRealSession = false;
 
+        // Tracks which process ids have already logged the protected-process fallback warning below,
+        // so a process that keeps refusing WaitForExitAsync for a long time logs once, not on every
+        // throttled recheck.
+        var loggedProtectedFallbackFor = new HashSet<int>();
+
+        // Waits for one process to exit, the same way `await process.WaitForExitAsync(ct)` used to be
+        // called inline - except a wait failure from that call no longer means "exited" on its own. Real
+        // logs (Marvel Rivals, and briefly Fortnite's GDKLauncher) showed a protected process deny the
+        // wait-handle open WaitForExitAsync needs while still genuinely running: the old code treated
+        // that denial as an exit, which sent WaitForHandoffAsync straight into rediscovering the exact
+        // same still-running PID as a "handoff", over and over, with no delay between iterations
+        // (FindRunning succeeds immediately against a process that never went anywhere) - a busy loop
+        // logging every ~16ms. This distinguishes "couldn't wait on it" from "it exited" via
+        // CheckPresence - re-querying the process's PRESENCE (not just its start time - see
+        // CheckPresence's own remarks for why a null GetStartTimeUtc can't be trusted on its own here) -
+        // and if it's still there, backs off for ProtectedProcessLivenessPollInterval and rechecks,
+        // instead of looping immediately or letting the caller hand off to a "replacement" that's
+        // actually the same process. Only Win32Exception/InvalidOperationException - the two failure
+        // modes Process.WaitForExitAsync actually documents for a still-associated process (access denial
+        // and "there's no process to wait on") - go through that fallback; a cancelled wait throws
+        // OperationCanceledException, caught separately below with no liveness check or delay, since
+        // WaitForExitAsync's own doc comment already assigns that outcome to the caller's
+        // ct.IsCancellationRequested check right after this loop.
+        async Task WaitForSingleExitAsync(IGameProcess process, DateTimeOffset? expectedStartTimeUtc)
+        {
+            while (true)
+            {
+                try
+                {
+                    await process.WaitForExitAsync(ct);
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+                {
+                    if (CheckPresence(process, candidateNames, expectedStartTimeUtc) != ProcessPresence.StillAlive)
+                        return; // genuinely gone, or confirmed to now be an unrelated process (PID reuse)
+
+                    if (loggedProtectedFallbackFor.Add(process.Id))
+                    {
+                        Logger.Warn($"'{game.Name}': couldn't wait on process (pid {process.Id}) directly "
+                            + $"({ex.GetType().Name}: {ex.Message}) but it's still discoverable under the "
+                            + $"same identity; falling back to polling every "
+                            + $"{_options.ProtectedProcessLivenessPollInterval.TotalSeconds:0}s until it exits.");
+                    }
+
+                    try
+                    {
+                        await Task.Delay(_options.ProtectedProcessLivenessPollInterval, _timeProvider, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                }
+            }
+        }
+
         while (!ct.IsCancellationRequested)
         {
             foreach (var process in running)
             {
                 try
                 {
-                    await process.WaitForExitAsync(ct);
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or SystemException)
-                {
-                    // Process already gone or inaccessible - treat as exited.
+                    await WaitForSingleExitAsync(process, startTimes[process.Id]);
                 }
                 finally
                 {
@@ -165,12 +223,11 @@ public sealed class GameSessionWatcher
                 }
             }
 
-            // A cancelled `await process.WaitForExitAsync(ct)` above throws OperationCanceledException
-            // - a SystemException subtype - which the catch above swallows the same way it swallows a
-            // genuine "process already gone". Without this check, a launch superseded/shutting down
-            // right here would fall through to WaitForHandoffAsync and could easily conclude "no
-            // replacement found" -> return true, misreporting "this launch is over" when really
-            // something else now owns the state. See WaitForExitAsync's doc comment for the contract.
+            // Cancellation inside WaitForSingleExitAsync above returns without confirming a real exit -
+            // without this check, a launch superseded/shutting down right here would fall through to
+            // WaitForHandoffAsync and could easily conclude "no replacement found" -> return true,
+            // misreporting "this launch is over" when really something else now owns the state. See
+            // WaitForExitAsync's doc comment for the contract.
             if (ct.IsCancellationRequested)
                 return false;
 
@@ -301,6 +358,56 @@ public sealed class GameSessionWatcher
         }
 
         return found;
+    }
+
+    private enum ProcessPresence { StillAlive, IdentityChanged, Gone }
+
+    /// <summary>
+    /// Re-queries whether the process at `processId` is still there, for the one case
+    /// WaitForSingleExitAsync can't tell from GetStartTimeUtc() alone: that method returns null both for
+    /// a process that has genuinely exited AND for one that's still running but denies even the minimal
+    /// PROCESS_QUERY_LIMITED_INFORMATION query too - "null" can't distinguish the two, so trusting it
+    /// alone (an earlier version of this fix did exactly that) reintroduces the same-PID busy loop for
+    /// any process protected heavily enough to deny both the wait and the start-time query.
+    ///
+    /// Presence itself is instead re-derived from FindProcessesByName - the same system-wide name/PID
+    /// enumeration FindRunning uses for initial discovery, which needs no per-process access rights at
+    /// all (it lists PIDs and names straight from the OS process snapshot) - which is exactly why a
+    /// heavily-protected game process can be discovered by name in the first place even when nothing else
+    /// about it can be queried. A start-time comparison is layered on top only when both the original and
+    /// a freshly-read one are available, purely to catch the one thing bare PID presence can't rule out:
+    /// Windows recycling the same PID number for a genuinely different, unrelated process in between
+    /// checks. When neither start time is available, this conservatively reports StillAlive rather than
+    /// guessing - the caller must disprove liveness, not assume it.
+    ///
+    /// Takes the actual `process` reference (not just its id) so the matching entry from
+    /// FindProcessesByName's results - if that happens to BE the same object, rather than a fresh wrapper
+    /// around the same OS process - is never disposed here: this method must never dispose an object its
+    /// caller still owns and intends to keep using.
+    /// </summary>
+    private ProcessPresence CheckPresence(IGameProcess process, HashSet<string> candidateNames, DateTimeOffset? expectedStartTimeUtc)
+    {
+        var matches = _processProvider.FindProcessesByName(candidateNames);
+        try
+        {
+            var match = matches.FirstOrDefault(p => p.Id == process.Id);
+            if (match is null)
+                return ProcessPresence.Gone;
+
+            var currentStartTimeUtc = match.GetStartTimeUtc();
+            var identityChanged = expectedStartTimeUtc is not null && currentStartTimeUtc is not null
+                && currentStartTimeUtc != expectedStartTimeUtc;
+
+            return identityChanged ? ProcessPresence.IdentityChanged : ProcessPresence.StillAlive;
+        }
+        finally
+        {
+            foreach (var p in matches)
+            {
+                if (!ReferenceEquals(p, process))
+                    p.Dispose();
+            }
+        }
     }
 
     private static bool IsUnder(string? path, string directory)

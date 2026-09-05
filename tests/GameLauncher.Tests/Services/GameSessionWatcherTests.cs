@@ -548,4 +548,196 @@ public class GameSessionWatcherTests
         var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(result);
     }
+
+    // ---- Protected-process wait denial (same-PID busy loop) ---------------------------------------
+    //
+    // Real logs this section is derived from: a Marvel Rivals session logged 3,751 handoff lines and
+    // 3,752 batch lines in ~85 seconds (the same PIDs rediscovered roughly every 20ms), and Fortnite
+    // briefly did the same with its GDKLauncher PID. Cause: Process.WaitForExitAsync can throw a
+    // Win32Exception for an access-protected process that is still genuinely running (it can allow the
+    // minimal PROCESS_QUERY_LIMITED_INFORMATION read GetStartTimeUtc needs while still refusing the
+    // broader access a real wait needs). The old code caught that exception the same as a real exit,
+    // which sent WaitForHandoffAsync straight into rediscovering the exact same still-running PID as a
+    // "handoff" - with nothing throttling the retries, since FindRunning succeeds instantly against a
+    // process that never went anywhere.
+
+    [Fact]
+    public async Task ProtectedProcess_WaitDenied_WhileStillAlive_PollsWithoutBusyLoopAndRestoresAfterExit()
+    {
+        var f = CreateFixture("game");
+        var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), f.TimeProvider.GetUtcNow());
+        process.DenyWaitForExit(); // set before the watcher ever calls WaitForExitAsync on it
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50); // discovers the process; its first WaitForExitAsync call throws immediately
+
+        Assert.Equal(1, process.WaitAttempts);
+        Assert.False(task.IsCompleted); // backed off instead of concluding "exited"
+
+        // Advancing several full poll intervals must cost only one retry each - proves the throttled
+        // backoff, not a tight spin (which would have driven WaitAttempts into the thousands over the
+        // same fake-time span, as the real logs showed).
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 3, task);
+        Assert.Equal(4, process.WaitAttempts);
+        Assert.False(task.IsCompleted); // still treating the process as alive, not restoring yet
+
+        // The process actually exits now - the next throttled recheck must notice via identity (the
+        // still-denied wait call keeps throwing) and correctly treat it as a genuine exit rather than
+        // looping forever.
+        f.ProcessProvider.Exit(process);
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 1, task);
+        await Task.Delay(50); // let the exit continuation reach WaitForHandoffAsync's own Task.Delay
+
+        Assert.False(task.IsCompleted); // unconfirmed session - still owed the full HandoffGracePeriod
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.HandoffGracePeriod);
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ProtectedProcess_WaitDenied_DoesNotGetMistakenForAHandoffReplacement()
+    {
+        // Narrower regression for the exact mechanism the real logs showed: without the identity check,
+        // the denied-wait "exit" fell straight into WaitForHandoffAsync, whose FindRunning immediately
+        // rediscovers the same still-running process and reports it as a "handed off to N new
+        // process(es)" replacement - masking the same PID as a brand new batch, repeatedly. This proves
+        // that no such handoff is ever reported while the identity hasn't actually changed: the process
+        // is never disposed/replaced mid-denial, only once it genuinely exits.
+        var f = CreateFixture("game");
+        var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), f.TimeProvider.GetUtcNow());
+        process.DenyWaitForExit();
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 5, task);
+
+        Assert.False(process.Disposed); // never treated as exited/replaced while still genuinely alive
+        Assert.False(task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task ProtectedProcess_NoStartTimeEverAvailable_StillTreatedAsAliveNotExited()
+    {
+        // Red/green regression for an earlier version of this fix: it distinguished "couldn't wait" from
+        // "exited" purely via GetStartTimeUtc() returning null - but that method returns null both for a
+        // process that has genuinely exited AND for one that's still running but denies even that minimal
+        // query. A process this watcher never had a start time for in the first place (both the
+        // originally-captured value AND every later recheck are null) hit that ambiguity on the very
+        // first denial and was wrongly concluded "exited", reintroducing the same-PID busy loop for
+        // exactly the processes least identifiable. CheckPresence fixes this by keying off actual
+        // discoverability (FindProcessesByName) rather than the start-time read.
+        var f = CreateFixture("game");
+        var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), startTimeUtc: null);
+        process.DenyWaitForExit();
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+
+        Assert.Equal(1, process.WaitAttempts);
+        Assert.False(task.IsCompleted); // must NOT be concluded "exited" just because start time is unknown
+
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 3, task);
+        Assert.Equal(4, process.WaitAttempts); // still one retry per throttled interval - no busy loop
+        Assert.False(task.IsCompleted);
+        Assert.False(process.Disposed);
+
+        // Green half: it still restores correctly once genuinely gone.
+        f.ProcessProvider.Exit(process);
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 1, task);
+        await Task.Delay(50);
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.HandoffGracePeriod);
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ProtectedProcess_StartTimeBecomesUnavailableMidway_StillTreatedAsAliveNotExited()
+    {
+        // Same ambiguity as the test above, but for a process that WAS identifiable at first (a valid
+        // start time was captured when its batch began) and only later - mid-polling - stops answering
+        // even the minimal start-time query, while never actually exiting. The old GetStartTimeUtc-only
+        // check would have flipped from "alive" to "exited" the moment this happened, purely because the
+        // query itself started failing, not because anything about the process changed.
+        var f = CreateFixture("game");
+        var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), f.TimeProvider.GetUtcNow());
+        process.DenyWaitForExit();
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+        Assert.Equal(1, process.WaitAttempts);
+
+        // From here on, even the minimal identity query is denied too - but the process is still
+        // genuinely running (never removed from the fake provider).
+        process.DenyStartTimeQuery();
+
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 3, task);
+        Assert.Equal(4, process.WaitAttempts); // still throttled, not a busy loop
+        Assert.False(task.IsCompleted);
+        Assert.False(process.Disposed);
+
+        f.ProcessProvider.Exit(process);
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 1, task);
+        await Task.Delay(50);
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.HandoffGracePeriod);
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task Cancellation_DuringProtectedProcessLivenessPolling_ReturnsFalsePromptly()
+    {
+        // Cancelling while backed off inside the throttled ProtectedProcessLivenessPollInterval delay
+        // (WaitForSingleExitAsync's inner try/catch around that Task.Delay) must return false promptly -
+        // the same contract every other wait in this method already has - not hang, and not get mistaken
+        // for a confirmed exit.
+        var f = CreateFixture("game");
+        var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), f.TimeProvider.GetUtcNow());
+        process.DenyWaitForExit();
+        using var cts = new CancellationTokenSource();
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, cts.Token);
+        await Task.Delay(50); // discovers the process; its first WaitForExitAsync call throws, entering the throttled backoff
+
+        cts.Cancel();
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ProtectedProcess_SamePidReusedByDifferentProcess_DoesNotBusyLoopUnderStaleIdentity()
+    {
+        // Bare PID presence alone can't rule out Windows recycling that PID for a genuinely different
+        // process between one liveness recheck and the next - CheckPresence also compares creation
+        // times, when both are known, to catch exactly that. This proves a reused PID doesn't get stuck
+        // being treated as "the same process, still alive" forever: once the mismatch is observed, the
+        // watcher moves on (picking the occupant back up as a fresh batch/handoff) rather than settling
+        // into a permanent one-attempt-per-interval steady state against a stale identity.
+        var f = CreateFixture("game");
+        var originalStart = f.TimeProvider.GetUtcNow();
+        var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), originalStart);
+        process.DenyWaitForExit();
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+        Assert.Equal(1, process.WaitAttempts);
+
+        // A different process now occupies this exact PID (still "discoverable" - never removed from the
+        // fake provider - just with a different creation time).
+        process.SimulatePidReusedByDifferentProcess(originalStart + TimeSpan.FromSeconds(30));
+
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 1, task);
+        var attemptsRightAfterReuse = process.WaitAttempts;
+
+        // Whatever happens next (picked back up as a fresh batch under the new identity, or otherwise),
+        // it must still be throttled - one attempt per interval, not a busy loop - over several more
+        // fake-time intervals.
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.ProtectedProcessLivenessPollInterval, steps: 3, task);
+        Assert.True(process.WaitAttempts <= attemptsRightAfterReuse + 3);
+        Assert.False(task.IsCompleted);
+    }
 }

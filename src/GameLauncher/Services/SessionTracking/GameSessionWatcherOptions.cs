@@ -20,7 +20,8 @@ public sealed record GameSessionWatcherOptions(
     TimeSpan LongSessionHandoffCheck,
     TimeSpan HandoffPollInterval,
     TimeSpan LongSessionThreshold,
-    TimeSpan ChainConfirmationThreshold)
+    TimeSpan ChainConfirmationThreshold,
+    TimeSpan ProtectedProcessLivenessPollInterval)
 {
     public static GameSessionWatcherOptions Default { get; } = new(
         PollInterval: TimeSpan.FromSeconds(2),
@@ -84,5 +85,16 @@ public sealed record GameSessionWatcherOptions(
         // discovers its process by here" figure DiscoveryTimeout's own remarks cite, so an early, still-
         // unconfirmed launcher/bootstrapper handoff (the 7-8s cases HandoffGracePeriod exists for) is
         // nowhere near it.
-        ChainConfirmationThreshold: TimeSpan.FromSeconds(45));
+        ChainConfirmationThreshold: TimeSpan.FromSeconds(45),
+
+        // How long to wait between liveness rechecks of a process that refused a direct exit-wait (see
+        // the same-PID busy-loop this guards against in GameSessionWatcher.WaitForExitAsync). Real log:
+        // a Marvel Rivals / Fortnite process denied Process.WaitForExitAsync's wait-handle open (a
+        // protected process can allow the minimal PROCESS_QUERY_LIMITED_INFORMATION read GetStartTimeUtc
+        // needs while still refusing the broader access WaitForExitAsync needs), which the old code
+        // mistook for "exited" and immediately rediscovered the same still-running PID as a "handoff" -
+        // over and over with no delay between iterations, since FindRunning succeeds instantly against a
+        // process that never went anywhere. 1s matches PollInterval/HandoffPollInterval's own cadence:
+        // frequent enough to notice the real exit promptly, far from the sub-20ms spin the bug produced.
+        ProtectedProcessLivenessPollInterval: TimeSpan.FromSeconds(1));
 }
