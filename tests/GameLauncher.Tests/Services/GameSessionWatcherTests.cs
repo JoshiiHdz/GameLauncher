@@ -122,7 +122,9 @@ public class GameSessionWatcherTests
         // Task.Delay makes it return "no replacement found" - indistinguishable, on its own, from a
         // genuine handoff timeout. The explicit ct.IsCancellationRequested check right after
         // WaitForHandoffAsync returns (see WaitForExitAsync) is what tells these two apart and reports
-        // false here instead of incorrectly concluding "this launch is over".
+        // false here instead of incorrectly concluding "this launch is over". This exercises the
+        // unconfirmed (full HandoffGracePeriod) path - see the sibling test below for the confirmed
+        // (short LongSessionHandoffCheck) path.
         var f = CreateFixture("game");
         var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), f.TimeProvider.GetUtcNow());
         using var cts = new CancellationTokenSource();
@@ -131,6 +133,31 @@ public class GameSessionWatcherTests
         await Task.Delay(50);
 
         f.ProcessProvider.Exit(process); // enters the handoff wait
+        await Task.Delay(50);
+
+        cts.Cancel();
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task Cancellation_DuringConfirmedShortHandoffWait_ReturnsFalse()
+    {
+        // Same contract as Cancellation_DuringHandoffWait_ReturnsFalse above, but for a session already
+        // confirmed real (via LongSessionThreshold, which also implies ChainConfirmationThreshold - see
+        // GameSessionWatcherOptions' remarks) and so waiting on the short LongSessionHandoffCheck window
+        // instead of the full HandoffGracePeriod - cancellation must still be told apart from a genuine
+        // handoff timeout regardless of which window's Task.Delay it lands in.
+        var f = CreateFixture("game");
+        var longRunningStart = f.TimeProvider.GetUtcNow() - GameSessionWatcherOptions.Default.LongSessionThreshold - TimeSpan.FromSeconds(1);
+        var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), longRunningStart);
+        using var cts = new CancellationTokenSource();
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, cts.Token);
+        await Task.Delay(50);
+
+        f.ProcessProvider.Exit(process); // confirmed real session - enters the SHORT handoff wait
         await Task.Delay(50);
 
         cts.Cancel();
@@ -330,6 +357,137 @@ public class GameSessionWatcherTests
         await Task.Delay(50); // let the exit's continuation reach WaitForHandoffAsync's Task.Delay before advancing past it
         f.TimeProvider.Advance(GameSessionWatcherOptions.Default.HandoffGracePeriod);
 
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result);
+    }
+
+    // ---- Chain-level confirmation across handoffs ------------------------------------------------
+    //
+    // Real FC26 log this whole section is derived from: watching began at 17:45:12.426, handed off to
+    // EAAntiCheat.GameServiceLauncher at 17:45:20.853 (~8.4s), the anti-cheat process itself disappeared
+    // ~17:46:10.092 (~49.2s later - a ~57.7s uninterrupted chain overall), and the window wasn't
+    // restored until 17:46:22.093 - exactly HandoffGracePeriod (12s) after the anti-cheat process
+    // exited. Neither individual stage ever crossed LongSessionThreshold (60s) on its own, so the old
+    // per-batch-only "wasLongSession" check never fired and every handoff in the chain paid the full
+    // 12s, even on a session that had already run far longer than any bootstrapper realistically would.
+
+    [Fact]
+    public async Task ChainConfirmation_LongUninterruptedChainAcrossHandoffs_UsesShortCheckOnceConfirmed()
+    {
+        var f = CreateFixture("main", "anticheat");
+        var main = f.ProcessProvider.AddRunning(1, "main", Path.Combine(InstallDir, "main.exe"), f.TimeProvider.GetUtcNow());
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+
+        // "main" is watched for 8.4s - individually well under LongSessionThreshold - before exiting
+        // and handing off, same as the real log's initial FC26 process.
+        f.TimeProvider.Advance(TimeSpan.FromSeconds(8.4));
+        f.ProcessProvider.Exit(main);
+        await Task.Delay(50);
+
+        var antiCheat = f.ProcessProvider.AddRunning(2, "anticheat", Path.Combine(InstallDir, "anticheat.exe"), f.TimeProvider.GetUtcNow());
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.HandoffPollInterval, steps: 3, task);
+        Assert.True(antiCheat.ExitWaitPrepared);
+        Assert.False(task.IsCompleted);
+
+        // "anticheat" then runs 49.2s - also individually under LongSessionThreshold (60s) - but the
+        // whole uninterrupted chain (8.4s + a few handoff-poll ticks + 49.2s) has now crossed
+        // ChainConfirmationThreshold (45s), even though no single batch ever did.
+        f.TimeProvider.Advance(TimeSpan.FromSeconds(49.2));
+        f.ProcessProvider.Exit(antiCheat);
+        await Task.Delay(50);
+
+        // Only the SHORT LongSessionHandoffCheck (2s) is needed to conclude the watch here - proves
+        // chain-level confirmation kicked in even though neither individual process crossed 60s. Before
+        // the fix, this handoff would have needed the full 12s HandoffGracePeriod instead.
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.LongSessionHandoffCheck);
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ChainConfirmation_UnconfirmedChain_HandoffAfterSevenSeconds_StillDetectedWithinFullWindow()
+    {
+        // Guards against the fix over-correcting: an early, still-unconfirmed handoff (chain barely
+        // started) must keep its full HandoffGracePeriod protection - this is the real EA trial-launcher
+        // timing (~7s) HandoffGracePeriod's own remarks are calibrated from.
+        var f = CreateFixture("launcher", "realgame");
+        var stub = f.ProcessProvider.AddRunning(1, "launcher", Path.Combine(InstallDir, "launcher.exe"), f.TimeProvider.GetUtcNow());
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+
+        f.ProcessProvider.Exit(stub); // short-lived, chain also brand new - stays unconfirmed
+        await Task.Delay(50);
+
+        // Replacement doesn't appear until 7s into the handoff wait - comfortably inside the still-full
+        // 12s window, but well past the 2s short-confirmed one.
+        await StepAsync(f.TimeProvider, TimeSpan.FromSeconds(1), steps: 6, task);
+        var real = f.ProcessProvider.AddRunning(2, "realgame", Path.Combine(InstallDir, "realgame.exe"), f.TimeProvider.GetUtcNow());
+        await StepAsync(f.TimeProvider, TimeSpan.FromSeconds(1), steps: 2, task);
+
+        Assert.True(real.ExitWaitPrepared);
+        Assert.False(task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task ChainConfirmation_StaysConfirmedAcrossASubsequentShortLivedHandoff()
+    {
+        // Once a chain is confirmed real, a later, individually short-lived stage in the same chain
+        // must not fall back to the full HandoffGracePeriod - confirmation persists for the rest of the
+        // watch, not just the handoff that first earned it.
+        var f = CreateFixture("launcher", "anticheat");
+        var launcher = f.ProcessProvider.AddRunning(1, "launcher", Path.Combine(InstallDir, "launcher.exe"), f.TimeProvider.GetUtcNow());
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+
+        // First stage alone already crosses LongSessionThreshold - confirms the session outright.
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.LongSessionThreshold + TimeSpan.FromSeconds(1));
+        f.ProcessProvider.Exit(launcher);
+        await Task.Delay(50);
+
+        var antiCheat = f.ProcessProvider.AddRunning(2, "anticheat", Path.Combine(InstallDir, "anticheat.exe"), f.TimeProvider.GetUtcNow());
+        await StepAsync(f.TimeProvider, GameSessionWatcherOptions.Default.HandoffPollInterval, steps: 2, task);
+        Assert.True(antiCheat.ExitWaitPrepared);
+        Assert.False(task.IsCompleted);
+
+        // This second stage is itself very short-lived and has nothing to hand off to. If confirmation
+        // weren't preserved across the handoff, this exit could fall back to the full 12s
+        // HandoffGracePeriod instead of the short 2s LongSessionHandoffCheck.
+        f.ProcessProvider.Exit(antiCheat);
+        await Task.Delay(50);
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.LongSessionHandoffCheck);
+
+        var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ChainConfirmation_UnconfirmedShortFailedLaunch_StillWaitsFullHandoffWindow()
+    {
+        // A genuinely short, failed launch (process exits almost immediately, nothing ever replaces it,
+        // chain never gets anywhere near ChainConfirmationThreshold) must still receive the full
+        // HandoffGracePeriod before being concluded, not the short window - proves the fix didn't
+        // accidentally shrink protection for the ordinary/ubiquitous case it wasn't meant to touch.
+        var f = CreateFixture("game");
+        var process = f.ProcessProvider.AddRunning(1, "game", Path.Combine(InstallDir, "game.exe"), f.TimeProvider.GetUtcNow());
+
+        var task = f.Watcher.WaitForExitAsync(MakeGame(), launched: (IGameProcess?)null, CancellationToken.None);
+        await Task.Delay(50);
+
+        f.ProcessProvider.Exit(process); // near-zero uptime, chain also brand new - fully unconfirmed
+        await Task.Delay(50);
+
+        // Past what the SHORT window would need (2s) but short of the FULL window (12s) - must NOT be
+        // enough to conclude, proving this case is not being mistaken for a confirmed session.
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.LongSessionHandoffCheck + TimeSpan.FromSeconds(1));
+        await Task.Delay(50);
+        Assert.False(task.IsCompleted);
+
+        f.TimeProvider.Advance(GameSessionWatcherOptions.Default.HandoffGracePeriod);
         var result = await task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(result);
     }

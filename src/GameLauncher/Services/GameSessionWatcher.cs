@@ -115,6 +115,21 @@ public sealed class GameSessionWatcher
         // that process actually exits below.
         var startTimes = running.ToDictionary(p => p.Id, p => p.GetStartTimeUtc());
 
+        // Marks the start of this whole watch - the first moment a process was actually found, not any
+        // one batch's own start time. A launcher/anti-cheat-init/real-game handoff chain can run for a
+        // real, uninterrupted while without any single stage individually living past
+        // LongSessionThreshold (see ChainConfirmationThreshold's remarks for the real FC26 log this was
+        // measured from) - chainStartUtc is what lets the chain's *total* elapsed time count as evidence
+        // too, not just a single batch's.
+        var chainStartUtc = _timeProvider.GetUtcNow();
+
+        // Sticky once set: a chain that has already proven itself "clearly a real session" (via either
+        // signal below) doesn't un-prove itself just because the next stage in the same chain happens to
+        // be short-lived - e.g. the real game briefly re-launching itself for an update. Without this,
+        // confirmation would be re-derived from scratch on every handoff and a chain could flicker
+        // between the long and short grace periods depending on each individual stage's own runtime.
+        var confirmedRealSession = false;
+
         while (!ct.IsCancellationRequested)
         {
             foreach (var process in running)
@@ -150,7 +165,15 @@ public sealed class GameSessionWatcher
             // disposed above.
             var wasLongSession = startTimes.Values.Any(started =>
                 started is { } s && _timeProvider.GetUtcNow() - s >= _options.LongSessionThreshold);
-            var gracePeriod = wasLongSession ? _options.LongSessionHandoffCheck : _options.HandoffGracePeriod;
+
+            // Second, independent way to reach the same "clearly a real session" conclusion: the whole
+            // uninterrupted chain has now run long enough on its own, even though no single batch in it
+            // ever individually crossed LongSessionThreshold. See ChainConfirmationThreshold's remarks
+            // for the real handoff chain (launcher -> anti-cheat init -> game) this was measured from.
+            var chainConfirmed = _timeProvider.GetUtcNow() - chainStartUtc >= _options.ChainConfirmationThreshold;
+
+            confirmedRealSession = confirmedRealSession || wasLongSession || chainConfirmed;
+            var gracePeriod = confirmedRealSession ? _options.LongSessionHandoffCheck : _options.HandoffGracePeriod;
 
             // A launcher process commonly hands off to the real game and exits well before it's up,
             // so don't trust a single immediate recheck - keep looking for a replacement for a while.
@@ -171,7 +194,7 @@ public sealed class GameSessionWatcher
 
             if (replacement.Count == 0)
             {
-                Logger.Info($"'{game.Name}' exited{(wasLongSession ? " (was a real play session)" : "")} - "
+                Logger.Info($"'{game.Name}' exited{(confirmedRealSession ? " (confirmed real play session)" : "")} - "
                     + $"no replacement process found under '{game.InstallDir}' within the "
                     + $"{gracePeriod.TotalSeconds:0}s handoff window.");
                 return true;

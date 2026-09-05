@@ -13,7 +13,8 @@ public sealed record GameSessionWatcherOptions(
     TimeSpan HandoffGracePeriod,
     TimeSpan LongSessionHandoffCheck,
     TimeSpan HandoffPollInterval,
-    TimeSpan LongSessionThreshold)
+    TimeSpan LongSessionThreshold,
+    TimeSpan ChainConfirmationThreshold)
 {
     public static GameSessionWatcherOptions Default { get; } = new(
         PollInterval: TimeSpan.FromSeconds(2),
@@ -45,5 +46,21 @@ public sealed record GameSessionWatcherOptions(
         // A bootstrapper/anti-cheat-init stage realistically never runs this long before handing off
         // or dying; if a watched process lived at least this long before exiting, it was almost
         // certainly the actual game being played, not a stub.
-        LongSessionThreshold: TimeSpan.FromSeconds(60));
+        LongSessionThreshold: TimeSpan.FromSeconds(60),
+
+        // A real FC26 session logged all the way through: the initial process was watched ~8.4s before
+        // handing off to EAAntiCheat.GameServiceLauncher, which itself ran ~49.2s before exiting - a
+        // continuous chain of ~57.7s, well past "still a bootstrapper" territory, but with neither
+        // individual batch ever reaching LongSessionThreshold on its own. GameSessionWatcher used to
+        // judge every handoff purely on that batch's own uptime, so this whole chain still fell back to
+        // the full 12s HandoffGracePeriod on its second handoff - the window sat un-restored for 12
+        // seconds after a session anyone would call "clearly real" had ended. ChainConfirmationThreshold
+        // lets GameSessionWatcher reach that same "this is a real session" conclusion from the sum of an
+        // uninterrupted handoff chain, not just a single batch's own runtime, and - once reached - stays
+        // confirmed for every later handoff in the same chain (see confirmedRealSession in
+        // GameSessionWatcher.WaitForExitAsync). Deliberately lower than LongSessionThreshold: 45s is
+        // comfortably past the ~15s "every confirmed-working launch discovers its process by here" figure
+        // DiscoveryTimeout's own remarks cite, so an early, still-unconfirmed launcher/bootstrapper
+        // handoff (the 7-8s cases HandoffGracePeriod exists for) can never accidentally cross it.
+        ChainConfirmationThreshold: TimeSpan.FromSeconds(45));
 }
