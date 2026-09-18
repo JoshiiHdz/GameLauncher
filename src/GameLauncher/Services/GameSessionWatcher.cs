@@ -58,13 +58,32 @@ public sealed class GameSessionWatcher
     /// something else now owns the state. Every other outcome, including a discovery timeout, returns
     /// true - both mean "this launch is over, safe to restore the window."
     /// </summary>
-    public Task<bool> WaitForExitAsync(GameEntry game, Process? launched, CancellationToken ct = default) =>
-        WaitForExitAsync(game, launched is null ? null : _processProvider.Wrap(launched), ct);
+    public Task<bool> WaitForExitAsync(
+        GameEntry game, Process? launched, CancellationToken ct = default, Action<IReadOnlySet<int>>? onProcessBatchChanged = null) =>
+        WaitForExitAsync(game, launched is null ? null : _processProvider.Wrap(launched), ct, onProcessBatchChanged);
 
     /// <summary>Same contract as the Process-taking overload above, but against the IGameProcess seam
     /// directly - this is the one GameLauncher.Tests calls, with a fake `launched` (or none) instead of
-    /// a real OS process.</summary>
-    internal async Task<bool> WaitForExitAsync(GameEntry game, IGameProcess? launched, CancellationToken ct)
+    /// a real OS process.
+    ///
+    /// `onProcessBatchChanged`, when given, is invoked with an immutable, already-copied snapshot of the
+    /// currently-watched process ids (never a live/mutable collection or an IGameProcess itself - see
+    /// ProcessIdSnapshotPublisher) each time the watched batch changes: once after initial discovery
+    /// succeeds, and again after every handoff. This exists purely so GameWindowObserver's logging-only
+    /// trial can evaluate GameWindowTracker against the SAME set of processes this method is actually
+    /// watching, without that diagnostic needing (or being given) any access to the real IGameProcess
+    /// objects or this method's own control flow. A failure inside the callback is caught and logged here
+    /// (see PublishBatch) - it can never affect this method's own result, timing, or cancellation, exactly
+    /// as required for a diagnostic that must stay strictly observational.
+    ///
+    /// Does NOT, on its own, expose a handoff's replacement process any earlier than this method already
+    /// discovers it: WaitForHandoffAsync only starts looking for one after the current batch has fully
+    /// exited (see the loop below), so an observer reading only these snapshots is blind to a new game
+    /// process for exactly as long as this method is - see GameWindowObserver's own remarks for why this
+    /// is a known, accepted limitation of this increment rather than something to silently work around
+    /// here.</summary>
+    internal async Task<bool> WaitForExitAsync(
+        GameEntry game, IGameProcess? launched, CancellationToken ct, Action<IReadOnlySet<int>>? onProcessBatchChanged = null)
     {
         var candidateNames = _nameDiscovery.GetCandidateNames(game.InstallDir);
         Logger.Info($"'{game.Name}': watching for {candidateNames.Count} candidate exe name(s) "
@@ -110,6 +129,7 @@ public sealed class GameSessionWatcher
 
         Logger.Info($"Watching {running.Count} process(es) for '{game.Name}': "
             + string.Join(", ", running.Select(p => $"{p.ProcessName} (pid {p.Id}) <- {p.GetPath() ?? "path unknown"}")));
+        PublishBatch(onProcessBatchChanged, running);
 
         // Captured up front, right while these processes are still alive - once a process exits it
         // can't be asked when it started, so this has to be read now and carried forward to whenever
@@ -299,6 +319,7 @@ public sealed class GameSessionWatcher
             running = replacement;
             startTimes = running.ToDictionary(p => p.Id, p => p.GetStartTimeUtc());
             batchWatchStartUtc = _timeProvider.GetUtcNow();
+            PublishBatch(onProcessBatchChanged, running);
         }
 
         return false;
@@ -407,6 +428,28 @@ public sealed class GameSessionWatcher
                 if (!ReferenceEquals(p, process))
                     p.Dispose();
             }
+        }
+    }
+
+    /// <summary>Hands a copied, immutable snapshot of `running`'s process ids to `onProcessBatchChanged` -
+    /// never `running` itself (a mutable List<> this method keeps reassigning) and never the IGameProcess
+    /// objects themselves (this method owns their disposal - see the loops above - a diagnostic consumer
+    /// must never be able to touch or outlive them). A callback failure is caught and logged, never
+    /// rethrown: this is the one seam through which a diagnostic-only concern is wired into this method,
+    /// and it must not be able to affect WaitForExitAsync's own result, timing, or cancellation no matter
+    /// what it does.</summary>
+    private static void PublishBatch(Action<IReadOnlySet<int>>? onProcessBatchChanged, List<IGameProcess> running)
+    {
+        if (onProcessBatchChanged is null)
+            return;
+
+        try
+        {
+            onProcessBatchChanged(new HashSet<int>(running.Select(p => p.Id)));
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn("Window-exit diagnostic callback failed - diagnostics only, no effect on process-exit tracking.", ex);
         }
     }
 

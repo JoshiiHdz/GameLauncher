@@ -28,7 +28,25 @@ public static class GameExeFinder
     private static readonly string[] DefaultExcludePatterns =
         NoiseExcludePatterns.Concat(new[] { "trial", "anticheat" }).ToArray();
 
-    public static string? FindLargestExe(string installDir, int maxDepth = 2, IEnumerable<string>? extraExcludePatterns = null)
+    // EA's "Friend's Pass" system bundles a second, free-trial-for-a-friend build right next to the
+    // real, owned game's exe - confirmed via A Way Out: AWayOut_friend.exe sits alongside AWayOut.exe,
+    // and without excluding it, an owner whose friend-pass build happens to be the larger file would
+    // get launched into the free trial client instead of their own game. Deliberately NOT in
+    // DefaultExcludePatterns above: a bare "friend" substring match would also reject a legitimate
+    // game's own exe that merely contains that word anywhere in its name (FriendlyGame.exe,
+    // MyFriendsList.exe, ...) across EVERY scanner that uses this class, not just EA's. "_friend" (with
+    // the underscore) is the actual, confirmed naming convention and is passed only from EaScanner's own
+    // extraExcludePatterns - the same narrowly-scoped mechanism "showcase" already uses there - so this
+    // never applies to Xbox/Ubisoft/Manual/PublisherUninstallScanner at all.
+    internal const string EaFriendsPassExcludePattern = "_friend";
+
+    // A Way Out's real executable sits at <root>\Haze1\Binaries\Win64\AWayOut.exe - three subfolder
+    // levels below the install root passed in here, one deeper than the old default of 2 ever reached.
+    // 5 matches ManualFolderScanner's own MaxWalkDepth precedent (a scan scoped to ONE game's already-
+    // known install folder, not a whole drive, so the extra headroom over the previous default costs
+    // comparatively little) rather than picking a number that happens to fit only this one confirmed
+    // case.
+    public static string? FindLargestExe(string installDir, int maxDepth = 5, IEnumerable<string>? extraExcludePatterns = null)
     {
         var exclude = extraExcludePatterns is null
             ? DefaultExcludePatterns

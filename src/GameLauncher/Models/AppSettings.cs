@@ -34,4 +34,13 @@ public sealed class AppSettings
     /// <summary>Check GitHub for a newer release on startup. Off just skips the check entirely -
     /// UpdateService.CheckForUpdateAsync is never called, not merely ignored.</summary>
     public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>
+    /// Logging-only trial of GameWindowTracker (see its own remarks) as a PREFERRED exit signal
+    /// alongside GameSessionWatcher's real, authoritative process-exit tracking - off by default, no UI
+    /// toggle yet (hand-edit settings.json to enable for a validation session). NEVER changes what
+    /// actually restores the window, cancels process monitoring, or clears running state, regardless of
+    /// this setting - see GameSessionOrchestrator/GameWindowObserver.
+    /// </summary>
+    public bool EnableWindowExitDiagnostics { get; set; }
 }

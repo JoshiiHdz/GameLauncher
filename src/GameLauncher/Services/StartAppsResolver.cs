@@ -46,15 +46,14 @@ public static class StartAppsResolver
                 },
             };
 
-            process.Start();
-            var base64Output = process.StandardOutput.ReadToEnd().Trim();
-            if (!process.WaitForExit(10_000))
+            var rawOutput = RunAndReadStdout(process, TimeSpan.FromSeconds(10));
+            if (rawOutput is null)
             {
-                process.Kill();
                 Logger.Warn("Get-StartApps timed out.");
                 return [];
             }
 
+            var base64Output = rawOutput.Trim();
             if (string.IsNullOrWhiteSpace(base64Output))
                 return [];
 
@@ -85,6 +84,75 @@ public static class StartAppsResolver
         {
             Logger.Warn("Couldn't resolve Store app IDs via Get-StartApps.", ex);
             return [];
+        }
+    }
+
+    /// <summary>Starts `process` and drains its stdout ASYNCHRONOUSLY while waiting for it to exit,
+    /// both under one shared cancellation budget (`timeout`) - not the previous version's two
+    /// independent steps (a blocking, synchronous StandardOutput.ReadToEnd() followed by a SEPARATE
+    /// WaitForExit(10_000)). That ordering meant the 10-second timeout could never actually fire for a
+    /// child that never closes stdout: a synchronous ReadToEnd() blocks until EOF regardless of how much
+    /// time has passed, so a hung child (or one that simply produces more output than the OS pipe
+    /// buffer holds while nothing is draining it - the same deadlock Microsoft's own Process docs warn
+    /// about) left this method waiting forever, well before WaitForExit's own timeout was ever reached.
+    /// Reading and waiting together under one token closes that gap.
+    ///
+    /// Returns the process's full stdout on success, or null if `timeout` elapsed first - in which case
+    /// termination of the process (and, best-effort via Kill(entireProcessTree: true), any children the
+    /// OS recorded under it at that moment) is REQUESTED and then confirmed with a short, bounded wait -
+    /// see TryKill's own remarks for exactly what "confirmed" does and doesn't guarantee here.</summary>
+    internal static string? RunAndReadStdout(Process process, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        process.Start();
+
+        try
+        {
+            var readTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+            var waitTask = process.WaitForExitAsync(cts.Token);
+            Task.WhenAll(readTask, waitTask).GetAwaiter().GetResult();
+            return readTask.Result;
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            return null;
+        }
+    }
+
+    // Bounded deliberately: this exists specifically to confirm Kill() actually finished, without
+    // reintroducing a second, unbounded wait of the exact kind RunAndReadStdout's own timeout exists to
+    // avoid. 2 seconds is generous for an OS to tear down one already-signalled PowerShell process.
+    private const int KillConfirmationTimeoutMs = 2000;
+
+    /// <summary>Process.Kill() only REQUESTS termination - it's documented as asynchronous, so trusting
+    /// HasExited (or nothing at all) immediately after calling it is timing-dependent and can read
+    /// "still running" even though termination is already in flight. This confirms with a short, bounded
+    /// WaitForExit instead of assuming success. Kill(entireProcessTree: true) also targets whatever
+    /// children the OS process tree recorded under this process AT THE MOMENT it's called - that is a
+    /// best-effort request, not a provable guarantee against every descendant in every race (a
+    /// grandchild spawned in the narrow window between the tree walk and actual termination could still
+    /// survive; this method doesn't attempt to detect or verify that). If confirmation times out, this
+    /// logs rather than silently assuming the cleanup succeeded.</summary>
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            if (process.HasExited)
+                return;
+
+            process.Kill(entireProcessTree: true);
+
+            if (!process.WaitForExit(KillConfirmationTimeoutMs))
+            {
+                Logger.Warn("Get-StartApps: requested termination of a hung PowerShell process, but "
+                    + $"couldn't confirm it (and any children it spawned) actually exited within "
+                    + $"{KillConfirmationTimeoutMs}ms - it may still be running.");
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // Already exited between the check and the kill attempt - nothing left to clean up.
         }
     }
 }

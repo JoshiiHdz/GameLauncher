@@ -18,17 +18,31 @@ public sealed class SettingsService
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    // Test-only diagnostic seam: Save()'s catch clause hands the caught exception here in addition to
+    // Logger.Warn. Needed because Logger.Write itself silently swallows IOException/UnauthorizedAccessException
+    // while writing the log file - on an environment where the *save* is failing for one of those same
+    // reasons, the log write can fail right alongside it, leaving no record of either. A test that only
+    // has the shared AppData logger to go on can come up completely empty even when Save did fail.
+    private readonly Action<Exception>? _onSaveError;
+
     public SettingsService() : this(AppPaths.DataDir)
     {
     }
 
     /// <summary>Lets tests point Load/Save at an isolated temp directory instead of the real
     /// %AppData%\GameLauncher - production code always uses the parameterless constructor above.</summary>
-    public SettingsService(string dataDir)
+    public SettingsService(string dataDir) : this(dataDir, onSaveError: null)
+    {
+    }
+
+    /// <summary>Test-only: also lets a test capture the exact exception Save() catches (type, message,
+    /// HResult, stack trace) without depending on the shared Logger - see _onSaveError above.</summary>
+    internal SettingsService(string dataDir, Action<Exception>? onSaveError)
     {
         _dataDir = dataDir;
         _settingsPath = Path.Combine(dataDir, "settings.json");
         _backupPath = _settingsPath + ".bak";
+        _onSaveError = onSaveError;
     }
 
     public AppSettings Load()
@@ -107,6 +121,7 @@ public sealed class SettingsService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Logger.Warn("Couldn't save settings.json - changes may be lost on restart.", ex);
+            _onSaveError?.Invoke(ex);
         }
     }
 }

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using GameLauncher.Models;
 using GameLauncher.Services;
 
@@ -12,16 +13,37 @@ public class SettingsServiceTests : IDisposable
     private readonly string _dataDir;
     private readonly SettingsService _sut;
 
+    // Save() catches IOException/UnauthorizedAccessException and only ever hands them to the shared
+    // Logger, which itself silently swallows the exact same exception types while writing the log file -
+    // so on an environment where Save() is genuinely failing for one of those reasons, the log can come
+    // up completely empty even though a real exception was thrown and caught. Captured here via the
+    // internal onSaveError seam instead, so a failing assertion below can report the real exception
+    // (type/message/HResult/stack trace) instead of just "the backup file doesn't exist".
+    private readonly List<Exception> _saveExceptions = new();
+
     public SettingsServiceTests()
     {
         _dataDir = Path.Combine(Path.GetTempPath(), "GameLauncherTests-" + Guid.NewGuid());
-        _sut = new SettingsService(_dataDir);
+        _sut = new SettingsService(_dataDir, _saveExceptions.Add);
     }
 
     public void Dispose()
     {
         if (Directory.Exists(_dataDir))
             Directory.Delete(_dataDir, recursive: true);
+    }
+
+    /// <summary>Call after any Save() whose effect the test is about to check, so a swallowed
+    /// IOException/UnauthorizedAccessException fails loudly with full diagnostic detail instead of
+    /// surfacing only as a confusing downstream assertion failure.</summary>
+    private void FailIfSaveThrew()
+    {
+        if (_saveExceptions.Count == 0)
+            return;
+
+        var details = string.Join("\n---\n", _saveExceptions.Select(ex =>
+            $"{ex.GetType().FullName}: {ex.Message}\nHResult: 0x{ex.HResult:X8}\n{ex.StackTrace}"));
+        Assert.Fail($"SettingsService.Save() threw {_saveExceptions.Count} exception(s) it caught and swallowed:\n{details}");
     }
 
     [Fact]
@@ -66,6 +88,7 @@ public class SettingsServiceTests : IDisposable
     {
         _sut.Save(new AppSettings { SteamGridDbApiKey = "first" });
         _sut.Save(new AppSettings { SteamGridDbApiKey = "second" });
+        FailIfSaveThrew();
 
         var backupPath = Path.Combine(_dataDir, "settings.json.bak");
         Assert.True(File.Exists(backupPath));
@@ -80,6 +103,7 @@ public class SettingsServiceTests : IDisposable
     {
         _sut.Save(new AppSettings { SteamGridDbApiKey = "good" });
         _sut.Save(new AppSettings { SteamGridDbApiKey = "good-2" }); // "good" is now in the backup
+        FailIfSaveThrew();
 
         var settingsPath = Path.Combine(_dataDir, "settings.json");
         File.WriteAllText(settingsPath, "{ not valid json");

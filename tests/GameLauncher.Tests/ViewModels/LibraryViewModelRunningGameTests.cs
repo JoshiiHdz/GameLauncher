@@ -214,19 +214,62 @@ public class LibraryViewModelRunningGameTests : IDisposable
     /// <summary>
     /// Edge case: if the very same GameEntry instance is reused across two sessions for the same game
     /// (no refresh in between), a stale cleanup call for the *older* of the two sessions must not
-    /// clear that instance's badge out from under the newer session that's still actively using it.
+    /// clear that instance's badge out from under the newer session that's still actively using it -
+    /// AND must still retire its own entry in the session-tracking map, not merely leave the badge
+    /// looking right while leaking a stale entry underneath it. A real, confirmed bug: MainWindow used
+    /// to skip calling MarkGameNotRunning ENTIRELY for a same-instance relaunch (an object-identity
+    /// shortcut, since the badge itself looked correct either way) - which meant the superseded
+    /// session's own tracking entry was never removed at all, by either this call or the cancelled
+    /// watch's own (swallowed) OperationCanceledException path. TrackedSessionCount is what actually
+    /// catches that - RunningGameId/IsRunning alone would look identical whether or not the fix worked.
     /// </summary>
     [Fact]
-    public void MarkGameNotRunning_StaleSessionForSameInstanceReused_DoesNotClearNewerSessionsBadge()
+    public void MarkGameNotRunning_StaleSessionForSameInstanceReused_DoesNotClearNewerSessionsBadge_AndRetiresItsOwnEntry()
     {
         var game = MakeGame();
         var oldSessionId = _sut.MarkGameRunning(game);
         var newSessionId = _sut.MarkGameRunning(game); // same instance, relaunched into a new session
         Assert.NotEqual(oldSessionId, newSessionId);
+        Assert.Equal(2, _sut.TrackedSessionCount); // both sessions tracked so far
 
         _sut.MarkGameNotRunning(game, oldSessionId);
 
         Assert.True(game.IsRunning);
         Assert.Equal(game.Id, _sut.RunningGameId);
+        Assert.Equal(1, _sut.TrackedSessionCount); // the old session's entry was retired, not leaked
+
+        _sut.MarkGameNotRunning(game, newSessionId);
+        Assert.False(game.IsRunning);
+        Assert.Null(_sut.RunningGameId);
+        Assert.Equal(0, _sut.TrackedSessionCount);
+    }
+
+    /// <summary>
+    /// The exact scenario requested: repeated same-instance relaunches (a user rapidly double-clicking
+    /// the same game card several times) must never accumulate leaked session entries, regardless of
+    /// how many cycles happen - not just a single relaunch.
+    /// </summary>
+    [Fact]
+    public void RepeatedSameInstanceRelaunches_NeverAccumulateLeakedSessionEntries()
+    {
+        var game = MakeGame();
+        var previousSessionId = (int?)null;
+
+        for (var i = 0; i < 5; i++)
+        {
+            var sessionId = _sut.MarkGameRunning(game);
+            if (previousSessionId is { } toRetire)
+                _sut.MarkGameNotRunning(game, toRetire); // mirrors MainWindow's own unconditional call
+            previousSessionId = sessionId;
+
+            Assert.Equal(1, _sut.TrackedSessionCount); // only the current cycle's session is ever tracked
+            Assert.True(game.IsRunning);
+            Assert.Equal(game.Id, _sut.RunningGameId);
+        }
+
+        _sut.MarkGameNotRunning(game, previousSessionId!.Value);
+        Assert.Equal(0, _sut.TrackedSessionCount);
+        Assert.False(game.IsRunning);
+        Assert.Null(_sut.RunningGameId);
     }
 }

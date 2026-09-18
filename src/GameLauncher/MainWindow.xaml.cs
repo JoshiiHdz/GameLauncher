@@ -11,13 +11,23 @@ namespace GameLauncher;
 public partial class MainWindow : FluentWindow
 {
     private readonly GameSessionWatcher _sessionWatcher = new();
+
+    // Reads DataContext fresh on every call (via WindowExitDiagnosticsEnabled below) rather than
+    // capturing `vm` once, since this field is initialized before DataContext is guaranteed to be set -
+    // WPF assigns it via XAML binding after the constructor runs. The null-coalescing default there only
+    // ever matters for that brief window, never once Loaded has fired.
+    private readonly GameSessionOrchestrator _sessionOrchestrator;
+
     private CancellationTokenSource? _sessionCts;
     private GameEntry? _watchedGame;
     private int _watchedSessionId;
 
+    private bool WindowExitDiagnosticsEnabled() => (DataContext as LibraryViewModel)?.EnableWindowExitDiagnostics ?? false;
+
     public MainWindow()
     {
         InitializeComponent();
+        _sessionOrchestrator = new GameSessionOrchestrator(_sessionWatcher, WindowExitDiagnosticsEnabled);
 
         Loaded += async (_, _) =>
         {
@@ -92,8 +102,19 @@ public partial class MainWindow : FluentWindow
         // do it on its way out - WaitForExitAsync swallows OperationCanceledException internally on
         // every await path and returns a plain bool instead, so the code below can't reliably tell
         // "cancelled" apart from "exited" for the game that just got superseded.
+        //
+        // Called unconditionally whenever a previous session existed - deliberately NOT skipped when
+        // `previouslyWatched` happens to be the exact same GameEntry instance being relaunched (a real,
+        // confirmed leak in an earlier version of this method: skipping the call meant the superseded
+        // session's own entry in LibraryViewModel's internal session-tracking map was never retired,
+        // since neither this call nor the cancelled watch's own OperationCanceledException path below
+        // ever reached MarkGameNotRunning for it). MarkGameNotRunning's own session-ownership check
+        // (comparing sessionId against whichever session is CURRENTLY canonical - already the new one,
+        // since MarkGameRunning above already ran) is what correctly leaves the badge alone for a same-
+        // instance relaunch while still retiring the stale session entry - the same mechanism that
+        // already protects the ordinary "different game" case, just no longer bypassed here.
         _sessionCts?.Cancel();
-        if (_watchedGame is { } previouslyWatched && previouslyWatched != game)
+        if (_watchedGame is { } previouslyWatched)
             vm.MarkGameNotRunning(previouslyWatched, previousSessionId);
         _watchedGame = game;
 
@@ -119,7 +140,7 @@ public partial class MainWindow : FluentWindow
         bool exited;
         try
         {
-            exited = await _sessionWatcher.WaitForExitAsync(game, started, token);
+            exited = await _sessionOrchestrator.WaitForExitAsync(sessionId, game, started, token);
         }
         catch (OperationCanceledException)
         {

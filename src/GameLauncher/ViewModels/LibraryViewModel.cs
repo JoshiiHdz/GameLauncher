@@ -22,6 +22,11 @@ public partial class LibraryViewModel : ObservableObject
     private List<GameEntry> _allGames = new();
     private CancellationTokenSource? _refreshCts;
 
+    /// <summary>Read once at startup from AppSettings.EnableWindowExitDiagnostics - no UI toggle yet (see
+    /// its own remarks), so a settings.json edit needs a restart to take effect. Passed to
+    /// GameSessionOrchestrator, which is the only thing that ever acts on it.</summary>
+    public bool EnableWindowExitDiagnostics { get; }
+
     // Id of the game GameSessionWatcher is currently tracking, kept independent of any particular
     // GameEntry instance. RefreshAsync replaces every entry in _allGames wholesale on each rescan,
     // so tracking "is a game running" via GameEntry.IsRunning alone would let DownloadUpdateCommand's
@@ -42,6 +47,20 @@ public partial class LibraryViewModel : ObservableObject
     // order. See MarkGameRunning/MarkGameNotRunning.
     private int _runningSessionId;
     private int _sessionCounter;
+
+    // Every session's own CURRENT tracked game id, from MarkGameRunning until its own MarkGameNotRunning
+    // call removes it - not just the single "whichever session is canonical right now" pair above.
+    // Needed for a real, confirmed case: a session can be MERGED (see ReconcileRunningGameId - a Manual
+    // entry's id folded into a launcher-detected one mid-play, e.g. EA's "A Way Out") and THEN
+    // superseded by a newer, unrelated session before its own cleanup call ever runs. By the time that
+    // cleanup arrives, _runningGameId/_runningSessionId above have already moved on to the newer
+    // session, so the merged session's own reconciled identity would otherwise be lost - MarkGameNotRunning
+    // would fall back to the caller's own (stale, pre-merge) GameEntry.Id, which no longer names anything
+    // in the current library, and the merged-into entry's badge would never get cleared. Every session
+    // that starts here gets an entry; ReconcileRunningGameId keeps ALL of them (not just the current one)
+    // up to date as merges happen, and MarkGameNotRunning removes its own entry exactly once, when that
+    // session is finally cleaned up.
+    private readonly Dictionary<int, string> _sessionGameIds = new();
 
     // Held here rather than just exposing the version string: DownloadUpdateCommand needs to hand
     // the actual UpdateInfo back to UpdateService.DownloadAndApplyAsync, and re-checking for updates
@@ -271,6 +290,8 @@ public partial class LibraryViewModel : ObservableObject
         _detectAmazonGames = _settings.DetectAmazonGames;
         _checkForUpdates = _settings.CheckForUpdates;
 
+        EnableWindowExitDiagnostics = _settings.EnableWindowExitDiagnostics;
+
         Logger.WriteEnvironment(_settings);
         RefreshShortcutState();
 
@@ -335,6 +356,7 @@ public partial class LibraryViewModel : ObservableObject
         var sessionId = ++_sessionCounter;
         _runningGameId = game.Id;
         _runningSessionId = sessionId;
+        _sessionGameIds[sessionId] = game.Id;
         game.IsRunning = true;
         return sessionId;
     }
@@ -344,36 +366,48 @@ public partial class LibraryViewModel : ObservableObject
     /// cases:
     /// - sessionId still owns the active session (a genuine, non-superseded exit): clears
     ///   _runningGameId/_runningSessionId and the badge, both on game itself and on whichever entry
-    ///   in the *current* library actually shares its id (a rescan replaces every GameEntry wholesale,
-    ///   so that may be a different instance than game itself).
+    ///   in the *current* library actually shares this session's CURRENT tracked id.
     /// - sessionId has been superseded by a newer session: tracking state is left untouched (the newer
     ///   session already owns it), and the badge is cleared *only* if the newer session is for a
     ///   different game id. If it's the same id - a relaunch of this exact game, which is what makes
     ///   the superseded and current sessions share a game id despite being different sessions - the
-    ///   badge belongs to that newer session and must be left alone, whether game is a stale pre-
-    ///   refresh instance or (see MarkGameRunning's remarks) the very same instance reused for the new
-    ///   session.</summary>
+    ///   badge belongs to that newer session and must be left alone.
+    ///
+    /// Neither case clears by `game.Id` directly: `game` is whatever GameEntry instance the caller
+    /// launched and has held onto ever since (MainWindow holds it for the whole session), whose own Id
+    /// never changes - but if a rescan merged THIS session's game into a different surviving entry while
+    /// it was still running (see ReconcileRunningGameId, a real confirmed case for EA's "A Way Out"),
+    /// this session's tracked id was redirected to that NEW one. _sessionGameIds (not the single
+    /// _runningGameId pair, which only ever reflects whichever session is CURRENTLY canonical) is what
+    /// keeps that redirected identity available for THIS specific session's own cleanup, even after a
+    /// newer, different session has already superseded it and moved _runningGameId on. A real, confirmed
+    /// case this fixes: session A (Manual) gets merged into entry B (EA) mid-play, then session C (an
+    /// unrelated game) starts before A's own exit is ever observed - clearing by game.Id (A's original,
+    /// now-gone id) would find nothing in the current library, leaving B's badge stuck on forever.</summary>
     public void MarkGameNotRunning(GameEntry game, int sessionId)
     {
+        var trackedId = _sessionGameIds.Remove(sessionId, out var id) ? id : game.Id;
+
         if (sessionId == _runningSessionId)
         {
             _runningGameId = null;
             _runningSessionId = 0;
-            ClearBadge(game);
+            ClearBadge(game, trackedId);
             return;
         }
 
-        if (_runningGameId != game.Id)
-            ClearBadge(game);
+        if (_runningGameId != trackedId)
+            ClearBadge(game, trackedId);
     }
 
-    /// <summary>Clears game's own badge, plus whichever entry in the *current* library shares its id
-    /// if that's a different instance (see MarkGameNotRunning).</summary>
-    private void ClearBadge(GameEntry game)
+    /// <summary>Clears game's own badge, plus whichever entry in the *current* library shares
+    /// `idToClear` if that's a different instance (see MarkGameNotRunning - `idToClear` is the
+    /// session's CURRENT tracked id, which is not always game.Id).</summary>
+    private void ClearBadge(GameEntry game, string? idToClear)
     {
         game.IsRunning = false;
 
-        var current = _allGames.FirstOrDefault(g => g.Id == game.Id);
+        var current = _allGames.FirstOrDefault(g => g.Id == idToClear);
         if (current is not null && !ReferenceEquals(current, game))
             current.IsRunning = false;
     }
@@ -412,6 +446,153 @@ public partial class LibraryViewModel : ObservableObject
     /// it through DownloadUpdateCommand would also require faking a real update check just to
     /// populate _pendingUpdate first. See LibraryViewModelRunningGameTests.</summary>
     internal string? RunningGameId => _runningGameId;
+
+    /// <summary>How many sessions are currently tracked in _sessionGameIds - every MarkGameRunning call
+    /// adds one, every MarkGameNotRunning call (for that exact session) removes it. Exposed so tests can
+    /// directly assert that a session's entry is genuinely retired, not merely that the badge looks
+    /// right - a real, confirmed leak (MainWindow skipping cleanup entirely for a same-instance relaunch)
+    /// left the badge looking correct while still leaking a stale map entry underneath it.</summary>
+    internal int TrackedSessionCount => _sessionGameIds.Count;
+
+    /// <summary>Migrates a superseded entry's override onto the surviving entry it was merged into -
+    /// see GameScannerService.DeduplicateByInstallLocation (e.g. a Manual entry reconciled into a
+    /// launcher-detected one for the same install, a real confirmed case for EA's "A Way Out"). Extracted
+    /// as its own method (called from ApplyScanResult) so it can be exercised directly against a
+    /// scripted id mapping in tests, without needing a real scan.
+    ///
+    /// FIELD-LEVEL merge, not "loser wins outright" or "winner wins outright": a real, confirmed gap in
+    /// an earlier version of this method removed the loser's override unconditionally, then only
+    /// migrated it if the winner had NO override at all - but a winner CAN already have an override that
+    /// is purely automatic metadata (GameScannerService's own NewDateAddedByGameId stamps a bare
+    /// DateAdded-only GameOverride the first time any new id is seen, with no explicit user choice
+    /// behind it at all), and that bare record was enough to block migration while the loser's own
+    /// explicit Favorite/Hidden/CustomName was already gone. GameOverride's Favorite/Hidden are plain
+    /// bools, though, with no way to represent "explicitly set to false" separately from "never
+    /// touched" - so this can only ever ADD a true value or fill in an unset field, never take a true
+    /// value AWAY from either side. That is a real, accepted limitation of the current data model (an
+    /// explicit un-favorite on the winner, immediately followed by a merge with a loser that still has
+    /// Favorite=true from its own history, would resurrect it) - not something this method can perfectly
+    /// resolve without GameOverride itself becoming tri-state, which is a larger change than this fix
+    /// warrants on its own.</summary>
+    internal void MigrateMergedOverrides(Dictionary<string, string> mergedGameIds)
+    {
+        foreach (var (loserId, winnerId) in mergedGameIds)
+        {
+            if (!_settings.Overrides.Remove(loserId, out var loserOverride))
+                continue; // nothing to migrate
+
+            if (!_settings.Overrides.TryGetValue(winnerId, out var winnerOverride))
+            {
+                _settings.Overrides[winnerId] = loserOverride;
+                continue;
+            }
+
+            winnerOverride.Favorite = winnerOverride.Favorite || loserOverride.Favorite;
+            winnerOverride.Hidden = winnerOverride.Hidden || loserOverride.Hidden;
+            winnerOverride.CustomName ??= loserOverride.CustomName;
+            winnerOverride.DateAdded ??= loserOverride.DateAdded;
+        }
+    }
+
+    /// <summary>Redirects running-game tracking from a merged-away id onto the surviving id it was
+    /// folded into - without this, a game that's actively running at the exact moment a rescan merges
+    /// its id away (e.g. EA detection for "A Way Out" starts succeeding mid-session, superseding the
+    /// Manual entry that was running) would lose its "Running" badge: ReapplyRunningBadge looks up
+    /// _runningGameId against the freshly-replaced _allGames, which no longer contains ANY entry under
+    /// the old id at all. The session-tracking fields themselves (_runningSessionId, the update guard)
+    /// are untouched - only WHICH id they're associated with changes, so MarkGameNotRunning's later call
+    /// for this exact session still correctly owns and clears it.</summary>
+    private void ReconcileRunningGameId(Dictionary<string, string> mergedGameIds)
+    {
+        if (mergedGameIds.Count == 0)
+            return;
+
+        if (_runningGameId is { } runningId && mergedGameIds.TryGetValue(runningId, out var newRunningId))
+            _runningGameId = newRunningId;
+
+        // Every OTHER still-tracked session too, not just whichever one is currently canonical - a
+        // session that's already been superseded (but hasn't had its own MarkGameNotRunning call yet)
+        // still needs its own tracked identity kept correct, or its eventual cleanup would resolve
+        // against a stale, already-merged-away id. See MarkGameNotRunning's own remarks.
+        foreach (var sessionId in _sessionGameIds.Keys.ToList())
+        {
+            if (mergedGameIds.TryGetValue(_sessionGameIds[sessionId], out var winnerId))
+                _sessionGameIds[sessionId] = winnerId;
+        }
+    }
+
+    /// <summary>Publishes a completed ScanResult to live state - the one place RefreshAsync (a real
+    /// scan) and tests both route through, so test coverage of merge/reconciliation behavior (id
+    /// migration, override migration, DateAdded, the running-game badge) exercises the actual production
+    /// path rather than a parallel copy of it that could silently drift from what RefreshAsync really
+    /// does.</summary>
+    internal void ApplyScanResult(ScanResult result)
+    {
+        // Before ReplaceAllGames (which reapplies the running badge against the new _allGames) - a
+        // stale _runningGameId at that point would find nothing and silently lose the badge.
+        ReconcileRunningGameId(result.MergedGameIds);
+
+        ReplaceAllGames(result.Games);
+
+        // Before the NewDateAddedByGameId loop below, so its "??=" sees the real, migrated DateAdded
+        // already in place rather than treating the surviving id as brand-new and stamping today's date
+        // over the game's actual add date.
+        MigrateMergedOverrides(result.MergedGameIds);
+
+        // Merged here, on the UI thread, rather than written straight into _settings.Overrides from the
+        // background scan thread - see GameScannerService.ScanAllAsync's remarks on why that's a real
+        // Dictionary-corruption risk, not just a staleness one.
+        foreach (var (id, dateAdded) in result.NewDateAddedByGameId)
+        {
+            if (!_settings.Overrides.TryGetValue(id, out var over))
+            {
+                over = new GameOverride();
+                _settings.Overrides[id] = over;
+            }
+            over.DateAdded ??= dateAdded;
+        }
+
+        // Same idea for any watched folder WatchedFolderResolver healed during this scan (a first-time
+        // volume anchor, or a re-derived path after a drive-letter change) - the scan only ever touched
+        // its own private copies (see GameScannerService.ScanAllAsync), so the healed values are applied
+        // to the live, UI-bound object here instead. Matched by the path the folder had when this scan
+        // started, since the healed Path may itself have changed.
+        foreach (var healed in result.HealedWatchedFolders)
+        {
+            var live = _settings.WatchedFolders.FirstOrDefault(w =>
+                string.Equals(w.Path, healed.OriginalPath, StringComparison.OrdinalIgnoreCase));
+            if (live is null)
+                continue; // removed while this scan was running - nothing to heal anymore
+
+            live.Path = healed.HealedPath;
+            live.VolumeSerialNumber = healed.VolumeSerialNumber;
+            live.RelativePath = healed.RelativePath;
+        }
+
+        // Re-applied here, on the UI thread, rather than trusting the Hidden/Favorite/CustomName/
+        // DateAdded GameScannerService already baked into each GameEntry: those came from an Overrides
+        // snapshot taken when this scan started, and ToggleFavorite/ToggleHidden stay usable the whole
+        // time a scan is running - and, for DateAdded specifically, a merged entry's real historical date
+        // only becomes available via MigrateMergedOverrides above, which runs on the UI thread AFTER the
+        // scanner already baked its own (wrong, "today") guess into the GameEntry for a brand-new
+        // surviving id. Without re-applying DateAdded here too - a real, confirmed gap in an earlier
+        // version of this method - "Recently Added" would show the wrong date for a merged game until
+        // another, later refresh finally saw the migrated value in its own Overrides snapshot.
+        foreach (var game in _allGames)
+        {
+            _settings.Overrides.TryGetValue(game.Id, out var over);
+            if (!string.IsNullOrWhiteSpace(over?.CustomName))
+                game.Name = over.CustomName;
+            game.Hidden = over?.Hidden ?? false;
+            game.Favorite = over?.Favorite ?? false;
+            if (over?.DateAdded is { } dateAdded)
+                game.DateAdded = dateAdded;
+        }
+    }
+
+    /// <summary>Read-only test seam mirroring RunningGameId - lets tests assert directly on an
+    /// override's state (e.g. after MigrateMergedOverrides) without a public Overrides accessor.</summary>
+    internal GameOverride? GetOverride(string gameId) => _settings.Overrides.GetValueOrDefault(gameId);
 
     private void ApplyFoundUpdate(UpdateInfo update)
     {
@@ -592,52 +773,7 @@ public partial class LibraryViewModel : ObservableObject
             if (!ReferenceEquals(_refreshCts, cts))
                 return;
 
-            ReplaceAllGames(result.Games);
-
-            // Merged here, on the UI thread, rather than written straight into _settings.Overrides
-            // from the background scan thread - see GameScannerService.ScanAllAsync's remarks on why
-            // that's a real Dictionary-corruption risk, not just a staleness one.
-            foreach (var (id, dateAdded) in result.NewDateAddedByGameId)
-            {
-                if (!_settings.Overrides.TryGetValue(id, out var over))
-                {
-                    over = new GameOverride();
-                    _settings.Overrides[id] = over;
-                }
-                over.DateAdded ??= dateAdded;
-            }
-
-            // Same idea for any watched folder WatchedFolderResolver healed during this scan (a
-            // first-time volume anchor, or a re-derived path after a drive-letter change) - the scan
-            // only ever touched its own private copies (see GameScannerService.ScanAllAsync), so the
-            // healed values are applied to the live, UI-bound object here instead. Matched by the path
-            // the folder had when this scan started, since the healed Path may itself have changed.
-            foreach (var healed in result.HealedWatchedFolders)
-            {
-                var live = _settings.WatchedFolders.FirstOrDefault(w =>
-                    string.Equals(w.Path, healed.OriginalPath, StringComparison.OrdinalIgnoreCase));
-                if (live is null)
-                    continue; // removed while this scan was running - nothing to heal anymore
-
-                live.Path = healed.HealedPath;
-                live.VolumeSerialNumber = healed.VolumeSerialNumber;
-                live.RelativePath = healed.RelativePath;
-            }
-
-            // Re-applied here, on the UI thread, rather than trusting the Hidden/Favorite/CustomName
-            // GameScannerService already baked into each GameEntry: those came from an Overrides
-            // snapshot taken when this scan started, and ToggleFavorite/ToggleHidden stay usable the
-            // whole time a scan is running. Without this, a toggle made mid-scan would visibly revert
-            // the instant this scan's results are published, even though the live settings (and so a
-            // later refresh) were correct the entire time.
-            foreach (var game in _allGames)
-            {
-                _settings.Overrides.TryGetValue(game.Id, out var over);
-                if (!string.IsNullOrWhiteSpace(over?.CustomName))
-                    game.Name = over.CustomName;
-                game.Hidden = over?.Hidden ?? false;
-                game.Favorite = over?.Favorite ?? false;
-            }
+            ApplyScanResult(result);
 
             _settingsService.Save(_settings); // persists the DateAdded/watched-folder changes merged above
             ApplyFilter();

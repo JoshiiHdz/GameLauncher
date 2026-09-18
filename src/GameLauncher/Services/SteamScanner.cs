@@ -9,7 +9,14 @@ public static partial class SteamScanner
 {
     // Shared runtime/tooling Steam installs alongside games via the same appmanifest mechanism -
     // these aren't games and have no launch UI, so they'd show up as blank, unplayable entries.
-    private static readonly HashSet<string> NonGameAppIds = ["228980"]; // Steamworks Common Redistributables
+    // 431960 is Wallpaper Engine's Steam app id (store.steampowered.com/app/431960) - Steam itself
+    // categorizes it as Software, not a Game, and it was explicitly requested to be excluded from the
+    // library. Not independently confirmed against a real appmanifest_431960.acf on the reporting
+    // machine - if it's ever wrong, the worst case is Wallpaper Engine simply keeps appearing (no new
+    // breakage), so this is low-risk to ship without that confirmation, but worth double-checking
+    // against a real manifest if it doesn't disappear as expected.
+    private static readonly HashSet<string> NonGameAppIds =
+        ["228980", "431960"]; // Steamworks Common Redistributables, Wallpaper Engine
 
     public static List<GameEntry> Scan()
     {
@@ -103,7 +110,9 @@ public static partial class SteamScanner
         return libraries;
     }
 
-    private static GameEntry? ParseManifest(string manifestPath, string steamAppsDir)
+    /// <summary>internal, not private, so NonGameAppIds exclusion can be tested directly against a
+    /// real temp manifest file without a real Steam install/registry behind it.</summary>
+    internal static GameEntry? ParseManifest(string manifestPath, string steamAppsDir)
     {
         var content = File.ReadAllText(manifestPath);
 

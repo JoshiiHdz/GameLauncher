@@ -146,8 +146,11 @@ public static class EaScanner
 
         // "showcase" is EA Sports-specific (a demo/kiosk mode bundled alongside the real game, e.g.
         // "FC26_Showcase.exe" next to "FC26.exe") - not a broadly generalizable enough term for the
-        // shared default list, but a real, confirmed false-pick here otherwise.
-        var exe = GameExeFinder.FindLargestExe(installDir, extraExcludePatterns: new[] { "showcase" });
+        // shared default list, but a real, confirmed false-pick here otherwise. See
+        // GameExeFinder.EaFriendsPassExcludePattern's own remarks for why "_friend" is scoped here too,
+        // rather than added to the shared default patterns every scanner uses.
+        var exe = GameExeFinder.FindLargestExe(installDir,
+            extraExcludePatterns: new[] { "showcase", GameExeFinder.EaFriendsPassExcludePattern });
         if (exe is null)
         {
             Logger.Warn($"  EA: '{name}' found at '{installDir}' but no launchable exe was found in it.");
