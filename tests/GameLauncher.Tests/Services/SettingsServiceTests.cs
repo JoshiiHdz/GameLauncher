@@ -178,4 +178,97 @@ public class SettingsServiceTests : IDisposable
         Assert.Equal("steam-200", id);
         Assert.True(loaded.Overrides["steam-200"].Favorite);
     }
+
+    [Fact]
+    public void Save_Succeeds_ReturnsTrue()
+    {
+        Assert.True(_sut.Save(new AppSettings()));
+    }
+
+    [Fact]
+    public void Load_NullArtworkConflictsList_NormalizedToEmpty()
+    {
+        var settingsPath = Path.Combine(_dataDir, "settings.json");
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(settingsPath, """{"ArtworkConflicts": null}""");
+
+        var loaded = _sut.Load();
+
+        Assert.NotNull(loaded.ArtworkConflicts);
+        Assert.Empty(loaded.ArtworkConflicts);
+    }
+
+    [Fact]
+    public void Load_NullEntryInArtworkConflictsArray_IsRemoved()
+    {
+        var settingsPath = Path.Combine(_dataDir, "settings.json");
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(settingsPath, """{"ArtworkConflicts": [null]}""");
+
+        var loaded = _sut.Load();
+
+        Assert.Empty(loaded.ArtworkConflicts);
+    }
+
+    [Fact]
+    public void Load_ArtworkConflictWithNullLoserSelection_IsRemoved()
+    {
+        // An ArtworkConflict without its LoserSelection carries no usable data at all - downstream code
+        // (a future GC reference-discovery pass, a conflict-resolution UI) can only crash on it.
+        var settingsPath = Path.Combine(_dataDir, "settings.json");
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(settingsPath,
+            """{"ArtworkConflicts": [{"WinnerGameId": "a", "LoserGameId": "b", "LoserSelection": null}]}""");
+
+        var loaded = _sut.Load();
+
+        Assert.Empty(loaded.ArtworkConflicts);
+    }
+
+    // ---- Load: ArtworkRevision validation ---------------------------------------------------------
+
+    [Fact]
+    public void Load_NegativeArtworkRevision_NormalizedToZero()
+    {
+        // -1 specifically collides with LibraryViewModel.ReconcileArtwork's own internal representation
+        // of "no scan result at all" if it were ever allowed to leak in as a real persisted value -
+        // that representation is a null (see ArtworkApplyResult?), never a numeric sentinel, precisely
+        // so a persisted revision can't collide with it; this defends against the persisted side too.
+        var settingsPath = Path.Combine(_dataDir, "settings.json");
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(settingsPath,
+            """{"Overrides": {"steam-100": {"ArtworkRevision": -1}}}""");
+
+        var loaded = _sut.Load();
+
+        Assert.Equal(0, loaded.Overrides["steam-100"].ArtworkRevision);
+    }
+
+    [Fact]
+    public void Load_ArtworkRevisionNearLongMaxValue_NormalizedToZero()
+    {
+        // Close enough to long.MaxValue that the very next legitimate bump (Change Cover, Reset, or a
+        // dedup merge) would silently wrap to a large negative number under unchecked arithmetic.
+        var settingsPath = Path.Combine(_dataDir, "settings.json");
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(settingsPath,
+            """{"Overrides": {"steam-100": {"ArtworkRevision": """ + long.MaxValue + """ }}}""");
+
+        var loaded = _sut.Load();
+
+        Assert.Equal(0, loaded.Overrides["steam-100"].ArtworkRevision);
+    }
+
+    [Fact]
+    public void Load_OrdinaryArtworkRevision_LeftUnchanged()
+    {
+        var settingsPath = Path.Combine(_dataDir, "settings.json");
+        Directory.CreateDirectory(_dataDir);
+        File.WriteAllText(settingsPath,
+            """{"Overrides": {"steam-100": {"ArtworkRevision": 42}}}""");
+
+        var loaded = _sut.Load();
+
+        Assert.Equal(42, loaded.Overrides["steam-100"].ArtworkRevision);
+    }
 }

@@ -93,7 +93,7 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
     }
 
     [Fact]
-    public void DateOnlyWinner_AgainstFavoritedHiddenCustomNamedLoser_PreservesAllOfTheLosersExplicitChoices()
+    public async Task DateOnlyWinner_AgainstFavoritedHiddenCustomNamedLoser_PreservesAllOfTheLosersExplicitChoices()
     {
         // Simulates two scans: first, EA detection succeeds with no Manual counterpart yet -
         // ApplyScanResult's own NewDateAddedByGameId path stamps a bare, AUTOMATIC DateAdded-only
@@ -106,11 +106,12 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
         // real preferences outright instead of merging them in.
         var winner = MakeGame("ea-awayout", GameSource.Ea);
         var winnerDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        _sut.ApplyScanResult(new ScanResult(
+        await _sut.ApplyScanResultAsync(new ScanResult(
             Games: [winner],
             NewDateAddedByGameId: new Dictionary<string, DateTime> { ["ea-awayout"] = winnerDate },
             HealedWatchedFolders: [],
-            MergedGameIds: new Dictionary<string, string>()));
+            MergedGameIds: new Dictionary<string, string>(),
+            ArtworkResultsByGameId: []));
 
         var bareOverride = _sut.GetOverride("ea-awayout");
         Assert.NotNull(bareOverride);
@@ -153,10 +154,227 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
         Assert.True(merged.Hidden);
     }
 
+    // ---- MigrateMergedOverrides: artwork precedence -------------------------------------------------
+
+    private static ArtworkSelection MakeUserSelection(string assetId = "asset-1") => new()
+    {
+        Provider = ArtworkProvider.UserLocalFile,
+        AssetId = assetId,
+        AssetExtension = "png",
+        IsUserSelected = true,
+    };
+
+    private static ArtworkSelection MakeAutomaticSelection() => new()
+    {
+        Provider = ArtworkProvider.SteamGridDb,
+        MatchMethod = "ExactTitle",
+        IsUserSelected = false,
+    };
+
+    [Fact]
+    public void LoserUserSelection_BeatsWinnerAutomaticSelection()
+    {
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        var automatic = MakeAutomaticSelection();
+        _sut.SetArtworkForTest("ea-awayout", automatic, revision: 1);
+        var userPick = MakeUserSelection();
+        _sut.SetArtworkForTest("manual-haze1", userPick, revision: 1);
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        Assert.Same(userPick, _sut.GetOverride("ea-awayout")!.Artwork);
+    }
+
+    [Fact]
+    public void LoserUserSelection_FillsAnEmptySlot_WhenWinnerHasNoArtworkAtAll()
+    {
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        var userPick = MakeUserSelection();
+        _sut.SetArtworkForTest("manual-haze1", userPick, revision: 1);
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        Assert.Same(userPick, _sut.GetOverride("ea-awayout")!.Artwork);
+    }
+
+    [Fact]
+    public void WinnerUserSelection_BeatsLoserAutomaticSelection()
+    {
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        var userPick = MakeUserSelection();
+        _sut.SetArtworkForTest("ea-awayout", userPick, revision: 1);
+        _sut.SetArtworkForTest("manual-haze1", MakeAutomaticSelection(), revision: 1);
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        Assert.Same(userPick, _sut.GetOverride("ea-awayout")!.Artwork);
+    }
+
+    [Fact]
+    public void BothSidesHaveDifferentUserSelections_WinnerKeepsItsOwn_LosersIsRecordedAsAConflict_NotDiscarded()
+    {
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        var winnerPick = MakeUserSelection("winner-asset");
+        var loserPick = MakeUserSelection("loser-asset");
+        _sut.SetArtworkForTest("ea-awayout", winnerPick, revision: 1);
+        _sut.SetArtworkForTest("manual-haze1", loserPick, revision: 1);
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        // The winner's own pick stays active - not silently replaced by the loser's.
+        Assert.Same(winnerPick, _sut.GetOverride("ea-awayout")!.Artwork);
+
+        // But the loser's pick is NOT simply gone - it's durably recorded, not just logged.
+        var conflict = Assert.Single(_sut.ArtworkConflictsForTest);
+        Assert.Equal("ea-awayout", conflict.WinnerGameId);
+        Assert.Equal("manual-haze1", conflict.LoserGameId);
+        Assert.Same(loserPick, conflict.LoserSelection);
+    }
+
+    [Fact]
+    public void BothSidesHaveTheSameUserSelection_NoConflictIsRecorded()
+    {
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        var samePick = MakeUserSelection("same-asset");
+        _sut.SetArtworkForTest("ea-awayout", samePick, revision: 1);
+        _sut.SetArtworkForTest("manual-haze1", MakeUserSelection("same-asset"), revision: 1); // same AssetId, different instance
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        Assert.Empty(_sut.ArtworkConflictsForTest);
+    }
+
+    [Fact]
+    public void ArtworkRevision_AfterMerge_IsStrictlyGreaterThanBothSidesPriorValues()
+    {
+        // Not a copy of either side's number - a scan result computed against either side's PRE-merge
+        // revision (or, by numeric coincidence, some entirely unrelated game's) must never be able to
+        // validate against the post-merge id just because the numbers happen to match.
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        _sut.SetArtworkForTest("ea-awayout", MakeAutomaticSelection(), revision: 3);
+        _sut.SetArtworkForTest("manual-haze1", MakeAutomaticSelection(), revision: 7);
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        Assert.True(_sut.GetOverride("ea-awayout")!.ArtworkRevision > 7);
+    }
+
+    [Fact]
+    public void ArtworkRevision_WinnerHadNoOverrideAtAll_StillBumpedPastTheLosersPriorValue()
+    {
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        _sut.SetArtworkForTest("manual-haze1", MakeUserSelection(), revision: 5);
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        Assert.True(_sut.GetOverride("ea-awayout")!.ArtworkRevision > 5);
+    }
+
+    [Fact]
+    public void ArtworkRevision_LoserAtExhaustion_WinnerHadNoOverride_AdoptedAsIs_NeverWrapsToACollidableLowValue()
+    {
+        // Unchecked arithmetic would otherwise silently wrap long.MaxValue + 1 to long.MinValue - bad on
+        // its own - but wrapping to a SMALL value (0 was an earlier, real, confirmed version of this bug)
+        // is actually worse: 0 is the ordinary default for a never-touched override, so a wrapped counter
+        // could coincide with a genuinely outstanding scan/lookup's captured revision from long before the
+        // wrap and be wrongly treated as current - reachable through the counter's own normal lifecycle,
+        // not only through corruption. The loser's own revision is already exhausted here, so
+        // TryGetNextRevision can't bump it further - it's adopted onto the winner exactly as-is (still a
+        // real, distinguishing change from the winner's own prior "no override at all" state) rather than
+        // reusing a smaller, collidable value. Every future artwork change to this survivor id will itself
+        // now be safely rejected too - see ArtworkRevision_WinnerAndLoserBothAtExhaustion... below for the
+        // branch where an in-place merge (both sides already having overrides) hits that same boundary.
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        _sut.SetArtworkForTest("manual-haze1", MakeUserSelection(), revision: long.MaxValue);
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        Assert.Equal(long.MaxValue, _sut.GetOverride("ea-awayout")!.ArtworkRevision);
+    }
+
+    [Fact]
+    public void ArtworkRevision_WinnerAndLoserBothAtExhaustion_ArtworkMigrationIsSkipped_ButLosersSelectionIsStillRecorded()
+    {
+        // The real property this covers: migrating the WINNER's artwork data while unable to bump its
+        // revision would be an unsignaled change - an outstanding scan/lookup that already captured this
+        // exact (exhausted) revision for the winner's OWN id would wrongly keep treating itself as still
+        // current even though the merge just replaced the winner's artwork underneath it. Skipping the
+        // artwork migration entirely at this boundary (Favorite/Hidden/CustomName/DateAdded are unrelated
+        // and still migrate normally) is what keeps that guarantee intact.
+        //
+        // But the loser's own GameOverride is removed regardless (see MigrateMergedOverrides' very first
+        // line) - if its explicit selection isn't recorded somewhere durable before that happens, its
+        // identity is lost forever with nothing left even referencing it, not just "not activated". A
+        // real, confirmed gap in an earlier version of this fix: it correctly left the winner's active
+        // artwork/revision untouched but never recorded the loser's selection either.
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        var winnerPick = MakeUserSelection("winner-asset");
+        var loserPick = MakeUserSelection("loser-asset");
+        _sut.SetArtworkForTest("ea-awayout", winnerPick, revision: long.MaxValue);
+        _sut.SetArtworkForTest("manual-haze1", loserPick, revision: long.MaxValue);
+        _sut.ToggleFavoriteCommand.Execute(loser); // an unrelated field - must still migrate normally
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        var merged = _sut.GetOverride("ea-awayout")!;
+        Assert.Same(winnerPick, merged.Artwork); // untouched - not replaced, not cleared
+        Assert.Equal(long.MaxValue, merged.ArtworkRevision); // not "bumped" past itself - impossible at this boundary
+        Assert.True(merged.Favorite); // the unrelated field still migrated correctly
+
+        var conflict = Assert.Single(_sut.ArtworkConflictsForTest);
+        Assert.Equal("ea-awayout", conflict.WinnerGameId);
+        Assert.Equal("manual-haze1", conflict.LoserGameId);
+        Assert.Same(loserPick, conflict.LoserSelection); // the loser's full selection is preserved, not just logged
+    }
+
+    [Fact]
+    public void ArtworkRevision_WinnerAndLoserBothAtExhaustion_LoserHadOnlyAnAutomaticSelection_NothingRecorded()
+    {
+        // Only an EXPLICIT (user-selected) loser selection needs preserving - an automatic match has no
+        // durable identity a user chose and cares about keeping; recording it would just be noise.
+        var winner = MakeGame("ea-awayout", GameSource.Ea);
+        var loser = MakeGame("manual-haze1");
+        _sut.SimulateRefreshResult([winner, loser]);
+
+        _sut.SetArtworkForTest("ea-awayout", MakeUserSelection("winner-asset"), revision: long.MaxValue);
+        _sut.SetArtworkForTest("manual-haze1", MakeAutomaticSelection(), revision: long.MaxValue);
+
+        _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+
+        Assert.Empty(_sut.ArtworkConflictsForTest);
+    }
+
     // ---- ApplyScanResult: the actual production publish path ------------------------------------------
 
     [Fact]
-    public void ApplyScanResult_MergedGamesDateAdded_IsAppliedToTheSurvivingGameEntryImmediately()
+    public async Task ApplyScanResult_MergedGamesDateAdded_IsAppliedToTheSurvivingGameEntryImmediately()
     {
         // The scanner bakes a fresh (wrong, "today") DateAdded into a brand-new surviving id's GameEntry
         // before migration ever runs (see GameScannerService.ScanAllAsync) - without re-applying the
@@ -175,15 +393,16 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
             Games: [winner],
             NewDateAddedByGameId: new Dictionary<string, DateTime>(), // "ea-awayout" is NOT new-to-Overrides by the time ApplyScanResult's migration runs
             HealedWatchedFolders: [],
-            MergedGameIds: new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+            MergedGameIds: new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" },
+            ArtworkResultsByGameId: []);
 
-        _sut.ApplyScanResult(scanResult);
+        await _sut.ApplyScanResultAsync(scanResult);
 
         Assert.Equal(realDate, winner.DateAdded); // corrected on the GameEntry itself, this same publish
     }
 
     [Fact]
-    public void ApplyScanResult_RunningGameThatGetsMergedAway_KeepsItsBadgeUnderTheNewId()
+    public async Task ApplyScanResult_RunningGameThatGetsMergedAway_KeepsItsBadgeUnderTheNewId()
     {
         var loser = MakeGame("manual-haze1");
         _sut.SimulateRefreshResult([loser]);
@@ -194,9 +413,10 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
             Games: [winner],
             NewDateAddedByGameId: [],
             HealedWatchedFolders: [],
-            MergedGameIds: new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" });
+            MergedGameIds: new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" },
+            ArtworkResultsByGameId: []);
 
-        _sut.ApplyScanResult(scanResult);
+        await _sut.ApplyScanResultAsync(scanResult);
 
         Assert.Equal("ea-awayout", _sut.RunningGameId); // tracking followed the merge, not left pointing at a dead id
         Assert.True(winner.IsRunning); // the badge landed on the surviving GameEntry
@@ -213,7 +433,7 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
     }
 
     [Fact]
-    public void MergedSessionSupersededByAnotherLaunchBeforeItsOwnCleanup_StillClearsTheMergedWinnersBadge()
+    public async Task MergedSessionSupersededByAnotherLaunchBeforeItsOwnCleanup_StillClearsTheMergedWinnersBadge()
     {
         // The real, confirmed sequence this covers: session A (Manual) starts, gets merged into entry B
         // (EA) mid-play, and THEN an unrelated session C starts and supersedes A's tracking entirely -
@@ -226,7 +446,7 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
         var sessionA = _sut.MarkGameRunning(loser);
 
         var winner = MakeGame("ea-b", GameSource.Ea);
-        _sut.ApplyScanResult(new ScanResult([winner], [], [], new Dictionary<string, string> { ["manual-a"] = "ea-b" }));
+        await _sut.ApplyScanResultAsync(new ScanResult([winner], [], [], new Dictionary<string, string> { ["manual-a"] = "ea-b" }, []));
         Assert.True(winner.IsRunning); // merge landed correctly, same as the test above
 
         var gameC = MakeGame("game-c");
@@ -247,7 +467,7 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
     }
 
     [Fact]
-    public void ApplyScanResult_NoMergeHappened_RunningGameIdIsLeftAlone()
+    public async Task ApplyScanResult_NoMergeHappened_RunningGameIdIsLeftAlone()
     {
         var game = MakeGame("game-1");
         _sut.SimulateRefreshResult([game]);
@@ -257,16 +477,17 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
             Games: [game],
             NewDateAddedByGameId: [],
             HealedWatchedFolders: [],
-            MergedGameIds: new Dictionary<string, string>());
+            MergedGameIds: new Dictionary<string, string>(),
+            ArtworkResultsByGameId: []);
 
-        _sut.ApplyScanResult(scanResult);
+        await _sut.ApplyScanResultAsync(scanResult);
 
         Assert.Equal("game-1", _sut.RunningGameId);
         Assert.True(game.IsRunning);
     }
 
     [Fact]
-    public void AfterMergedGameExit_RelaunchingTheSameSurvivingGame_TracksItNormally()
+    public async Task AfterMergedGameExit_RelaunchingTheSameSurvivingGame_TracksItNormally()
     {
         // Proves the fix doesn't leave any residual reconciliation state behind - a completely ordinary
         // launch/exit cycle for the SAME (now-surviving) game right after a merge-and-exit must behave
@@ -276,7 +497,7 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
         var firstSessionId = _sut.MarkGameRunning(loser);
 
         var winner = MakeGame("ea-awayout", GameSource.Ea);
-        _sut.ApplyScanResult(new ScanResult([winner], [], [], new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" }));
+        await _sut.ApplyScanResultAsync(new ScanResult([winner], [], [], new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" }, []));
         _sut.MarkGameNotRunning(loser, firstSessionId);
 
         var secondSessionId = _sut.MarkGameRunning(winner);
@@ -289,7 +510,7 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
     }
 
     [Fact]
-    public void AfterMergedGameExit_LaunchingADifferentGame_TracksOnlyThatGame()
+    public async Task AfterMergedGameExit_LaunchingADifferentGame_TracksOnlyThatGame()
     {
         // No leftover state from the merge (a stale tracked id, a lingering badge) leaks into an
         // unrelated later session for a completely different game.
@@ -299,8 +520,8 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
 
         var winner = MakeGame("ea-awayout", GameSource.Ea);
         var otherGame = MakeGame("game-2");
-        _sut.ApplyScanResult(new ScanResult(
-            [winner, otherGame], [], [], new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" }));
+        await _sut.ApplyScanResultAsync(new ScanResult(
+            [winner, otherGame], [], [], new Dictionary<string, string> { ["manual-haze1"] = "ea-awayout" }, []));
         _sut.MarkGameNotRunning(loser, firstSessionId);
 
         var secondSessionId = _sut.MarkGameRunning(otherGame);

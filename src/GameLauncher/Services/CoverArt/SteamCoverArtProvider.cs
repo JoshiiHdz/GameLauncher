@@ -14,21 +14,35 @@ public sealed class SteamCoverArtProvider : ICoverArtProvider
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(AppPaths.DataDir, "CoverArtCache");
 
-    public BitmapImage? GetCoverArt(GameEntry game)
+    public BitmapImage? GetCoverArt(GameEntry game) => GetCoverArt(game, out _);
+
+    /// <summary>Same lookup, but also reports whether the result came from this provider's own on-disk
+    /// cache rather than a fresh network fetch just now - CoverArtService.Apply needs this to record
+    /// accurate retrieval evidence (ArtworkRetrievalMethod) instead of manufacturing "NetworkDownload"
+    /// for what was actually a cache hit. `cacheDirOverride` is test-only (production never passes it,
+    /// always resolving under AppPaths.DataDir) - same per-call-override pattern as
+    /// ArtworkAssetStore.TryResolvePath, for the same reason (xUnit's default parallel test execution).</summary>
+    public BitmapImage? GetCoverArt(GameEntry game, out bool servedFromCache, string? cacheDirOverride = null)
     {
+        servedFromCache = false;
+
         var appId = ExtractAppId(game);
         if (appId is null)
             return null;
 
+        var cacheDir = cacheDirOverride ?? CacheDir;
         try
         {
-            Directory.CreateDirectory(CacheDir);
-            var cachePath = Path.Combine(CacheDir, $"steam-{appId}.jpg");
+            Directory.CreateDirectory(cacheDir);
+            var cachePath = Path.Combine(cacheDir, $"steam-{appId}.jpg");
             if (File.Exists(cachePath))
             {
                 var cached = LoadBitmap(File.ReadAllBytes(cachePath));
                 if (cached is not null)
+                {
+                    servedFromCache = true;
                     return cached;
+                }
 
                 // Corrupt cache file (e.g. an interrupted write from a previous crash) - without
                 // deleting it, this would fail identically on every future scan forever. Fall through

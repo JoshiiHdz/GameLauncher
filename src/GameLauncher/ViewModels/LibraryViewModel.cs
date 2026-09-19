@@ -2,11 +2,14 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Windows;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GameLauncher;
 using GameLauncher.Models;
 using GameLauncher.Services;
+using GameLauncher.Services.CoverArt;
 using Microsoft.Win32;
 using Velopack;
 
@@ -61,6 +64,42 @@ public partial class LibraryViewModel : ObservableObject
     // up to date as merges happen, and MarkGameNotRunning removes its own entry exactly once, when that
     // session is finally cleaned up.
     private readonly Dictionary<int, string> _sessionGameIds = new();
+
+    // Guards overlapping Apply/Reset for the SAME game - a second request for a game already mid-commit
+    // is rejected outright rather than allowed to race the first's revision bump/asset write. This alone
+    // does not protect the shared settings.json against two DIFFERENT games committing "concurrently" -
+    // that's guaranteed instead by CommitArtworkChange being fully synchronous (no await inside it),
+    // which WPF's single UI-thread dispatcher already serializes on its own; see CommitArtworkChange's
+    // own remarks.
+    private readonly HashSet<string> _artworkOperationsInFlight = new();
+
+    // Test-only seams - production always leaves these null, in which case every artwork code path
+    // resolves to the exact same real dependency (ArtworkAssetStore's own default directory,
+    // IconService.GetIcon, CoverArtService.Apply) it would use without this indirection at all. Needed
+    // because ArtworkAssetStore/CoverArtService have no other injectable seam reachable from
+    // LibraryViewModel: without these, artwork tests would have to write into real %AppData%\GameLauncher
+    // and Reset tests would depend on whether this checkout happens to have a real embedded SteamGridDB
+    // key (default-api-key.txt) - both real, confirmed problems in an earlier version of this test suite.
+    internal string? AssetStoreDirOverrideForTest { get; set; }
+    internal Func<GameEntry, BitmapImage?>? IconFallbackForTest { get; set; }
+    internal Func<GameEntry, string?, ArtworkSelection?>? AutomaticCoverArtLookupForTest { get; set; }
+
+    /// <summary>Test-only: invoked (and awaited) by ApplyScanResultAsync right after its PREPARE phase
+    /// (off-thread cover decode) completes and before PUBLISH starts - the exact window in which a real
+    /// concurrent action (a Change Cover/Reset commit, a ToggleFavorite click, a superseding refresh)
+    /// could land in production. Lets tests deterministically exercise that window without real threading
+    /// - see LibraryViewModelArtworkTests' controlled-interleaving tests. Always null in production.
+    /// Invoked unconditionally, even when PREPARE had nothing to decode (no real await occurred) - a test
+    /// simulating a plain UI action during a scan publish doesn't require an artwork decode to be in
+    /// flight to be meaningful.</summary>
+    internal Func<Task>? DuringCoverDecodeForTest { get; set; }
+
+    /// <summary>Test-only: invoked by ApplyLocalCoverImageAsync right after the newly-staged asset file
+    /// is written, before CommitArtworkChange applies it - lets a test delete/corrupt that file to prove
+    /// CommitArtworkChange's `preparedIcon` path actually displays the already-decoded, in-memory bitmap
+    /// from validation rather than re-reading the file it's about to hand this callback the chance to
+    /// remove. Always null in production.</summary>
+    internal Action<string>? AfterAssetWrittenForTest { get; set; }
 
     // Held here rather than just exposing the version string: DownloadUpdateCommand needs to hand
     // the actual UpdateInfo back to UpdateService.DownloadAndApplyAsync, and re-checking for updates
@@ -447,6 +486,18 @@ public partial class LibraryViewModel : ObservableObject
     /// populate _pendingUpdate first. See LibraryViewModelRunningGameTests.</summary>
     internal string? RunningGameId => _runningGameId;
 
+    /// <summary>Test seam mirroring exactly what RefreshAsync itself does to establish ownership of the
+    /// current refresh (cancel-and-replace _refreshCts) - lets a test drive ApplyScanResultAsync's
+    /// `ownershipToken` parameter directly, and simulate a superseding refresh mid-decode, without
+    /// needing a real GameScannerService scan behind it. Returns the new token.</summary>
+    internal CancellationTokenSource SetRefreshOwnershipForTest()
+    {
+        _refreshCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _refreshCts = cts;
+        return cts;
+    }
+
     /// <summary>How many sessions are currently tracked in _sessionGameIds - every MarkGameRunning call
     /// adds one, every MarkGameNotRunning call (for that exact session) removes it. Exposed so tests can
     /// directly assert that a session's entry is genuinely retired, not merely that the badge looks
@@ -483,6 +534,16 @@ public partial class LibraryViewModel : ObservableObject
 
             if (!_settings.Overrides.TryGetValue(winnerId, out var winnerOverride))
             {
+                // Still bumped past its own prior value, not carried over as-is - see the ArtworkRevision
+                // bump below for why a merge can never simply copy a revision number across untouched. If
+                // exhausted, the loser's own revision is already at the terminal value (see
+                // TryGetNextRevision) - adopted as-is rather than reused-but-relabeled; every future
+                // artwork-touching operation on this survivor id will itself be safely rejected from here
+                // on, exactly as it already would have been under the loser's own id.
+                if (TryGetNextRevision(loserOverride.ArtworkRevision, out var adoptedRevision))
+                    loserOverride.ArtworkRevision = adoptedRevision;
+                else
+                    Logger.Error($"Merge migration for '{winnerId}': artwork revision counter exhausted for the loser's history - adopting it as-is.");
                 _settings.Overrides[winnerId] = loserOverride;
                 continue;
             }
@@ -491,6 +552,109 @@ public partial class LibraryViewModel : ObservableObject
             winnerOverride.Hidden = winnerOverride.Hidden || loserOverride.Hidden;
             winnerOverride.CustomName ??= loserOverride.CustomName;
             winnerOverride.DateAdded ??= loserOverride.DateAdded;
+
+            // Strictly greater than EITHER side's prior value, never a copy of one side's number - a
+            // scan result computed against either side's PRE-merge revision (on this id or, by numeric
+            // coincidence, some entirely unrelated game) must never be able to validate against the
+            // post-merge id just because the numbers happen to match. See ScanResult.ArtworkApplyResult
+            // and ApplyScanResultAsync's reconciliation below for the other half of this guarantee.
+            //
+            // Only migrate the ARTWORK data when a genuinely new, distinguishing revision can actually be
+            // produced - if TryGetNextRevision can't (exhausted), migrating the data anyway would be an
+            // unsignaled change: an outstanding scan/lookup that already captured this exact revision
+            // would wrongly keep treating itself as current even though the winner's artwork just changed
+            // underneath it. Skipping the migration (Favorite/Hidden/CustomName/DateAdded above are
+            // unaffected and still apply) is the safe choice at a boundary real usage cannot reach anyway.
+            if (TryGetNextRevision(Math.Max(winnerOverride.ArtworkRevision, loserOverride.ArtworkRevision), out var nextRevision))
+            {
+                MigrateMergedArtwork(loserId, winnerId, loserOverride, winnerOverride);
+                winnerOverride.ArtworkRevision = nextRevision;
+            }
+            else
+            {
+                // The winner's active artwork/revision are left completely untouched here - not a
+                // partial or best-effort migration, since that's exactly the unsignaled-change risk this
+                // branch exists to avoid (see the remarks above). But the loser's override was already
+                // removed at the top of this loop, and if it held an EXPLICIT user selection, silently
+                // letting it fall out of ArtworkConflicts too would lose that selection's identity forever
+                // with nothing left even referencing it - a real, if extraordinarily unlikely, gap
+                // distinct from the winner-side skip above. Recording it costs nothing (no revision
+                // change, no active-artwork change) and matches exactly what MigrateMergedArtwork already
+                // does for the ordinary user-selection-conflict case.
+                if (loserOverride.Artwork is { IsUserSelected: true } loserSelection)
+                {
+                    _settings.ArtworkConflicts.Add(new ArtworkConflict
+                    {
+                        WinnerGameId = winnerId,
+                        LoserGameId = loserId,
+                        LoserSelection = loserSelection,
+                        DetectedAt = DateTime.UtcNow,
+                    });
+                }
+
+                Logger.Error($"Merge migration for '{winnerId}': artwork revision counter exhausted - skipping artwork migration for this merge.");
+            }
+        }
+    }
+
+    /// <summary>The one place ArtworkRevision is ever incremented - and the one place a mutation is
+    /// REJECTED outright once the counter is exhausted, rather than reusing a value that's already been
+    /// handed out. An earlier version saturated at long.MaxValue instead of rejecting: repeatedly
+    /// returning the same long.MaxValue meant a mutation performed AFTER saturation was indistinguishable,
+    /// by revision alone, from the state that existed BEFORE it - an outstanding scan/lookup that had
+    /// already captured long.MaxValue as "current" would keep matching it forever, even across a real,
+    /// later change it never actually saw. Rejecting instead guarantees the invariant every caller of this
+    /// method actually depends on: if a mutation is accepted, the resulting revision is provably distinct
+    /// from anything captured before it; if it can't be, nothing about the live state changes at all, so
+    /// whatever was already correctly "current" simply stays correctly current. Every caller must check
+    /// the `out` result and refuse to change/remove the override it was about to touch when this returns
+    /// false. SettingsService.Load applies a separate clamp for a hand-edited or corrupted settings.json -
+    /// that protects against untrusted persisted input, not this method's own in-session correctness, so
+    /// both are kept.</summary>
+    private static bool TryGetNextRevision(long current, out long next)
+    {
+        if (current >= long.MaxValue)
+        {
+            next = default;
+            return false;
+        }
+
+        next = current + 1;
+        return true;
+    }
+
+    /// <summary>Artwork merge precedence, explicit: a user selection always beats an automatic one (or
+    /// none at all); when the winner already has a DIFFERENT explicit user selection, that conflict is
+    /// not resolved by picking one and discarding the other - the winner's stays active (least
+    /// disruptive - it's already what's showing), and the loser's is recorded in
+    /// AppSettings.ArtworkConflicts instead of becoming unreferenced and eventually reclaimed. That is
+    /// not a resolution UI (deliberately out of scope for now) - just a guarantee that "preserved" is
+    /// actually true rather than "logged, then silently lost" the moment the loser's own GameOverride
+    /// is removed above.</summary>
+    private void MigrateMergedArtwork(string loserId, string winnerId, GameOverride loserOverride, GameOverride winnerOverride)
+    {
+        if (loserOverride.Artwork is not { } loserArt)
+            return;
+
+        if (winnerOverride.Artwork is not { IsUserSelected: true })
+        {
+            if (loserArt.IsUserSelected || winnerOverride.Artwork is null)
+                winnerOverride.Artwork = loserArt;
+            return;
+        }
+
+        if (loserArt.IsUserSelected && winnerOverride.Artwork.AssetId != loserArt.AssetId)
+        {
+            _settings.ArtworkConflicts.Add(new ArtworkConflict
+            {
+                WinnerGameId = winnerId,
+                LoserGameId = loserId,
+                LoserSelection = loserArt,
+                DetectedAt = DateTime.UtcNow,
+            });
+            Logger.Warn($"Dedup merge: '{loserId}' and its winner '{winnerId}' both had a user-selected "
+                + $"cover (loser asset {loserArt.AssetId} vs winner asset {winnerOverride.Artwork.AssetId}); "
+                + "keeping the winner's, recording the loser's in ArtworkConflicts instead of discarding it.");
         }
     }
 
@@ -525,12 +689,64 @@ public partial class LibraryViewModel : ObservableObject
     /// scan) and tests both route through, so test coverage of merge/reconciliation behavior (id
     /// migration, override migration, DateAdded, the running-game badge) exercises the actual production
     /// path rather than a parallel copy of it that could silently drift from what RefreshAsync really
-    /// does.</summary>
-    internal void ApplyScanResult(ScanResult result)
+    /// does.
+    ///
+    /// Two strictly separated phases, not interleaved: PREPARE (this method's only await) decodes every
+    /// live user-selected cover off the UI thread, touching NO live state at all - not _allGames, not
+    /// _settings, not Games/FavoriteGames/HiddenGames. PUBLISH is everything after that await: fully
+    /// synchronous, no yield point anywhere in it, so WPF's single UI-thread dispatcher alone guarantees
+    /// no user action (ToggleFavorite/ToggleHidden, another refresh, a Change Cover commit) can ever run
+    /// while it's partway through. A real, confirmed bug in an earlier version split _allGames/override
+    /// reconciliation (before the await) from Games/FavoriteGames/HiddenGames population (ApplyFilter,
+    /// after it) - a card still bound to the OLD GameEntry during that gap could have ToggleFavorite
+    /// mutate the old instance and settings, then see ApplyFilter immediately afterward repopulate the
+    /// grid from the NEW instances (already reconciled before the click, so untouched by it), making the
+    /// click appear to silently revert. Folding ApplyFilter into this same synchronous block closes that
+    /// gap entirely.
+    ///
+    /// `ownershipToken`, when given (RefreshAsync's own `cts`), is re-checked immediately before PUBLISH
+    /// starts - as close to the mutation as the code structure allows - so a refresh superseded while
+    /// PREPARE was decoding never publishes its now-stale result. Returns whether PUBLISH actually ran;
+    /// RefreshAsync uses this instead of re-checking ownership itself afterward, which would already be
+    /// too late (the check needs to gate entry to PUBLISH, not run after it). Null (the default, used by
+    /// every test that isn't exercising RefreshAsync's own cancel-and-replace machinery) means "always
+    /// publish" - there is no competing refresh to be superseded by.</summary>
+    internal async Task<bool> ApplyScanResultAsync(ScanResult result, CancellationTokenSource? ownershipToken = null)
     {
+        // ---- PREPARE: off the UI thread, read-only against live state ----
+        // Snapshot of which games currently have a live user-selected cover, and exactly which asset/
+        // revision it was AT SNAPSHOT TIME - re-validated against the LIVE override again, synchronously,
+        // immediately before being applied in PUBLISH below. A newer Change Cover/Reset/merge landing on
+        // this same game during the decode below is expected and handled there, not prevented here.
+        var toDecode = new List<(GameEntry Game, ArtworkSelection Selection, long AsOfRevision)>();
+        foreach (var game in result.Games)
+        {
+            if (_settings.Overrides.TryGetValue(game.Id, out var over) && over.Artwork is { IsUserSelected: true } selection)
+                toDecode.Add((game, selection, over.ArtworkRevision));
+        }
+
+        var decodedById = toDecode.Count > 0
+            ? await DecodePendingCoverRestoresAsync(toDecode)
+            : new Dictionary<string, PreparedCoverRestore>();
+
+        if (DuringCoverDecodeForTest is not null)
+            await DuringCoverDecodeForTest();
+
+        // ---- PUBLISH: fully synchronous from here on - see this method's own remarks ----
+        if (ownershipToken is not null && !ReferenceEquals(_refreshCts, ownershipToken))
+            return false; // superseded while PREPARE was decoding - the newer refresh owns publication now
+
         // Before ReplaceAllGames (which reapplies the running badge against the new _allGames) - a
         // stale _runningGameId at that point would find nothing and silently lose the badge.
         ReconcileRunningGameId(result.MergedGameIds);
+
+        // Captured BEFORE ReplaceAllGames discards these instances - ReconcileArtwork's stale/missing
+        // branch needs the LAST live GameEntry for a given id, not the brand-new one this scan just
+        // produced, to recover a display result a concurrent commit already applied to it (see
+        // ReconcileArtwork's own remarks for the exact scenario this exists to fix).
+        var previousGamesById = new Dictionary<string, GameEntry>();
+        foreach (var g in _allGames)
+            previousGamesById[g.Id] = g; // ids are unique by construction; last-wins is only a defensive fallback
 
         ReplaceAllGames(result.Games);
 
@@ -587,12 +803,190 @@ public partial class LibraryViewModel : ObservableObject
             game.Favorite = over?.Favorite ?? false;
             if (over?.DateAdded is { } dateAdded)
                 game.DateAdded = dateAdded;
+
+            ReconcileArtwork(game, over, result.ArtworkResultsByGameId.GetValueOrDefault(game.Id),
+                previousGamesById.GetValueOrDefault(game.Id), decodedById);
         }
+
+        // Populates Games/FavoriteGames/HiddenGames from the now-fully-reconciled _allGames - in the same
+        // synchronous block as everything above, not left for a caller to run after its own later await
+        // (see this method's own remarks for why that split was the actual bug).
+        ApplyFilter();
+
+        return true;
+    }
+
+    /// <summary>One PREPARE-phase decode result for one game - see DecodePendingCoverRestoresAsync/
+    /// ApplyScanResultAsync. Selection/AsOfRevision are exactly what was live when the decode was
+    /// REQUESTED, not necessarily what's live now - ReconcileArtwork re-validates both against the
+    /// CURRENT override before ever applying Decoded, so a selection that changed again while this was
+    /// decoding is detected and discarded rather than silently applied over something newer.</summary>
+    private sealed record PreparedCoverRestore(ArtworkSelection Selection, long AsOfRevision, BitmapImage? Decoded);
+
+    /// <summary>Decodes every queued live user selection off the UI thread in one batch - pure read/decode
+    /// work, touching no live state (not even the GameEntry each request came from; only its Id is used
+    /// as the result key). Each item is isolated from every other: one corrupt/missing asset decodes to
+    /// null for just that game, never aborting the batch or throwing out of this method.</summary>
+    private Task<Dictionary<string, PreparedCoverRestore>> DecodePendingCoverRestoresAsync(
+        List<(GameEntry Game, ArtworkSelection Selection, long AsOfRevision)> pending)
+    {
+        var storeDirOverride = AssetStoreDirOverrideForTest;
+        return Task.Run(() =>
+        {
+            var result = new Dictionary<string, PreparedCoverRestore>();
+            foreach (var (game, selection, asOfRevision) in pending)
+            {
+                BitmapImage? decoded;
+                try
+                {
+                    decoded = CoverArtService.TryDecodeStored(selection, storeDirOverride);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"'{game.Name}': decoding the selected cover art failed unexpectedly.", ex);
+                    decoded = null;
+                }
+
+                result[game.Id] = new PreparedCoverRestore(selection, asOfRevision, decoded);
+            }
+
+            return result;
+        });
+    }
+
+    /// <summary>Reconciles ONE game's displayed Icon/IsCoverArt (and, for a current automatic match, its
+    /// persisted metadata) against the LIVE override - the scan worker computed game.Icon/IsCoverArt
+    /// against whatever state existed when it STARTED, which can be stale by the time this publish
+    /// actually runs (a Change Cover, Reset, or dedup merge that landed on this exact game while the
+    /// scan was still in flight - see ScanResult.ArtworkApplyResult's own remarks). Three explicit
+    /// outcomes, never a default of "nothing recorded, trust the worker":
+    ///  - A live user selection is authoritative regardless of what the worker computed. If
+    ///    `decodedById` has an entry for this game whose Selection/AsOfRevision STILL exactly match the
+    ///    CURRENT override (asset identity AND revision, both re-checked HERE, synchronously, at the
+    ///    actual moment of applying it - not merely at the moment PREPARE decided what to decode), its
+    ///    already-decoded, frozen bitmap is applied directly. Otherwise - no entry at all (this game
+    ///    wasn't part of the PREPARE batch, e.g. its selection only became live afterward via a merge
+    ///    migration), or a newer Change Cover/Reset changed the selection/revision while PREPARE was
+    ///    decoding - the prepared result is discarded as stale and this falls back to a single,
+    ///    synchronous, single-file decode instead (CoverArtService.ApplyStoredSafely): a small, bounded
+    ///    cost for the rare case, never a reason to risk displaying the wrong image.
+    ///  - A live automatic result whose revision still matches what the scan captured at start is
+    ///    current: the worker's own game.Icon is already correct on this exact GameEntry and is left
+    ///    alone, but its match evidence is always synced into the live override to match what's actually
+    ///    displayed - replaced OR cleared, never left stale just because some earlier automatic result
+    ///    happened to already be recorded there.
+    ///  - Anything else (a revision mismatch, or no scan result for this game at all) is untrustworthy:
+    ///    neither the worker's pixels nor its metadata for THIS GameEntry instance are used. But this is
+    ///    NOT automatically "fall back to the exe icon" - the live override may already correctly
+    ///    describe something newer than what this stale scan captured (a real, confirmed case: Reset's
+    ///    own immediate single-game lookup lands and is applied to the PREVIOUS live GameEntry instance
+    ///    for this id, and THEN an older, still-in-flight scan publishes and would otherwise silently
+    ///    replace that already-correct result with a bare icon on the brand-new instance this scan
+    ///    produced - ReplaceAllGames having just discarded the old instance entirely). So: if the live
+    ///    override still has ANY current (non-user-selected - a user selection already returned above)
+    ///    artwork, the last known-good display for this exact id (`previousLiveGame`, captured before
+    ///    ReplaceAllGames ran) is what's trusted instead - its already-decoded, frozen pixels are carried
+    ///    forward directly (an automatic result has no local asset to re-decode from). Only when the live
+    ///    override has NOTHING selected at all does this fall back to the exe icon.</summary>
+    private void ReconcileArtwork(GameEntry game, GameOverride? over, ArtworkApplyResult? scanResult,
+        GameEntry? previousLiveGame, Dictionary<string, PreparedCoverRestore> decodedById)
+    {
+        if (over?.Artwork is { IsUserSelected: true } userSelection)
+        {
+            if (decodedById.TryGetValue(game.Id, out var prepared)
+                && prepared.AsOfRevision == over.ArtworkRevision
+                && prepared.Selection.AssetId == userSelection.AssetId
+                && prepared.Selection.AssetExtension == userSelection.AssetExtension)
+            {
+                if (prepared.Decoded is not null)
+                {
+                    game.Icon = prepared.Decoded;
+                    game.IsCoverArt = true;
+                }
+                else
+                {
+                    Logger.Warn($"'{game.Name}': selected cover art is missing or corrupt - showing the exe icon; the selection itself is kept.");
+                    CoverArtService.ApplyIconFallbackSafely(game, IconFallbackForTest);
+                }
+            }
+            else
+            {
+                CoverArtService.ApplyStoredSafely(game, userSelection, IconFallbackForTest, AssetStoreDirOverrideForTest);
+            }
+
+            return;
+        }
+
+        var liveRevision = over?.ArtworkRevision ?? 0;
+        // A missing scan result (this game has no entry in ArtworkResultsByGameId at all) is represented
+        // as null, never as a numeric sentinel - a persisted ArtworkRevision could otherwise coincide
+        // with whatever magic number meant "missing" and be wrongly treated as current. See
+        // SettingsService.Load for the corresponding defense against a corrupted/out-of-range persisted
+        // revision.
+        var asOfRevision = scanResult?.AsOfRevision;
+
+        if (asOfRevision == liveRevision)
+        {
+            // Worker's own pixels for this exact GameEntry are current and correct - left alone. Metadata
+            // is still always synced to match exactly what's displayed: over.Artwork here can only be
+            // null or a previous AUTOMATIC result (a live user selection already returned above), so
+            // replacing or clearing it unconditionally can never discard a user's choice.
+            var automaticResult = scanResult?.AutomaticResult;
+            if (over is not null)
+                over.Artwork = automaticResult;
+            else if (automaticResult is not null)
+            {
+                over = new GameOverride { ArtworkRevision = liveRevision };
+                _settings.Overrides[game.Id] = over;
+                over.Artwork = automaticResult;
+            }
+
+            return;
+        }
+
+        if (over?.Artwork is not null)
+        {
+            if (previousLiveGame is { Icon: not null, IsCoverArt: true })
+            {
+                // Cheap and synchronous: reusing an already-decoded, frozen BitmapImage reference, not
+                // re-reading or re-decoding anything. An automatic result has no local asset to restore
+                // from at all - this is the only way to recover it without a fresh provider call during
+                // reconciliation, which must stay network-free.
+                game.Icon = previousLiveGame.Icon;
+                game.IsCoverArt = previousLiveGame.IsCoverArt;
+            }
+            else
+            {
+                CoverArtService.ApplyIconFallbackSafely(game, IconFallbackForTest);
+            }
+
+            return;
+        }
+
+        CoverArtService.ApplyIconFallbackSafely(game, IconFallbackForTest);
     }
 
     /// <summary>Read-only test seam mirroring RunningGameId - lets tests assert directly on an
     /// override's state (e.g. after MigrateMergedOverrides) without a public Overrides accessor.</summary>
     internal GameOverride? GetOverride(string gameId) => _settings.Overrides.GetValueOrDefault(gameId);
+
+    /// <summary>Write counterpart to GetOverride - sets up merge/reconciliation test scenarios directly
+    /// (an existing user selection with a specific revision) without needing a full async Apply/Reset
+    /// round-trip for every setup step.</summary>
+    internal void SetArtworkForTest(string gameId, ArtworkSelection? artwork, long revision)
+    {
+        if (!_settings.Overrides.TryGetValue(gameId, out var over))
+        {
+            over = new GameOverride();
+            _settings.Overrides[gameId] = over;
+        }
+
+        over.Artwork = artwork;
+        over.ArtworkRevision = revision;
+    }
+
+    /// <summary>Read-only test seam mirroring GetOverride, for AppSettings.ArtworkConflicts.</summary>
+    internal IReadOnlyList<ArtworkConflict> ArtworkConflictsForTest => _settings.ArtworkConflicts;
 
     private void ApplyFoundUpdate(UpdateInfo update)
     {
@@ -767,16 +1161,18 @@ public partial class LibraryViewModel : ObservableObject
             // cancelled scan can still be mid-flight on a background thread pool thread when this
             // await resumes (e.g. blocked in a synchronous cover-art HTTP call) and, depending on
             // exactly where cancellation landed, can complete "successfully" with a result that's
-            // already stale. This is the one check that actually matters: nothing below may touch
-            // _allGames, _settings, the Games/FavoriteGames/HiddenGames/Drives collections, StatusText,
-            // or LibraryRefreshed unless this call is still the current refresh.
+            // already stale. Cheap early exit before spending time on ApplyScanResultAsync's own
+            // decode-prep phase - not the check that actually matters (that one lives INSIDE
+            // ApplyScanResultAsync, immediately before it publishes; see its own remarks for why a
+            // check made only here, after its await returns, would already be too late).
             if (!ReferenceEquals(_refreshCts, cts))
                 return;
 
-            ApplyScanResult(result);
+            var published = await ApplyScanResultAsync(result, cts);
+            if (!published)
+                return; // superseded while decoding - the newer refresh already owns everything below
 
             _settingsService.Save(_settings); // persists the DateAdded/watched-folder changes merged above
-            ApplyFilter();
             RefreshDrives();
 
             // Count from the filtered collections, not _allGames directly - scanning now always
@@ -949,6 +1345,425 @@ public partial class LibraryViewModel : ObservableObject
         _settingsService.Save(_settings);
 
         ApplyFilter();
+    }
+
+    // ---- Change Cover / Reset to Automatic -----------------------------------------------------------
+    //
+    // ApplyLocalCoverImageAsync/ResetCoverToAutomaticAsync take a bare gameId and return an outcome enum
+    // precisely so they're callable both directly by tests (see LibraryViewModelArtworkTests) and by the
+    // two UI-facing commands below, without either caller needing to know about the other.
+
+    /// <summary>Change Cover's validation-only half: reads and decodes a candidate file purely in
+    /// memory - nothing on disk or in settings is touched. Split out from the old, single-shot
+    /// ApplyLocalCoverImageAsync so the Preview -> Apply/Cancel dialog can validate and decode a
+    /// candidate ONCE, show it, and only pass it on to ApplyValidatedCoverImageAsync (the side-effecting
+    /// half) if and when the user actually clicks Apply - cancelling or closing the dialog simply
+    /// discards the returned ValidatedImage, which is the entire "no persistent change until Apply"
+    /// contract; there is nothing else to roll back because nothing was ever written.</summary>
+    public Task<ArtworkImageValidator.ValidatedImage?> ValidateLocalCoverImageAsync(string localFilePath, CancellationToken ct = default)
+        // Explicitly offloaded, not just awaited - ValidateLocalFileAsync's own internal awaits (a plain
+        // bounded file read) resume on whatever context called it, which is the UI thread's dispatcher
+        // when this runs from a UI action. Its real work - BitmapDecoder.Create with DelayCreation, plus
+        // a full CoverArtDecoder.Decode - is genuine codec work (see ArtworkImageValidator's own
+        // remarks), so relying on internal ConfigureAwait behavior alone would NOT guarantee it stays
+        // off the UI thread; Task.Run does.
+        => Task.Run(() => ArtworkImageValidator.ValidateLocalFileAsync(localFilePath, ct), ct);
+
+    /// <summary>Change Cover's side-effecting half: stages `validated`'s bytes into ArtworkAssetStore and
+    /// commits the selection - the same write-then-commit tail ApplyLocalCoverImageAsync always ran, now
+    /// reusable by the Preview dialog's Apply step. `gameId`, not a GameEntry reference, is what a caller
+    /// must hold across this call - a refresh can replace or merge the target game while staging is
+    /// running; see CommitArtworkChange's re-resolution.
+    ///
+    /// Manages _artworkOperationsInFlight itself - ApplyLocalCoverImageAsync below does NOT call this
+    /// method for that reason: it needs the guard held across ITS OWN validate step too (see its own
+    /// remarks and ApplyValidatedCoverImageCoreAsync), and HashSet.Add is not reentrant - a second Add
+    /// for a gameId already held by the SAME logical call would incorrectly report AlreadyInProgress
+    /// against itself.</summary>
+    public async Task<ArtworkChangeOutcome> ApplyValidatedCoverImageAsync(string gameId, ArtworkImageValidator.ValidatedImage validated, CancellationToken ct = default)
+    {
+        if (!_artworkOperationsInFlight.Add(gameId))
+            return ArtworkChangeOutcome.AlreadyInProgress;
+
+        try
+        {
+            return await ApplyValidatedCoverImageCoreAsync(gameId, validated, ct);
+        }
+        finally
+        {
+            _artworkOperationsInFlight.Remove(gameId);
+        }
+    }
+
+    /// <summary>Runs both halves back-to-back, exactly as Change Cover behaved before the Preview
+    /// dialog existed - kept for every direct caller that doesn't need a preview step (every existing
+    /// test, and any future non-interactive caller). The guard is taken here, ONCE, covering both the
+    /// validate and the write/commit steps - the same window the original single-method implementation
+    /// held it for - so two overlapping calls for the same gameId are still deterministically resolved
+    /// to exactly one Success and the rest AlreadyInProgress, regardless of how validation's own timing
+    /// happens to interleave.</summary>
+    public async Task<ArtworkChangeOutcome> ApplyLocalCoverImageAsync(string gameId, string localFilePath, CancellationToken ct = default)
+    {
+        if (!_artworkOperationsInFlight.Add(gameId))
+            return ArtworkChangeOutcome.AlreadyInProgress;
+
+        try
+        {
+            var validated = await ValidateLocalCoverImageAsync(localFilePath, ct);
+            if (validated is null)
+                return ArtworkChangeOutcome.InvalidImage;
+
+            return await ApplyValidatedCoverImageCoreAsync(gameId, validated, ct);
+        }
+        finally
+        {
+            _artworkOperationsInFlight.Remove(gameId);
+        }
+    }
+
+    /// <summary>The actual write+commit work, shared by both guarded entry points above - neither adds
+    /// nor removes _artworkOperationsInFlight itself, so it can safely run under whichever of the two
+    /// callers' own guard window is already held.</summary>
+    private async Task<ArtworkChangeOutcome> ApplyValidatedCoverImageCoreAsync(string gameId, ArtworkImageValidator.ValidatedImage validated, CancellationToken ct)
+    {
+        string assetId;
+        try
+        {
+            assetId = await Task.Run(
+                () => ArtworkAssetStore.Write(validated.Bytes, validated.Extension, AssetStoreDirOverrideForTest), ct);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Nothing was ever staged - the previous selection (if any) is simply left exactly as it
+            // was; there is nothing to roll back, unlike CommitArtworkChange's SaveFailed case.
+            Logger.Warn($"Couldn't stage the selected cover image for game '{gameId}'.", ex);
+            return ArtworkChangeOutcome.StorageFailed;
+        }
+
+        AfterAssetWrittenForTest?.Invoke(assetId);
+
+        return CommitArtworkChange(gameId, over => over.Artwork = new ArtworkSelection
+        {
+            Provider = ArtworkProvider.UserLocalFile,
+            RetrievedFrom = ArtworkRetrievalMethod.UserSuppliedFile,
+            AssetId = assetId,
+            AssetExtension = validated.Extension,
+            MatchMethod = "UserLocalFile",
+            IsUserSelected = true,
+            SelectedAt = DateTime.UtcNow,
+        }, preparedIcon: validated.DecodedImage);
+    }
+
+    /// <summary>Clears the selection (synchronously, so the card immediately shows the exe icon rather
+    /// than stale pixels), THEN kicks off an immediate, single-game automatic lookup - "the next scan
+    /// will eventually pick it up" is not an acceptable implementation of Reset on its own; the user
+    /// shouldn't have to manually refresh to see it take effect. The lookup's provider/network work runs
+    /// off the UI thread against a private scratch GameEntry, never the live bound one (mutating that
+    /// from a background thread would be the exact anti-pattern GameScannerService's own scan-snapshot
+    /// discipline exists to avoid) - only once back on the UI thread, and only if nothing else has
+    /// changed this game's artwork state in the meantime, is the result actually applied.</summary>
+    public async Task<ArtworkChangeOutcome> ResetCoverToAutomaticAsync(string gameId, CancellationToken ct = default)
+    {
+        if (!_artworkOperationsInFlight.Add(gameId))
+            return ArtworkChangeOutcome.AlreadyInProgress;
+
+        try
+        {
+            var outcome = CommitArtworkChange(gameId, over => over.Artwork = null);
+            if (outcome != ArtworkChangeOutcome.Success)
+                return outcome;
+
+            _settings.Overrides.TryGetValue(gameId, out var overAfterReset);
+            var asOfRevision = overAfterReset?.ArtworkRevision ?? 0;
+
+            var game = _allGames.FirstOrDefault(g => g.Id == gameId);
+            if (game is null)
+                return outcome; // vanished immediately after the reset itself succeeded - nothing more to do
+
+            var apiKey = _settings.SteamGridDbApiKey;
+            // Defaults to the real CoverArtService.Apply - overridable so tests can prove the immediate
+            // lookup ran (or force a deterministic result) without depending on whether this checkout
+            // happens to have a real embedded SteamGridDB key (default-api-key.txt) or reaching the
+            // network either way.
+            var applyCoverArt = AutomaticCoverArtLookupForTest ?? CoverArtService.Apply;
+            (BitmapImage? Icon, bool IsCoverArt, ArtworkSelection? Automatic) computed;
+            try
+            {
+                computed = await Task.Run(() =>
+                {
+                    // Private, unbound scratch copy - CoverArtService.Apply mutates whatever GameEntry
+                    // it's given directly, and that must never be the live, UI-bound `game` from a
+                    // background thread.
+                    var scratch = new GameEntry
+                    {
+                        Id = game.Id, Name = game.Name, ExecutablePath = game.ExecutablePath,
+                        InstallDir = game.InstallDir, Source = game.Source, LaunchUri = game.LaunchUri,
+                    };
+                    var automatic = applyCoverArt(scratch, apiKey);
+                    return (scratch.Icon, scratch.IsCoverArt, automatic);
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                // Never let a network/provider failure here surface as a Reset failure - the reset
+                // itself already succeeded and is durably saved; this lookup is a best-effort
+                // improvement layered on top of it.
+                Logger.Warn($"'{game.Name}': automatic cover lookup after Reset failed unexpectedly.", ex);
+                return outcome;
+            }
+
+            CommitAutomaticArtworkIfCurrent(gameId, asOfRevision, computed.Icon, computed.IsCoverArt, computed.Automatic);
+            return outcome;
+        }
+        finally
+        {
+            _artworkOperationsInFlight.Remove(gameId);
+        }
+    }
+
+    // Test-only seams for the two UI commands below - production always leaves both null, in which case
+    // ChangeCoverAsync resolves to the real OpenFileDialog and the real ChangeCoverWindow. Split into two
+    // separate delegates (rather than one seam standing in for "the whole command") so a test can
+    // exercise each stage's own cancellation path independently - picker-cancelled vs preview-cancelled
+    // are different user actions with the same required outcome (nothing changes), and collapsing them
+    // into one seam couldn't tell those two tests apart.
+    internal Func<string, string?>? ChangeCoverFilePickerForTest { get; set; }
+    internal Func<string, BitmapImage, bool>? ChangeCoverPreviewDialogForTest { get; set; }
+
+    /// <summary>Change Cover's UI entry point. `game` is read only for its Id/Name, captured into local
+    /// variables BEFORE any await - a refresh can replace this exact GameEntry instance while the file
+    /// dialog or preview window is open (both block on real user input for however long the user takes),
+    /// so nothing past this point may dereference `game` again.
+    ///
+    /// Picking a file only VALIDATES and PREVIEWS it (ValidateLocalCoverImageAsync touches nothing on
+    /// disk or in settings) - the existing cover and settings are only ever touched by
+    /// ApplyValidatedCoverImageAsync, reached below if and only if the preview dialog's own Apply button
+    /// was clicked. Closing the file picker, or closing/cancelling the preview dialog, returns out of
+    /// this method with nothing changed either way.
+    ///
+    /// Wrapped in a single try/catch: CommunityToolkit's generated async commands otherwise let an
+    /// unhandled exception propagate back onto the UI thread's SynchronizationContext, which this app's
+    /// dispatcher-level handler treats as fatal and shuts down on - turning a recoverable failure (a
+    /// locked file, a picker COM hiccup) into a full crash. Every awaited/called step here already
+    /// handles its OWN expected failure modes and returns an ArtworkChangeOutcome instead of throwing;
+    /// this catch is strictly a last-resort net for whatever gets past that, logged and surfaced as a
+    /// StatusText message instead.</summary>
+    [RelayCommand]
+    private async Task ChangeCoverAsync(GameEntry? game)
+    {
+        if (game is null)
+            return;
+
+        var gameId = game.Id;
+        var gameName = game.Name;
+
+        try
+        {
+            var pickFile = ChangeCoverFilePickerForTest ?? PickCoverFileFromDisk;
+            var path = pickFile(gameName);
+            if (path is null)
+                return; // picker cancelled/closed - nothing was ever touched
+
+            var validated = await ValidateLocalCoverImageAsync(path);
+            if (validated is null)
+            {
+                StatusText = $"That file couldn't be used as {gameName}'s cover - check its format and dimensions.";
+                return;
+            }
+
+            var showPreview = ChangeCoverPreviewDialogForTest ?? ShowChangeCoverPreviewDialog;
+            var applied = showPreview(gameName, validated.DecodedImage);
+            if (!applied)
+                return; // preview cancelled/closed - the validated bytes are simply discarded, nothing staged or persisted
+
+            var outcome = await ApplyValidatedCoverImageAsync(gameId, validated);
+            StatusText = outcome switch
+            {
+                ArtworkChangeOutcome.Success => $"Cover updated for {gameName}.",
+                ArtworkChangeOutcome.AlreadyInProgress => $"Already updating {gameName}'s cover - try again in a moment.",
+                ArtworkChangeOutcome.StorageFailed => "Couldn't save that image to disk.",
+                ArtworkChangeOutcome.SaveFailed => "Couldn't save the change - your settings file may be locked or read-only.",
+                ArtworkChangeOutcome.GameNoLongerExists => $"{gameName} is no longer in your library.",
+                ArtworkChangeOutcome.RevisionExhausted => $"{gameName}'s cover has been changed too many times to update again.",
+                _ => StatusText,
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Change Cover failed unexpectedly for '{gameName}'.", ex);
+            StatusText = $"Couldn't change the cover for {gameName} - see the log for details.";
+        }
+    }
+
+    private static string? PickCoverFileFromDisk(string gameName)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = $"Choose a cover image for {gameName}",
+            Filter = "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff",
+        };
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    }
+
+    /// <summary>Shows the local-only Preview -> Apply/Cancel dialog and blocks (ShowDialog, same as
+    /// SettingsWindow/WhatsNewWindow) until the user picks one. Returns whether Apply was clicked - the
+    /// dialog itself never touches settings or disk; see ChangeCoverDialogViewModel.</summary>
+    private static bool ShowChangeCoverPreviewDialog(string gameName, BitmapImage previewImage)
+    {
+        var dialogViewModel = new ChangeCoverDialogViewModel(gameName, previewImage);
+        var window = new ChangeCoverWindow(dialogViewModel) { Owner = Application.Current?.MainWindow };
+        window.ShowDialog();
+        return dialogViewModel.Applied;
+    }
+
+    /// <summary>Reset's UI entry point - see ChangeCoverAsync's remarks on why `game` is only ever read
+    /// for its Id/Name up front, and on why the whole body is wrapped in a single catch-all.</summary>
+    [RelayCommand]
+    private async Task ResetCoverAsync(GameEntry? game)
+    {
+        if (game is null)
+            return;
+
+        var gameId = game.Id;
+        var gameName = game.Name;
+
+        try
+        {
+            var outcome = await ResetCoverToAutomaticAsync(gameId);
+            StatusText = outcome switch
+            {
+                ArtworkChangeOutcome.Success => $"Cover reset to automatic for {gameName}.",
+                ArtworkChangeOutcome.AlreadyInProgress => $"Already updating {gameName}'s cover - try again in a moment.",
+                ArtworkChangeOutcome.SaveFailed => "Couldn't save the change - your settings file may be locked or read-only.",
+                ArtworkChangeOutcome.GameNoLongerExists => $"{gameName} is no longer in your library.",
+                ArtworkChangeOutcome.RevisionExhausted => $"{gameName}'s cover has been changed too many times to reset again.",
+                _ => StatusText,
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Reset Cover failed unexpectedly for '{gameName}'.", ex);
+            StatusText = $"Couldn't reset the cover for {gameName} - see the log for details.";
+        }
+    }
+
+    /// <summary>The one place Change Cover/Reset actually mutate live settings - fully synchronous (no
+    /// await anywhere in this method's body), which is what lets WPF's single UI-thread dispatcher
+    /// serialize it against every other call to this same method for a DIFFERENT game, without needing a
+    /// separate lock: there is no yield point inside this method at which the dispatcher could
+    /// interleave another commit. A per-game guard (_artworkOperationsInFlight) alone would not protect
+    /// the shared settings.json if two DIFFERENT games' commits could genuinely interleave - this is
+    /// what actually prevents that.
+    ///
+    /// Re-resolves `gameId` against the CURRENT _allGames rather than trusting any reference a caller
+    /// might have held across its own earlier await - a refresh can replace or merge the target game
+    /// while an async prepare phase (image validation, asset write) was running. If the id no longer
+    /// exists at all, this aborts WITHOUT creating/resurrecting an override for a dead id.
+    ///
+    /// `preparedIcon` lets a caller that already decoded and froze the exact image being committed
+    /// (ApplyLocalCoverImageAsync's own full-decode validation step - see ArtworkImageValidator.
+    /// ValidatedImage.DecodedImage) hand it straight to the display, instead of this method re-reading
+    /// the just-written asset file and re-decoding it a second time on the UI thread. Only meaningful
+    /// together with a `mutate` that sets a NEW Artwork selection matching those exact bytes - Reset's
+    /// own `mutate` clears Artwork instead and never passes this.
+    ///
+    /// The revision check runs FIRST, before `existing`/`over` are touched at all - see
+    /// TryGetNextRevision's own remarks for why a caller must reject an exhausted mutation before
+    /// changing or removing anything, not fall back to reusing a stale value afterward.</summary>
+    private ArtworkChangeOutcome CommitArtworkChange(string gameId, Action<GameOverride> mutate, BitmapImage? preparedIcon = null)
+    {
+        var game = _allGames.FirstOrDefault(g => g.Id == gameId);
+        if (game is null)
+            return ArtworkChangeOutcome.GameNoLongerExists;
+
+        _settings.Overrides.TryGetValue(gameId, out var existing);
+        var previousRevision = existing?.ArtworkRevision ?? 0;
+
+        if (!TryGetNextRevision(previousRevision, out var nextRevision))
+        {
+            Logger.Error($"'{game.Name}': artwork revision counter exhausted - rejecting this change rather than reusing a non-unique revision.");
+            return ArtworkChangeOutcome.RevisionExhausted;
+        }
+
+        var hadNoOverride = existing is null;
+        var previousArtwork = existing?.Artwork;
+
+        var over = existing ?? new GameOverride();
+        mutate(over);
+        over.ArtworkRevision = nextRevision;
+        if (hadNoOverride)
+            _settings.Overrides[gameId] = over;
+
+        if (_settingsService.Save(_settings))
+        {
+            if (over.Artwork is { } selection)
+            {
+                if (preparedIcon is not null)
+                {
+                    game.Icon = preparedIcon;
+                    game.IsCoverArt = true;
+                }
+                else
+                    CoverArtService.ApplyStoredSafely(game, selection, IconFallbackForTest, AssetStoreDirOverrideForTest);
+            }
+            else
+                CoverArtService.ApplyIconFallbackSafely(game, IconFallbackForTest);
+
+            return ArtworkChangeOutcome.Success;
+        }
+
+        // Settings failed to write - roll back exactly what was there before. Nothing durable changed,
+        // so nothing displayed should change either; the newly staged asset file (if any) is simply left
+        // orphaned on disk, same as every other deferred-cleanup case.
+        if (hadNoOverride)
+            _settings.Overrides.Remove(gameId);
+        else
+        {
+            over.Artwork = previousArtwork;
+            over.ArtworkRevision = previousRevision;
+        }
+
+        return ArtworkChangeOutcome.SaveFailed;
+    }
+
+    /// <summary>Commits an automatic lookup's result ONLY if the live ArtworkRevision still equals what
+    /// was captured when the lookup started - the same optimistic-concurrency guard ApplyScanResultAsync's
+    /// reconciliation uses, reused here for the identical reason: if a newer Change Cover, Reset, or
+    /// scan already changed this game's artwork state while this lookup was running, the result is stale
+    /// and must not overwrite something newer. Deliberately does NOT bump ArtworkRevision itself - this
+    /// records what a CURRENT-revision lookup found, not a new user action; bumping would immediately
+    /// invalidate the very check that just confirmed the result is current.
+    ///
+    /// Metadata is synced unconditionally once currency is confirmed - success OR no-match - mirroring
+    /// ReconcileArtwork's own "current" branch. A real, confirmed gap in an earlier version only synced
+    /// on success: if a CONCURRENT scan at this exact same revision published its own automatic metadata
+    /// while this lookup was still running, and this lookup itself then found no match, the card would
+    /// correctly fall back to the exe icon here but over.Artwork would still describe the scan's earlier
+    /// (no-longer-displayed) match - a metadata/display mismatch. Clearing it here too keeps them in sync
+    /// regardless of which of the two concurrent writers happens to finish first.</summary>
+    private void CommitAutomaticArtworkIfCurrent(string gameId, long asOfRevision, BitmapImage? icon, bool isCoverArt, ArtworkSelection? automatic)
+    {
+        var game = _allGames.FirstOrDefault(g => g.Id == gameId);
+        if (game is null)
+            return;
+
+        _settings.Overrides.TryGetValue(gameId, out var over);
+        if ((over?.ArtworkRevision ?? 0) != asOfRevision)
+            return; // stale - something else already changed this game's artwork state
+
+        game.Icon = icon;
+        game.IsCoverArt = isCoverArt;
+
+        if (over is null)
+        {
+            if (automatic is null)
+                return; // nothing to persist, and nothing was recorded before - no override needed at all
+            over = new GameOverride { ArtworkRevision = asOfRevision };
+            _settings.Overrides[gameId] = over;
+        }
+
+        over.Artwork = automatic; // replace or clear - always matches what's actually displayed above
+        _settingsService.Save(_settings); // best-effort - game.Icon is already correct regardless of whether this persists
     }
 
     /// <summary>Raised after a game successfully launches, so the view can get out of the way and

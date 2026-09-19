@@ -18,7 +18,18 @@ public sealed record ScanResult(
     List<GameEntry> Games,
     Dictionary<string, DateTime> NewDateAddedByGameId,
     List<HealedWatchedFolder> HealedWatchedFolders,
-    Dictionary<string, string> MergedGameIds);
+    Dictionary<string, string> MergedGameIds,
+    Dictionary<string, ArtworkApplyResult> ArtworkResultsByGameId);
+
+/// <summary>One game's artwork outcome from a single scan - AsOfRevision is the live GameOverride.
+/// ArtworkRevision this scan captured (via its private Overrides snapshot) BEFORE doing any of its own
+/// (possibly slow, network-bound) matching work. LibraryViewModel.ApplyScanResult only trusts
+/// AutomaticResult if the LIVE revision still equals AsOfRevision at publish time - if a Change Cover or
+/// Reset landed on this exact game while the scan was still running, the live revision will have moved
+/// past it, and this result is correctly discarded as stale rather than clobbering something newer.
+/// AutomaticResult is null when an existing user selection was kept as-is (nothing new to persist) or
+/// when no automatic match was found (the game fell back to its exe icon).</summary>
+public sealed record ArtworkApplyResult(long AsOfRevision, ArtworkSelection? AutomaticResult);
 
 /// <summary>A watched folder as it looked after WatchedFolderResolver ran on this scan's private copy
 /// of it. OriginalPath is the Path the live WatchedFolder had when this scan snapshotted it, used to
@@ -70,6 +81,26 @@ public sealed class GameScannerService
                 Hidden = kv.Value.Hidden,
                 Favorite = kv.Value.Favorite,
                 DateAdded = kv.Value.DateAdded,
+                ArtworkRevision = kv.Value.ArtworkRevision,
+                // A new ArtworkSelection instance, not the live one by reference - sharing it would let
+                // the UI thread's own Change-Cover/Reset commit (which mutates a GameOverride's Artwork
+                // field in place) race this scan thread reading the same object, the exact class of bug
+                // this whole snapshot exists to prevent for every other override field already.
+                Artwork = kv.Value.Artwork is { } a
+                    ? new ArtworkSelection
+                    {
+                        Provider = a.Provider,
+                        RetrievedFrom = a.RetrievedFrom,
+                        ProviderGameId = a.ProviderGameId,
+                        ProviderArtworkRef = a.ProviderArtworkRef,
+                        ProviderTitle = a.ProviderTitle,
+                        AssetId = a.AssetId,
+                        AssetExtension = a.AssetExtension,
+                        MatchMethod = a.MatchMethod,
+                        IsUserSelected = a.IsUserSelected,
+                        SelectedAt = a.SelectedAt,
+                    }
+                    : null,
             });
 
         // Snapshotted for the same reason: CoverArtService.Apply used to receive the live AppSettings
@@ -109,6 +140,7 @@ public sealed class GameScannerService
                 Logger.Info($"De-duplicated {results.Count - deduped.Count} overlapping entr(y/ies).");
 
             var newDateAdded = new Dictionary<string, DateTime>();
+            var artworkResults = new Dictionary<string, ArtworkApplyResult>();
 
             foreach (var game in deduped)
             {
@@ -131,7 +163,9 @@ public sealed class GameScannerService
                 game.Favorite = over?.Favorite ?? false;
                 game.DateAdded = dateAdded.Value;
 
-                SafeApplyCoverArt(game, steamGridDbApiKey);
+                var asOfRevision = over?.ArtworkRevision ?? 0;
+                var automaticResult = SafeApplyCoverArt(game, steamGridDbApiKey, over?.Artwork);
+                artworkResults[game.Id] = new ArtworkApplyResult(asOfRevision, automaticResult);
                 game.PlatformIcon = PlatformIconService.GetIcon(game.Source);
             }
 
@@ -159,7 +193,7 @@ public sealed class GameScannerService
             }
 
             // Final ordering doesn't matter here - LibraryViewModel re-sorts per the user's chosen SortOption.
-            return new ScanResult(deduped, newDateAdded, healedFolders, mergedGameIds);
+            return new ScanResult(deduped, newDateAdded, healedFolders, mergedGameIds, artworkResults);
         }, ct);
     }
 
@@ -337,17 +371,34 @@ public sealed class GameScannerService
     /// <summary>`applyCoverArt`/`getIcon` default to the real CoverArtService.Apply/IconService.GetIcon -
     /// overridable (internal, same pattern as SafeScan's own `scan` parameter) so tests can force both
     /// the primary attempt AND the fallback to throw deterministically, without depending on a real
-    /// HTTP failure or a real corrupt exe to trigger it.</summary>
-    internal static void SafeApplyCoverArt(
-        GameEntry game, string? steamGridDbApiKey,
-        Action<GameEntry, string?>? applyCoverArt = null, Func<GameEntry, BitmapImage?>? getIcon = null)
+    /// HTTP failure or a real corrupt exe to trigger it.
+    ///
+    /// `existingSelection` short-circuits straight to loading a previously user-selected image (via
+    /// `applyStoredArtworkSafely`, itself already fully crash-isolated - see CoverArtService.
+    /// ApplyStoredSafely) instead of ever running the automatic matcher - an explicit selection is
+    /// authoritative and must never be silently replaced by a fresh automatic guess just because a scan
+    /// happened to run. Returns null in that case: there is nothing NEW to persist, the existing
+    /// selection stands unchanged. Returns the automatic match's identity/evidence otherwise (null if
+    /// none was found), for the caller to record as automatic metadata.</summary>
+    internal static ArtworkSelection? SafeApplyCoverArt(
+        GameEntry game, string? steamGridDbApiKey, ArtworkSelection? existingSelection,
+        Func<GameEntry, string?, ArtworkSelection?>? applyCoverArt = null,
+        Action<GameEntry, ArtworkSelection>? applyStoredArtworkSafely = null,
+        Func<GameEntry, BitmapImage?>? getIcon = null)
     {
         applyCoverArt ??= CoverArtService.Apply;
+        applyStoredArtworkSafely ??= (g, s) => CoverArtService.ApplyStoredSafely(g, s);
         getIcon ??= IconService.GetIcon;
+
+        if (existingSelection is { IsUserSelected: true })
+        {
+            applyStoredArtworkSafely(game, existingSelection); // never throws
+            return null;
+        }
 
         try
         {
-            applyCoverArt(game, steamGridDbApiKey);
+            return applyCoverArt(game, steamGridDbApiKey);
         }
         catch (Exception ex)
         {
@@ -355,21 +406,12 @@ public sealed class GameScannerService
 
             // The fallback call itself is not exempt from failing - CoverArtService.Apply's own normal
             // fallback path calls this exact same icon lookup, so if icon extraction/decoding was what
-            // threw in the first place, retrying it here can throw again too. Isolated separately so a
-            // second failure still can't escape this method and abort enrichment for every other game
-            // still waiting in the caller's loop - if both attempts fail, this simply leaves Icon null
-            // and IsCoverArt false, and the UI's own built-in glyph covers the rest.
-            try
-            {
-                game.Icon = getIcon(game);
-            }
-            catch (Exception iconEx)
-            {
-                Logger.Warn($"Exe icon fallback also failed unexpectedly for '{game.Name}' - showing the built-in placeholder instead.", iconEx);
-                game.Icon = null;
-            }
-
-            game.IsCoverArt = false;
+            // threw in the first place, retrying it here can throw again too. ApplyIconFallbackSafely is
+            // isolated separately so a second failure still can't escape this method and abort enrichment
+            // for every other game still waiting in the caller's loop - if both attempts fail, this
+            // simply leaves Icon null and IsCoverArt false, and the UI's own built-in glyph covers the rest.
+            CoverArtService.ApplyIconFallbackSafely(game, getIcon);
+            return null;
         }
     }
 

@@ -68,6 +68,26 @@ public sealed class SettingsService
         foreach (var key in settings.Overrides.Where(kv => kv.Value is null).Select(kv => kv.Key).ToList())
             settings.Overrides.Remove(key);
 
+        // Same defensive normalization for the new artwork-conflict list: a null list, a null entry
+        // within it, or an entry missing the LoserSelection it exists to hold is treated as "not really
+        // a recorded conflict" rather than left for downstream code (GC reference-discovery, a future
+        // conflict-resolution UI) to crash on.
+        settings.ArtworkConflicts ??= new();
+        settings.ArtworkConflicts.RemoveAll(c => c is null || c.LoserSelection is null);
+
+        // GameOverride.ArtworkRevision is a plain, unchecked long - a hand-edited or otherwise corrupted
+        // settings.json can persist a negative value (colliding with reconciliation's "no scan result at
+        // all" case, which is represented as the absence of a value, never a numeric sentinel - see
+        // LibraryViewModel.ReconcileArtwork) or a value near long.MaxValue (which the very next +1
+        // bump - Change Cover, Reset, or a dedup merge - would silently wrap to a huge negative number).
+        // Neither can arise from this app's own normal operation, so resetting to 0 on load is always
+        // safe: it only ever discards a value that was already meaningless.
+        foreach (var over in settings.Overrides.Values)
+        {
+            if (over.ArtworkRevision < 0 || over.ArtworkRevision > long.MaxValue - 1_000_000)
+                over.ArtworkRevision = 0;
+        }
+
         return settings;
     }
 
@@ -88,7 +108,11 @@ public sealed class SettingsService
         }
     }
 
-    public void Save(AppSettings settings)
+    /// <summary>Returns whether the write actually succeeded - callers that only ever change simple
+    /// fields (Favorite/Hidden/...) can keep ignoring this exactly as before, but Change Cover/Reset
+    /// need to know for certain before treating a new selection (or a cleared one) as durably committed;
+    /// see LibraryViewModel's artwork commit path.</summary>
+    public bool Save(AppSettings settings)
     {
         try
         {
@@ -117,11 +141,14 @@ public sealed class SettingsService
                 File.Replace(tempPath, _settingsPath, _backupPath);
             else
                 File.Move(tempPath, _settingsPath);
+
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Logger.Warn("Couldn't save settings.json - changes may be lost on restart.", ex);
             _onSaveError?.Invoke(ex);
+            return false;
         }
     }
 }

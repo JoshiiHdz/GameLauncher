@@ -37,7 +37,38 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
     // candidate that marks itself as a mod/addon/DLC of something the query doesn't, and separately
     // recognizes "AWayOut" vs "A Way Out" as the same title via a collapsed (spacing/punctuation-
     // independent) comparison - see IsConfidentMatch's own remarks for both.
-    private const int CacheVersion = 8;
+    // v9: two more real, confirmed false positives - "EA SPORTS FC 27" matched "EA Sports UFC" (shared
+    // only the generic word "Sports"; the candidate had no edition number at all, so the old number
+    // check - which only fired when BOTH sides had a number - never triggered), and a specific query
+    // could match a bare franchise-umbrella candidate with no edition info of its own (e.g. "Call of
+    // Duty: Black Ops 7" matching a plain "Call of Duty" result). IsConfidentMatch now requires every
+    // significant word AND number the query names to actually appear on the candidate, requires the
+    // reverse for numbers only (a candidate must not introduce an edition number the query never
+    // mentioned), and no longer defaults to "confident" when there's nothing meaningful left to compare.
+    // v10: v9's word/number CONTAINMENT still let a candidate with an unrelated extra subtitle pass as
+    // "confident" whenever the query itself had no number to contradict it - "Call of Duty" matching
+    // "Call of Duty: Modern Warfare" (neither has a number), and "Half-Life 2" matching "Half-Life 2:
+    // Episode One" (a separately catalogued sequel, not a formatting variant - the previous version's
+    // own test wrongly accepted this). Set-based number comparison also collapsed "Half-Life 2: Episode
+    // 2" onto "Half-Life 2" by coincidence, since both contain a literal "2" for unrelated reasons.
+    // IsConfidentMatch no longer tolerates ANY extra content on either side: only an exact match of the
+    // normalized title (formatting differences and a short list of explicitly verified aliases - roman
+    // numerals - collapsed away, nothing else) counts as confident. GetCoverArt also now refuses to even
+    // search for a small set of known multi-title "umbrella" product names (see
+    // AmbiguousUmbrellaProductNamesCollapsed) where no name-matching rule, however strict, could recover
+    // which specific title is actually installed.
+    // v11: the v10 umbrella-name check compared game.Name RAW against the set, while IsConfidentMatch
+    // compares NORMALIZED text - "Call of Duty®" or "Call of Duty " (trailing whitespace) missed the raw
+    // check entirely, then went on to exact-match the real "Call of Duty" catalog entry anyway, defeating
+    // the guard for exactly the formatting variance it exists to survive. The umbrella check now
+    // normalizes identically (IsAmbiguousUmbrellaProduct). Also: IsConfidentMatch previously accepted two
+    // names that both collapse to an empty string (e.g. "!!!" vs "???") as "equal" - now rejected, since
+    // an empty comparison is an absence of evidence, not a match.
+    private const int CacheVersion = 11;
+
+    /// <summary>Test-only: lets a test pre-populate a cache file under the exact real name GetCoverArt
+    /// will look for, without hardcoding (and inevitably drifting from) the current CacheVersion.</summary>
+    internal static int CacheVersionForTest => CacheVersion;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly string CacheDir = Path.Combine(AppPaths.DataDir, "CoverArtCache");
@@ -49,17 +80,80 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         _apiKey = apiKey;
     }
 
-    public BitmapImage? GetCoverArt(GameEntry game)
+    // Some launchers register one multi-title "hub" product under a single generic display name
+    // regardless of which specific game is actually installed. Activision's Call of Duty franchise is
+    // the documented case: every modern yearly release (Black Ops, Modern Warfare, ...) shares one
+    // Battle.net installer whose registry DisplayName is literally just "Call of Duty" (see
+    // BattleNetScanner/PublisherUninstallScanner) - GameEntry.Name is that generic name verbatim,
+    // regardless of the strictness of any string-matching rule against it. Real product-identity
+    // resolution would need launcher-specific metadata this scanner doesn't currently read (Battle.net's
+    // own install manifest is a private binary format - see BattleNetScanner's remarks); until that
+    // exists, this skips automatic cover art entirely for a known ambiguous name rather than guessing,
+    // exactly like SelectGameId returning no match - GetCoverArt's caller already falls back to the exe
+    // icon.
+    //
+    // This is a deliberately blunt, temporary safety measure, NOT product-identity resolution - it also
+    // suppresses SteamGridDB lookup for the ORIGINAL 2003 "Call of Duty", which genuinely is just "Call
+    // of Duty" and would otherwise get a correct cover. That's an accepted tradeoff for now (no icon at
+    // all is better than possibly the wrong specific yearly title's cover), not a claim that every entry
+    // named this way is confirmed to be a modern hub install. Not verified against a live Battle.net Call
+    // of Duty install; extend this set if another real launcher/hub entry is confirmed to have the same
+    // problem.
+    //
+    // Held pre-collapsed (see CollapseForComparison/IsAmbiguousUmbrellaProduct) so a trademark symbol,
+    // trailing whitespace, or repeated spacing in GameEntry.Name - "Call of Duty®", "Call of Duty " -
+    // still matches this set exactly the same way IsConfidentMatch would go on to treat it as identical
+    // to "Call of Duty" - a raw, unnormalized string comparison here missed those variants and let the
+    // matcher accept the (wrong) exact match anyway.
+    private static readonly HashSet<string> AmbiguousUmbrellaProductNamesCollapsed = new(StringComparer.Ordinal)
+        { "callofduty" };
+
+    /// <summary>Whether `gameName` is a known multi-title umbrella product name - normalized the exact
+    /// same way IsConfidentMatch normalizes both sides of a match, so this can't be evaded (or wrongly
+    /// triggered) by a formatting difference IsConfidentMatch itself wouldn't care about. A more specific
+    /// name built on top of the umbrella name (e.g. "Call of Duty: Black Ops 7") collapses to different
+    /// text entirely and is correctly NOT caught by this - only an exact, empty-of-other-content match
+    /// against the bare umbrella name is.</summary>
+    internal static bool IsAmbiguousUmbrellaProduct(string gameName) =>
+        AmbiguousUmbrellaProductNamesCollapsed.Contains(CollapseForComparison(NormalizeRomanNumerals(gameName)));
+
+    /// <summary>Test-only seam: lets a test observe whether GetCoverArt went on to search (and, in
+    /// production, reach the network) instead of short-circuiting - e.g. for a known ambiguous umbrella
+    /// product name - without needing a real HTTP round-trip either way. Defaults to the real
+    /// SearchGameId; production code never sets this.</summary>
+    internal Func<GameEntry, int?>? SearchGameIdOverride { get; set; }
+
+    public BitmapImage? GetCoverArt(GameEntry game) => GetCoverArt(game, out _);
+
+    /// <summary>Same lookup, but also reports whether the result came from this provider's own on-disk
+    /// cache rather than a fresh network fetch just now - CoverArtService.Apply needs this to record
+    /// accurate retrieval evidence (ArtworkRetrievalMethod) instead of manufacturing "NetworkDownload"
+    /// for what was actually a cache hit. `cacheDirOverride` is test-only (production never passes it,
+    /// always resolving under AppPaths.DataDir) - same per-call-override pattern as
+    /// ArtworkAssetStore.TryResolvePath, for the same reason (xUnit's default parallel test execution).</summary>
+    public BitmapImage? GetCoverArt(GameEntry game, out bool servedFromCache, string? cacheDirOverride = null)
     {
+        servedFromCache = false;
         try
         {
-            Directory.CreateDirectory(CacheDir);
-            var cachePath = Path.Combine(CacheDir, $"{game.Id}-v{CacheVersion}.png");
+            if (IsAmbiguousUmbrellaProduct(game.Name))
+            {
+                Logger.Warn($"SteamGridDB: '{game.Name}' is a known multi-title umbrella product name - "
+                    + "skipping automatic cover art rather than guessing which specific title is installed.");
+                return null;
+            }
+
+            var cacheDir = cacheDirOverride ?? CacheDir;
+            Directory.CreateDirectory(cacheDir);
+            var cachePath = Path.Combine(cacheDir, $"{game.Id}-v{CacheVersion}.png");
             if (File.Exists(cachePath))
             {
                 var cached = LoadBitmap(File.ReadAllBytes(cachePath));
                 if (cached is not null)
+                {
+                    servedFromCache = true;
                     return cached;
+                }
 
                 // Corrupt cache file (e.g. an interrupted write from a previous crash) - without
                 // deleting it, this would fail identically on every future scan forever. Fall through
@@ -68,7 +162,7 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
                 File.Delete(cachePath);
             }
 
-            var gameId = SearchGameId(game);
+            var gameId = (SearchGameIdOverride ?? SearchGameId)(game);
             if (gameId is null)
             {
                 Logger.Warn($"SteamGridDB: no match for '{game.Name}'.");
@@ -182,12 +276,10 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
         }
 
         // Pass 2: no confident storefront-tagged result - try the rest of the search results in rank
-        // order for the first CONFIDENT match, rather than blindly trusting index 0 regardless of how
-        // well it actually matches (the previous, naive behaviour). Two real, confirmed false positives
-        // motivated this: "Minecraft for Windows" matched "ModFoundry" (no meaningful word overlap at
-        // all), and "EA SPORTS FC 27" matched "EA Sports FC 24" (a different edition entirely).
-        // Successfully downloading an image for a match like this proves nothing about whether the
-        // match itself was right - this is the only place that's actually checked.
+        // order for the first CONFIDENT (exact-title, see IsConfidentMatch) match, rather than blindly
+        // trusting index 0 regardless of how well it actually matches (the previous, naive behaviour).
+        // Evaluating every candidate here, not just the first, is what lets an exact match further down
+        // the list win even when a broader/unrelated candidate happens to rank first.
         foreach (var candidate in data.EnumerateArray())
         {
             if (!TryGetId(candidate, out var id))
@@ -207,80 +299,57 @@ public sealed class SteamGridDbCoverArtProvider : ICoverArtProvider
     }
 
     /// <summary>Whether `candidateName` is a plausible enough match for `queryName` to trust -
-    /// SteamGridDB's /search/autocomplete is a fuzzy text search, not an exact match. Checked against
-    /// the exact strings from real logs, not paraphrased ones - a prior version's own test used a
-    /// shortened "ModFoundry" instead of the actual logged "ModFoundry - Mod Maker for Minecraft", which
-    /// shares the word "Minecraft" with "Minecraft for Windows" and would have PASSED a bare word-
-    /// overlap check, silently failing to fix the real reported bug.
+    /// SteamGridDB's /search/autocomplete is a fuzzy text search, not an exact match.
     ///
-    /// Three rules, not a general similarity score - a stricter score-based threshold risks rejecting
-    /// legitimate matches this hasn't been tested against (a subtitle, a different word order), trading
-    /// "always shows SOME cover, occasionally wrong" for "sometimes falls back to the exe icon
-    /// unnecessarily" isn't obviously better:
-    ///  1. COLLAPSED-EXACT: stripped of all spacing/punctuation/case, the two names are identical - the
-    ///     same title, just differently formatted ("AWayOut" vs "A Way Out"). Deliberately a precise
-    ///     equality check, not a fuzzy camelCase-word-splitting heuristic that could misfire on other
-    ///     titles - this only recognizes when they're the SAME text apart from formatting.
-    ///  2. DERIVATIVE PRODUCT: the candidate contains a word that marks it as a MOD/ADDON/DLC/etc. of
-    ///     something, and the query does not - "ModFoundry - Mod Maker for Minecraft" is a fan-made
-    ///     modding tool for Minecraft, not Minecraft itself, even though it shares that one real word.
-    ///     Checked BEFORE the general word-overlap rule below, since that rule alone would accept it.
-    ///  3. NUMBER MISMATCH / NO WORD OVERLAP: both names contain a number and none of the query's appear
-    ///     in the candidate's ("EA SPORTS FC 27" vs "EA Sports FC 24"), or the query has at least one
-    ///     real (3+ letter, non-generic) word and none of them appear in the candidate at all.</summary>
+    /// A wrong cover is a real failure, not an acceptable trade for "always shows SOME cover" - when
+    /// identity is uncertain, GetCoverArt's caller falls back to the exe icon instead, which is always
+    /// the safer wrong answer. Earlier versions of this method tried to tolerate "close enough" matches
+    /// via shared-word/shared-number heuristics (a candidate could carry extra words or an extra number
+    /// the query never mentioned); every one of those heuristics turned out to accept a genuinely
+    /// different, separately catalogued product at least once in practice - a shared generic word
+    /// ("Sports"), a shared franchise prefix with no number to contradict it ("Call of Duty" matching
+    /// "Call of Duty: Modern Warfare"), and a shared-but-coincidental number ("Half-Life 2" matching
+    /// "Half-Life 2: Episode One" or "...: Episode 2", where the "2" means something different on each
+    /// side). None of that is recoverable by adding another exception to the same kind of rule.
+    ///
+    /// So this only trusts an EXACT match: stripped of all spacing/punctuation/case, and with a short,
+    /// explicitly verified list of roman-numeral sequel markers normalized to digits first (see
+    /// NormalizeRomanNumerals), the two names must be identical - the same title, just differently
+    /// formatted ("AWayOut" vs "A Way Out", "Overwatch 2" vs "Overwatch II"). Anything else - a subtitle,
+    /// an edition suffix, a colon-separated episode name - is treated as a DIFFERENT product, not a
+    /// looser version of the same one, until it's added to that explicit alias list. SelectGameId still
+    /// evaluates every candidate in rank order, so an exact match further down the list is found even
+    /// when a broader, non-matching candidate happens to rank first.
+    ///
+    /// A name that collapses to NOTHING (no letters or digits at all - e.g. "!!!" or "???") is rejected
+    /// even against another equally-empty name: two empty strings being "equal" is not identity evidence,
+    /// it's the absence of any evidence at all.</summary>
     internal static bool IsConfidentMatch(string queryName, string candidateName)
     {
-        if (string.Equals(CollapseForComparison(queryName), CollapseForComparison(candidateName), StringComparison.Ordinal))
-            return true;
+        var collapsedQuery = CollapseForComparison(NormalizeRomanNumerals(queryName));
+        var collapsedCandidate = CollapseForComparison(NormalizeRomanNumerals(candidateName));
 
-        var queryWords = SignificantWords(queryName);
-        var candidateWords = SignificantWords(candidateName);
-
-        if (candidateWords.Overlaps(DerivativeProductWords) && !queryWords.Overlaps(DerivativeProductWords))
+        if (collapsedQuery.Length == 0 || collapsedCandidate.Length == 0)
             return false;
 
-        var queryNumbers = ExtractNumbers(queryName);
-        var candidateNumbers = ExtractNumbers(candidateName);
-        if (queryNumbers.Count > 0 && candidateNumbers.Count > 0 && !queryNumbers.Overlaps(candidateNumbers))
-            return false;
-
-        if (queryWords.Count == 0)
-            return true; // nothing meaningful left to compare (e.g. a name that's all short words/numbers)
-
-        return queryWords.Overlaps(candidateWords);
+        return string.Equals(collapsedQuery, collapsedCandidate, StringComparison.Ordinal);
     }
 
-    // Real, confirmed case: "ModFoundry - Mod Maker for Minecraft" is a fan-made modding TOOL for
-    // Minecraft, not the game - a candidate marking itself this way is a different product that merely
-    // relates to the query, not the query itself, regardless of how many other words it shares.
-    private static readonly HashSet<string> DerivativeProductWords = new(StringComparer.OrdinalIgnoreCase)
-        { "mod", "mods", "modpack", "addon", "dlc", "wallpaper", "skin", "soundtrack", "plugin" };
+    // Common roman-numeral sequel markers, normalized to their digit form before comparison so
+    // "Overwatch 2" and "Overwatch II" are recognized as the same title instead of failing an exact-text
+    // comparison purely over notation. Deliberately excludes solo "I"/"V"/"X": those collide with real
+    // words and titles too easily ("V Rising", "X-Men") to safely rewrite unconditionally. This is
+    // intentionally a short, explicit, hand-verified list - not a general fuzzy-matching mechanism.
+    private static readonly Dictionary<string, string> RomanNumeralSequelNumbers = new(StringComparer.OrdinalIgnoreCase)
+        { ["II"] = "2", ["III"] = "3", ["IV"] = "4", ["VI"] = "6", ["VII"] = "7", ["VIII"] = "8", ["IX"] = "9" };
 
-    // Deliberately excludes generic words that would otherwise let two unrelated titles "match" on
-    // nothing but a shared category word - "Minecraft for Windows" must not be allowed to match
-    // anything else just because both happen to contain "Windows".
-    private static readonly HashSet<string> GenericMatchWords = new(StringComparer.OrdinalIgnoreCase)
-        { "the", "and", "for", "of", "edition", "game", "windows", "pc" };
-
-    private static HashSet<string> SignificantWords(string name) =>
-        System.Text.RegularExpressions.Regex.Matches(name, "[A-Za-z]{3,}")
-            .Select(m => m.Value)
-            .Where(w => !GenericMatchWords.Contains(w))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private static string NormalizeRomanNumerals(string name) =>
+        System.Text.RegularExpressions.Regex.Replace(name, @"\b(II|III|IV|VI|VII|VIII|IX)\b",
+            m => RomanNumeralSequelNumbers[m.Value.ToUpperInvariant()],
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private static string CollapseForComparison(string name) =>
         new string(name.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
-
-    private static HashSet<int> ExtractNumbers(string name)
-    {
-        var numbers = new HashSet<int>();
-        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(name, @"\d+"))
-        {
-            if (int.TryParse(m.Value, out var n))
-                numbers.Add(n);
-        }
-        return numbers;
-    }
 
     private static bool TryGetId(JsonElement item, out int id)
     {

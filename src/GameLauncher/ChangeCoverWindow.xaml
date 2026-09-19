@@ -1,0 +1,79 @@
+<ui:FluentWindow x:Class="GameLauncher.ChangeCoverWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        mc:Ignorable="d"
+        Title="Change Cover" Height="560" Width="380" MinHeight="440" MinWidth="300"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Acrylic"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="Change Cover" />
+
+        <!-- ScrollViewer, not a bare StackPanel, specifically so the fixed-size crop preview below can
+             never visually overlap the Apply/Cancel footer (Grid.Row="2") at a small window height -
+             WPF's Grid does not clip a Row="*" child that's taller than its allotted space on its own;
+             ScrollViewer does, unconditionally, by construction. At the default window size everything
+             fits with no scrollbar; only at/near MinHeight does it actually need to scroll. -->
+        <ScrollViewer x:Name="ContentScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,8,24,12">
+                <TextBlock FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" TextTrimming="CharacterEllipsis">
+                    <!-- Mode=OneWay is required, not cosmetic: Run.Text defaults to a TwoWay binding
+                         (unlike TextBlock.Text, which defaults OneWay), and GameName is a deliberately
+                         read-only { get; } property - a plain, unadorned {Binding GameName} throws
+                         InvalidOperationException the instant this window is shown, crashing the whole
+                         dispatcher thread (caught only by ChangeCoverWindowTests, which is why this fix
+                         exists). -->
+                    <Run Text="Preview cover for " /><Run Text="{Binding GameName, Mode=OneWay}" />
+                </TextBlock>
+                <TextBlock Text="Nothing is saved until you click Apply." FontSize="12" Opacity="0.6" Margin="0,0,0,14" />
+
+                <!-- The library card is a fixed 124x186 (an exact 2:3 ratio) with Stretch="UniformToFill" -
+                     it fills that box edge-to-edge and CROPS whatever doesn't fit, rather than letterboxing
+                     it. Showing the full, uncropped image here (Stretch="Uniform", as an earlier version of
+                     this window did) looks like a fair preview but isn't one: a landscape image would
+                     appear fully visible here and then lose real content - the sides trimmed away - the
+                     moment it's actually applied to a card. This box reproduces the card's own ratio and
+                     Stretch mode (190x285, exactly 2:3) and clips to it, so what's shown here is the actual
+                     crop the card will use, not a differently-proportioned approximation of it. -->
+                <Border x:Name="PreviewBorder" CornerRadius="8" Background="#1FFFFFFF" Width="190" Height="285"
+                        HorizontalAlignment="Center" ClipToBounds="True">
+                    <Image x:Name="PreviewImageElement" Source="{Binding PreviewImage}" Stretch="UniformToFill"
+                           RenderOptions.BitmapScalingMode="HighQuality" />
+                </Border>
+
+                <!-- Collapsed by default - the card crop above is the one that matters for Apply, but a
+                     user deciding BETWEEN two candidate files may still want to see what the source image
+                     actually contains before the crop. -->
+                <Expander Header="Show full image" Margin="0,12,0,0" HorizontalAlignment="Center">
+                    <Border CornerRadius="8" Background="#1FFFFFFF" Width="240" Height="160" Margin="0,8,0,0">
+                        <Image Source="{Binding PreviewImage}" Stretch="Uniform"
+                               RenderOptions.BitmapScalingMode="HighQuality" Margin="4" />
+                    </Border>
+                </Expander>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid x:Name="FooterGrid" Grid.Row="2" Margin="24,0,24,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <ui:Button x:Name="CancelButton" Grid.Column="0" Content="Cancel" Margin="0,0,6,0"
+                       HorizontalAlignment="Stretch" Command="{Binding CancelCommand}" />
+            <ui:Button x:Name="ApplyButton" Grid.Column="1" Content="Apply" Appearance="Primary" Margin="6,0,0,0"
+                       HorizontalAlignment="Stretch" Command="{Binding ApplyCommand}" />
+        </Grid>
+    </Grid>
+</ui:FluentWindow>

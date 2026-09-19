@@ -12,11 +12,17 @@ public sealed partial class GameEntry : ObservableObject
     public required GameSource Source { get; init; }
 
     public string? LaunchUri { get; init; }
-    public BitmapImage? Icon { get; set; }
+
+    // Observable (not plain auto-properties) so Change Cover/Reset can update a single card's displayed
+    // image in place - without change notification here, writing these directly would silently do
+    // nothing visible until an unrelated full library refresh happened to replace this GameEntry.
+    [ObservableProperty]
+    private BitmapImage? _icon;
 
     /// <summary>True when Icon is real portrait box art (fills the card edge-to-edge); false when
     /// it's a fallback exe icon (small, centered, on a plate) - the UI renders these differently.</summary>
-    public bool IsCoverArt { get; set; }
+    [ObservableProperty]
+    private bool _isCoverArt;
 
     /// <summary>Icon of the launcher this game came from (Steam, Epic, ...), extracted from that
     /// launcher's own executable. Null when the source is unknown or its launcher isn't installed.</summary>

@@ -4,6 +4,10 @@ public sealed class AppSettings
 {
     public List<WatchedFolder> WatchedFolders { get; set; } = new();
     public Dictionary<string, GameOverride> Overrides { get; set; } = new();
+
+    /// <summary>See ArtworkConflict's own remarks - a dedup merge where both sides had their own
+    /// explicit cover selection records the losing side here instead of silently discarding it.</summary>
+    public List<ArtworkConflict> ArtworkConflicts { get; set; } = new();
     public bool DetectSteam { get; set; } = true;
     public bool DetectEpic { get; set; } = true;
     public bool DetectGog { get; set; } = true;

@@ -311,7 +311,7 @@ public class GameScannerServiceTests
         var game = MakeGame("game-1", @"C:\Games\Test", GameSource.Manual);
         var fallbackIcon = new System.Windows.Media.Imaging.BitmapImage();
 
-        GameScannerService.SafeApplyCoverArt(game, null,
+        GameScannerService.SafeApplyCoverArt(game, null, existingSelection: null,
             applyCoverArt: (_, _) => throw new InvalidOperationException("simulated cover art failure"),
             getIcon: _ => fallbackIcon);
 
@@ -329,7 +329,7 @@ public class GameScannerServiceTests
         var game = MakeGame("game-1", @"C:\Games\Test", GameSource.Manual);
         game.Icon = new System.Windows.Media.Imaging.BitmapImage(); // pre-existing value must be cleared, not left stale
 
-        var exception = Record.Exception(() => GameScannerService.SafeApplyCoverArt(game, null,
+        var exception = Record.Exception(() => GameScannerService.SafeApplyCoverArt(game, null, existingSelection: null,
             applyCoverArt: (_, _) => throw new InvalidOperationException("simulated cover art failure"),
             getIcon: _ => throw new InvalidOperationException("simulated icon extraction failure")));
 
@@ -350,13 +350,14 @@ public class GameScannerServiceTests
 
         foreach (var game in new[] { failingGame, nextGame })
         {
-            GameScannerService.SafeApplyCoverArt(game, null,
+            GameScannerService.SafeApplyCoverArt(game, null, existingSelection: null,
                 applyCoverArt: (g, _) =>
                 {
                     if (g.Id == "game-1")
                         throw new InvalidOperationException("simulated cover art failure");
                     g.Icon = nextGameIcon;
                     g.IsCoverArt = false;
+                    return null;
                 },
                 getIcon: _ => throw new InvalidOperationException("simulated icon extraction failure"));
         }
@@ -364,5 +365,56 @@ public class GameScannerServiceTests
         Assert.Null(failingGame.Icon);
         Assert.False(failingGame.IsCoverArt);
         Assert.Same(nextGameIcon, nextGame.Icon); // the second game was still enriched normally
+    }
+
+    // ---- SafeApplyCoverArt: routing an existing user selection vs running the automatic matcher -----
+
+    [Fact]
+    public void ExistingUserSelection_RoutesToStoredArtwork_NeverRunsTheAutomaticMatcher()
+    {
+        var game = MakeGame("game-1", @"C:\Games\Test", GameSource.Manual);
+        var selection = new ArtworkSelection { AssetId = Guid.NewGuid().ToString("D"), AssetExtension = "png", IsUserSelected = true };
+        var automaticMatcherCalled = false;
+        var storedArtworkCalled = false;
+
+        var result = GameScannerService.SafeApplyCoverArt(game, null, selection,
+            applyCoverArt: (_, _) => { automaticMatcherCalled = true; return null; },
+            applyStoredArtworkSafely: (_, _) => storedArtworkCalled = true);
+
+        Assert.False(automaticMatcherCalled);
+        Assert.True(storedArtworkCalled);
+        Assert.Null(result); // nothing new to persist - the existing selection stands
+    }
+
+    [Fact]
+    public void NoExistingSelection_RunsTheAutomaticMatcher_NeverTouchesStoredArtwork()
+    {
+        var game = MakeGame("game-1", @"C:\Games\Test", GameSource.Manual);
+        var automaticResult = new ArtworkSelection { MatchMethod = "ExactTitle" };
+        var storedArtworkCalled = false;
+
+        var result = GameScannerService.SafeApplyCoverArt(game, null, existingSelection: null,
+            applyCoverArt: (_, _) => automaticResult,
+            applyStoredArtworkSafely: (_, _) => storedArtworkCalled = true);
+
+        Assert.False(storedArtworkCalled);
+        Assert.Same(automaticResult, result);
+    }
+
+    [Fact]
+    public void ExistingAutomaticSelection_NotUserSelected_StillRunsTheAutomaticMatcher()
+    {
+        // A previously-recorded AUTOMATIC selection (IsUserSelected: false) is not authoritative the
+        // way a user's own pick is - it's just metadata from a prior match, and a fresh scan is free to
+        // re-evaluate it exactly like having no selection at all.
+        var game = MakeGame("game-1", @"C:\Games\Test", GameSource.Manual);
+        var existing = new ArtworkSelection { MatchMethod = "ExactTitle", IsUserSelected = false };
+        var automaticMatcherCalled = false;
+
+        GameScannerService.SafeApplyCoverArt(game, null, existing,
+            applyCoverArt: (_, _) => { automaticMatcherCalled = true; return null; },
+            applyStoredArtworkSafely: (_, _) => throw new InvalidOperationException("must not be called"));
+
+        Assert.True(automaticMatcherCalled);
     }
 }

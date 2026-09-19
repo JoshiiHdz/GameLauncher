@@ -12,4 +12,15 @@ public sealed class GameOverride
     public bool Hidden { get; set; }
     public bool Favorite { get; set; }
     public DateTime? DateAdded { get; set; }
+
+    public ArtworkSelection? Artwork { get; set; }
+
+    /// <summary>Deliberately independent of Artwork being null - living ON Artwork would mean Reset
+    /// (which sets Artwork = null) destroys the very counter needed to reject a scan result computed
+    /// before the reset happened. Bumped by every Change Cover / Reset / dedup-merge mutation of this
+    /// override's artwork state; a scan's own automatic result only gets applied if the live value here
+    /// still equals what the scan captured when it started (see LibraryViewModel.ApplyScanResult). long,
+    /// not int: this is a monotonic counter with no natural upper bound across a game's whole history of
+    /// merges/changes, however unlikely overflow is in practice.</summary>
+    public long ArtworkRevision { get; set; }
 }
