@@ -1496,7 +1496,7 @@ public partial class LibraryViewModel : ObservableObject
                     // background thread.
                     var scratch = new GameEntry
                     {
-                        Id = game.Id, Name = game.Name, ExecutablePath = game.ExecutablePath,
+                        Id = game.Id, Name = game.Name, CatalogName = game.CatalogName, ExecutablePath = game.ExecutablePath,
                         InstallDir = game.InstallDir, Source = game.Source, LaunchUri = game.LaunchUri,
                     };
                     var automatic = applyCoverArt(scratch, apiKey);

@@ -13,6 +13,18 @@ public sealed partial class GameEntry : ObservableObject
 
     public string? LaunchUri { get; init; }
 
+    /// <summary>Verified real catalog title, for AUTOMATIC cover-art matching only - null unless a
+    /// scanner has explicit, hand-verified evidence that Name (the raw detected name - still used for
+    /// display, dedup, and session tracking, and never overwritten by this) is an abbreviation of a
+    /// different real title. Never derived from a heuristic or guess; see EaScanner.ResolveCatalogName
+    /// for the one place this is populated today (EA/Origin installs some titles - Apex Legends among
+    /// them - under a folder literally named the abbreviation, not the real title). CoverArtService/
+    /// SteamGridDbCoverArtProvider search and compare against this instead of Name when it's set - see
+    /// SteamGridDbCoverArtProvider.IsConfidentMatch's own remarks for why loosening the MATCH comparison
+    /// instead (rather than fixing the identity feeding it) would reopen exactly the false-positive
+    /// matches that comparison exists to prevent.</summary>
+    public string? CatalogName { get; init; }
+
     // Observable (not plain auto-properties) so Change Cover/Reset can update a single card's displayed
     // image in place - without change notification here, writing these directly would silently do
     // nothing visible until an unrelated full library refresh happened to replace this GameEntry.

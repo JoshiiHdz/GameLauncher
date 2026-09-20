@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using GameLauncher.Models;
 using GameLauncher.Services.CoverArt;
 
@@ -464,7 +465,12 @@ public class SteamGridDbCoverArtProviderTests
 
             Directory.CreateDirectory(cacheDir);
             var cachePath = Path.Combine(cacheDir, $"{game.Id}-v{SteamGridDbCoverArtProvider.CacheVersionForTest}.png");
-            File.WriteAllBytes(cachePath, MakeValidPngBytes());
+            var pngBytes = MakeValidPngBytes();
+            File.WriteAllBytes(cachePath, pngBytes);
+            // A cache hit now also requires valid, identity-matching sidecar evidence (see
+            // TryReadMatchedGame's own remarks) - without one, this would be treated as unverifiable and
+            // fall through to a fresh search, defeating the very thing this test exists to prove.
+            File.WriteAllText(cachePath + ".meta.json", MakeSidecarJson(111, "Some Ordinary Game", game.Name, pngBytes));
 
             var searchCalls = 0;
             provider.SearchGameIdOverride = _ => { searchCalls++; return null; };
@@ -502,15 +508,464 @@ public class SteamGridDbCoverArtProviderTests
         }
     }
 
-    private static byte[] MakeValidPngBytes()
+    private static byte[] MakeValidPngBytes(int width = 8, int height = 8)
     {
-        var pixels = new byte[8 * 8];
+        var pixels = new byte[width * height];
         var bitmap = System.Windows.Media.Imaging.BitmapSource.Create(
-            8, 8, 96, 96, System.Windows.Media.PixelFormats.Gray8, null, pixels, 8);
+            width, height, 96, 96, System.Windows.Media.PixelFormats.Gray8, null, pixels, width);
         var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
         encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
         using var stream = new MemoryStream();
         encoder.Save(stream);
         return stream.ToArray();
+    }
+
+    // ---- SelectMatchedGame: same selection as SelectGameId, but also returns the matched title -------
+
+    [Fact]
+    public void SelectMatchedGame_ReturnsTheMatchedCandidatesOwnTitle_NotJustItsId()
+    {
+        var json = """{ "data": [{ "id": 111, "name": "Apex Legends", "types": ["steam"] }] }""";
+        var matched = SteamGridDbCoverArtProvider.SelectMatchedGame(json, "Apex Legends", storefrontTag: null);
+        Assert.Equal(111, matched?.Id);
+        Assert.Equal("Apex Legends", matched?.Title);
+    }
+
+    [Fact]
+    public void SelectMatchedGame_AgreesWithSelectGameId_OnTheSameInput()
+    {
+        var json = """
+            { "data": [
+                { "id": 111, "name": "Apex", "types": ["steam"] },
+                { "id": 222, "name": "Apex Legends", "types": ["origin"] }
+            ] }
+            """;
+        var id = SteamGridDbCoverArtProvider.SelectGameId(json, "Apex Legends", storefrontTag: "origin");
+        var matched = SteamGridDbCoverArtProvider.SelectMatchedGame(json, "Apex Legends", storefrontTag: "origin");
+        Assert.Equal(id, matched?.Id);
+    }
+
+    // ---- SplitCompactedWords: query-generation fix for a spacing-glued name --------------------------
+
+    [Theory]
+    [InlineData("AWayOut", "A Way Out")]
+    [InlineData("ModFoundry", "Mod Foundry")]
+    public void SplitCompactedWords_InsertsWordBoundarySpaces(string compacted, string expected)
+    {
+        Assert.Equal(expected, SteamGridDbCoverArtProvider.SplitCompactedWords(compacted));
+    }
+
+    [Theory]
+    [InlineData("Apex")] // a genuine abbreviation, not a spacing problem - must be left alone
+    [InlineData("A Way Out")] // already spaced
+    [InlineData("Minecraft")]
+    [InlineData("Half-Life")] // hyphen breaks the adjacency the rule needs - must not split here
+    public void SplitCompactedWords_NoWordBoundaryToInsert_ReturnsUnchanged(string name)
+    {
+        Assert.Equal(name, SteamGridDbCoverArtProvider.SplitCompactedWords(name));
+    }
+
+    // ---- The real, confirmed Apex identity scenario: EA + CatalogName --------------------------------
+
+    private static GameEntry MakeEaGameEntry(string name, string? catalogName) => new()
+    {
+        Id = "ea-apex-test",
+        Name = name,
+        CatalogName = catalogName,
+        ExecutablePath = @"C:\Games\Apex\r5apex.exe",
+        InstallDir = @"C:\Games\Apex",
+        Source = GameSource.Ea,
+    };
+
+    /// <summary>Every GetCoverArt call in this section runs against an isolated cache directory, never
+    /// the real %AppData%\GameLauncher\CoverArtCache - a successful match+image fetch really does write
+    /// a .png and a .meta.json to disk (see WriteMatchedGame), and these tests exist specifically to
+    /// drive that path, so skipping the override here (unlike the pre-existing "never reaches search"
+    /// tests above, which return before any write) would leave real files behind on whatever machine
+    /// runs the suite.</summary>
+    private static string CreateIsolatedCacheDir() =>
+        Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "GameLauncherTests-CoverArtCache-" + Guid.NewGuid())).FullName;
+
+    [Fact]
+    public void GetCoverArt_EaApexScenario_WithoutCatalogName_MatchesTheWrongUnrelatedGame()
+    {
+        // Reproduces the real, confirmed bug exactly: the raw detected name "Apex" is an exact match for
+        // an unrelated, differently-catalogued game also named "Apex" - and IsConfidentMatch correctly
+        // REJECTS the true "Apex Legends" storefront-tagged candidate, because "Apex" != "Apex Legends".
+        // This test pins that this is a genuine identity gap, not a bug already fixed by CatalogName
+        // alone existing as a field - it's still reachable whenever CatalogName isn't populated.
+        var cacheDir = CreateIsolatedCacheDir();
+        try
+        {
+            var json = """
+                { "data": [
+                    { "id": 999, "name": "Apex", "types": ["steam"] },
+                    { "id": 222, "name": "Apex Legends", "types": ["origin"] }
+                ] }
+                """;
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key")
+            {
+                SearchRequestOverride = _ => json,
+                FetchGridImageBytesOverride = _ => MakeValidPngBytes(),
+            };
+
+            var result = provider.GetCoverArt(MakeEaGameEntry("Apex", catalogName: null), out _, out var matched, cacheDir);
+
+            Assert.Equal(999, matched?.Id); // the wrong, unrelated "Apex" - confirms the bug is real without the fix
+        }
+        finally
+        {
+            Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetCoverArt_EaApexScenario_WithVerifiedCatalogName_MatchesTheRealGame()
+    {
+        var cacheDir = CreateIsolatedCacheDir();
+        try
+        {
+            var json = """
+                { "data": [
+                    { "id": 999, "name": "Apex", "types": ["steam"] },
+                    { "id": 222, "name": "Apex Legends", "types": ["origin"] }
+                ] }
+                """;
+            var seenQueries = new List<string>();
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key")
+            {
+                SearchRequestOverride = query => { seenQueries.Add(query); return json; },
+                FetchGridImageBytesOverride = _ => MakeValidPngBytes(),
+            };
+
+            var result = provider.GetCoverArt(MakeEaGameEntry("Apex", catalogName: "Apex Legends"), out _, out var matched, cacheDir);
+
+            Assert.Equal(222, matched?.Id);
+            Assert.Equal("Apex Legends", matched?.Title);
+            Assert.Equal(["Apex Legends"], seenQueries); // searched the VERIFIED title, never the raw "Apex"
+        }
+        finally
+        {
+            Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    // ---- Query-generation retry: a compacted name that returns zero results on its own ---------------
+
+    [Fact]
+    public void GetCoverArt_AWayOutScenario_CompactedQueryFindsNothing_RetriesWithSpacedQuery()
+    {
+        // Reproduces the real, confirmed second gap: "AWayOut" (an EA folder name) returns zero results
+        // from SteamGridDB's own search - not merely "no confident match among some candidates", NO
+        // candidates at all - so no amount of comparison leniency downstream could ever recover it. This
+        // is a transport-level test specifically because a fake response keyed by exact query text is
+        // the only way to prove the SECOND query was actually sent with different (expanded) text -
+        // asserting only the final `matched` result could pass even if the retry silently resent the
+        // exact same failing query text twice.
+        var cacheDir = CreateIsolatedCacheDir();
+        try
+        {
+            const string emptyResponse = """{ "data": [] }""";
+            const string realGameResponse = """{ "data": [{ "id": 555, "name": "A Way Out", "types": ["origin"] }] }""";
+
+            var seenQueries = new List<string>();
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key")
+            {
+                SearchRequestOverride = query =>
+                {
+                    seenQueries.Add(query);
+                    return query == "AWayOut" ? emptyResponse : realGameResponse;
+                },
+                FetchGridImageBytesOverride = _ => MakeValidPngBytes(),
+            };
+
+            var game = new GameEntry
+            {
+                Id = "ea-awayout-test",
+                Name = "AWayOut",
+                ExecutablePath = @"C:\Games\AWayOut\AWayOut.exe",
+                InstallDir = @"C:\Games\AWayOut",
+                Source = GameSource.Ea,
+            };
+
+            var result = provider.GetCoverArt(game, out _, out var matched, cacheDir);
+
+            Assert.Equal(555, matched?.Id);
+            Assert.Equal(["AWayOut", "A Way Out"], seenQueries); // both attempts, in order, with the right text
+        }
+        finally
+        {
+            Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetCoverArt_CompactedQueryFindsNothing_RetryAlsoFindsNothing_ReturnsNullWithoutLooping()
+    {
+        var cacheDir = CreateIsolatedCacheDir();
+        try
+        {
+            const string emptyResponse = """{ "data": [] }""";
+            var attempts = 0;
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key")
+            {
+                SearchRequestOverride = _ => { attempts++; return emptyResponse; },
+            };
+
+            var game = new GameEntry
+            {
+                Id = "ea-nomatch-test",
+                Name = "SomeCompactedName",
+                ExecutablePath = @"C:\Games\Foo\Foo.exe",
+                InstallDir = @"C:\Games\Foo",
+                Source = GameSource.Ea,
+            };
+
+            var result = provider.GetCoverArt(game, out _, out var matched, cacheDir);
+
+            Assert.Null(result);
+            Assert.Null(matched);
+            Assert.Equal(2, attempts); // primary + exactly one retry, never an unbounded loop
+        }
+        finally
+        {
+            Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    // ---- Matching evidence survives a cache hit (see GetCoverArt's own remarks on the sidecar file) ---
+
+    /// <summary>Builds a sidecar in the exact on-disk shape WriteMatchedGame produces
+    /// (CachedMatchEvidence: Id, Title, SearchedName, ImageSha256) - computing the same SHA-256 over
+    /// `imageBytes` a real write would, so a test-seeded sidecar validates exactly the way a genuinely
+    /// fetched one would. Duplicated here rather than reusing ComputeImageHash (private) so this file
+    /// exercises the sidecar CONTRACT (its JSON shape/field names) rather than reaching into the
+    /// provider's own implementation detail.</summary>
+    private static string MakeSidecarJson(int id, string title, string searchedName, byte[] imageBytes)
+    {
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(imageBytes));
+        return JsonSerializer.Serialize(new { Id = id, Title = title, SearchedName = searchedName, ImageSha256 = hash });
+    }
+
+    [Fact]
+    public void GetCoverArt_CacheHit_WithValidSidecar_ReportsTheOriginallyMatchedGame()
+    {
+        // The real, confirmed gap this closes: SafeApplyCoverArt re-runs the automatic matcher on EVERY
+        // scan for any non-user-selected selection, and every scan after the first is a cache hit - so
+        // if a cache hit couldn't report matched-game evidence, CommitAutomaticArtworkIfCurrent's
+        // unconditional metadata sync would silently null out ProviderGameId/ProviderTitle the very next
+        // scan after they were first recorded. The sidecar is pre-seeded directly here (as
+        // GetCoverArt_ValidPreExistingCacheFile_ServedFromCache_NeverReachesSearch above also does for
+        // the image itself) rather than via a genuine fresh fetch first, since GetGridImageUrl's own
+        // image-download HTTP call has no test seam to intercept.
+        var cacheDir = Path.Combine(Path.GetTempPath(), "GameLauncherTests-CoverArtCache-" + Guid.NewGuid());
+        try
+        {
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key");
+            var game = MakeEaGameEntry("Apex", catalogName: "Apex Legends");
+
+            Directory.CreateDirectory(cacheDir);
+            var cachePath = Path.Combine(cacheDir, $"{game.Id}-v{SteamGridDbCoverArtProvider.CacheVersionForTest}.png");
+            var metaPath = cachePath + ".meta.json";
+            var pngBytes = MakeValidPngBytes();
+            File.WriteAllBytes(cachePath, pngBytes);
+            File.WriteAllText(metaPath, MakeSidecarJson(222, "Apex Legends", "Apex Legends", pngBytes));
+
+            var result = provider.GetCoverArt(game, out var servedFromCache, out var matched, cacheDir);
+
+            Assert.NotNull(result);
+            Assert.True(servedFromCache);
+            Assert.Equal(222, matched?.Id);
+            Assert.Equal("Apex Legends", matched?.Title);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    // {HASH} is substituted with the ACTUAL cached image's correct hash at run time (a [Theory] can only
+    // hold compile-time constants, so it can't be computed here). This matters: an EARLIER version of
+    // this test used a fixed placeholder like "deadbeef" for every case, including the non-positive-id
+    // and empty-title cases - which is always wrong for whatever bytes MakeValidPngBytes() produces, so
+    // those two cases would reject on the hash check alone regardless of whether the id/title validation
+    // in TryReadMatchedGame existed at all, proving nothing about it specifically. Giving them the
+    // CORRECT hash isolates each case to the ONE field it's meant to exercise.
+    [Theory]
+    [InlineData("""{}""")] // every field defaults to 0/null - not evidence, must not be trusted
+    [InlineData("""{"Id":0,"Title":"Apex Legends","SearchedName":"Apex Legends","ImageSha256":"{HASH}"}""")] // non-positive id
+    [InlineData("""{"Id":222,"Title":"","SearchedName":"Apex Legends","ImageSha256":"{HASH}"}""")] // empty title
+    [InlineData("""{"Id":222,"Title":"Apex Legends","SearchedName":"Apex Legends","ImageSha256":""}""")] // empty hash
+    [InlineData("""{"Id":222,"Title":"Apex Legends","SearchedName":"Apex Legends","ImageSha256":"0000000000000000000000000000000000000000000000000000000000000000"}""")] // hash present but WRONG - doesn't describe this image
+    [InlineData("not even json")]
+    public void GetCoverArt_CacheHit_MalformedOrMismatchedSidecar_TreatedAsUnverified_CacheIsInvalidated(string sidecarJsonTemplate)
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), "GameLauncherTests-CoverArtCache-" + Guid.NewGuid());
+        try
+        {
+            var game = MakeEaGameEntry("Apex", catalogName: "Apex Legends");
+            var cachePath = Path.Combine(cacheDir, $"{game.Id}-v{SteamGridDbCoverArtProvider.CacheVersionForTest}.png");
+            var metaPath = cachePath + ".meta.json";
+
+            Directory.CreateDirectory(cacheDir);
+            var pngBytes = MakeValidPngBytes();
+            var correctHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pngBytes));
+            var sidecarJson = sidecarJsonTemplate.Replace("{HASH}", correctHash);
+            File.WriteAllBytes(cachePath, pngBytes);
+            File.WriteAllText(metaPath, sidecarJson);
+
+            var searchCalls = 0;
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key")
+            {
+                SearchGameIdOverride = _ => { searchCalls++; return null; },
+            };
+
+            var result = provider.GetCoverArt(game, out var servedFromCache, out var matched, cacheDir);
+
+            Assert.False(servedFromCache);
+            Assert.Null(matched);
+            Assert.Equal(1, searchCalls); // unverifiable evidence forced a real re-fetch attempt, not a silent cache hit
+            Assert.False(File.Exists(cachePath), "The stale, unverifiable cache file must be deleted, not left to fail identically forever.");
+            Assert.False(File.Exists(metaPath));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetCoverArt_CacheHit_SidecarResolvedForADifferentIdentity_TreatedAsStale_CacheIsInvalidated()
+    {
+        // The real, confirmed scenario this closes: the SAME local game id/cache directory, but the
+        // RESOLVED identity used to produce the cached entry differs from the one being searched for
+        // now (e.g. Reset supplying a CatalogName a much earlier scan never had - see LibraryViewModel's
+        // own ResetCoverToAutomaticAsync fix). A CacheVersion bump alone cannot catch this: it only
+        // clears mistakes once, at release time, not ones introduced afterward by an identity that
+        // changes between two calls against the exact same cache entry.
+        var cacheDir = Path.Combine(Path.GetTempPath(), "GameLauncherTests-CoverArtCache-" + Guid.NewGuid());
+        try
+        {
+            var game = MakeEaGameEntry("Apex", catalogName: "Apex Legends");
+            var cachePath = Path.Combine(cacheDir, $"{game.Id}-v{SteamGridDbCoverArtProvider.CacheVersionForTest}.png");
+            var metaPath = cachePath + ".meta.json";
+            var pngBytes = MakeValidPngBytes();
+
+            Directory.CreateDirectory(cacheDir);
+            File.WriteAllBytes(cachePath, pngBytes);
+            // Cached under the RAW abbreviated name, before CatalogName ever existed for this game.
+            File.WriteAllText(metaPath, MakeSidecarJson(999, "Apex", "Apex", pngBytes));
+
+            var searchCalls = 0;
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key")
+            {
+                SearchGameIdOverride = _ => { searchCalls++; return null; },
+            };
+
+            // The SAME cache directory/local game id as above - only the resolved identity (via
+            // CatalogName, already "Apex Legends" on `game`) differs from what the sidecar recorded.
+            var result = provider.GetCoverArt(game, out var servedFromCache, out var matched, cacheDir);
+
+            Assert.False(servedFromCache);
+            Assert.Null(matched);
+            Assert.Equal(1, searchCalls); // the stale-identity entry was rejected, forcing a fresh lookup
+            Assert.False(File.Exists(cachePath));
+        }
+        finally {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetCoverArt_ImageOverwritten_ButSidecarWriteFailedOrWasSkipped_StaleSidecarIsRejected()
+    {
+        // The real, confirmed scenario this closes: the image and its sidecar are two SEPARATE files,
+        // written one after the other (see GetCoverArt) - a fresh download can succeed and overwrite
+        // cachePath while the sidecar write that should follow it fails (disk full, permissions) or is
+        // otherwise skipped, leaving an OLD sidecar (describing a PREVIOUS image, e.g. from before an
+        // identity correction) sitting next to a cache file it no longer actually describes. Simulated
+        // directly here by writing image A + its real sidecar, then overwriting JUST the image file with
+        // DIFFERENT bytes (image B) without touching the sidecar - exactly what an interrupted second
+        // fetch would leave behind. The hash binding must catch this: reporting image A's identity for
+        // image B's actual bytes would be presenting mismatched evidence as verified.
+        var cacheDir = Path.Combine(Path.GetTempPath(), "GameLauncherTests-CoverArtCache-" + Guid.NewGuid());
+        try
+        {
+            var game = MakeEaGameEntry("Apex", catalogName: "Apex Legends");
+            var cachePath = Path.Combine(cacheDir, $"{game.Id}-v{SteamGridDbCoverArtProvider.CacheVersionForTest}.png");
+            var metaPath = cachePath + ".meta.json";
+
+            Directory.CreateDirectory(cacheDir);
+            var imageA = MakeValidPngBytes(width: 8, height: 8);
+            var imageB = MakeValidPngBytes(width: 16, height: 16); // genuinely different bytes, not a copy
+            File.WriteAllBytes(cachePath, imageA);
+            File.WriteAllText(metaPath, MakeSidecarJson(222, "Apex Legends", "Apex Legends", imageA));
+
+            // Simulates the interrupted second fetch: the image half of a fresh write landed, the
+            // metadata half didn't (or was never reached) - the old sidecar is left describing bytes
+            // that are no longer what's actually at cachePath.
+            File.WriteAllBytes(cachePath, imageB);
+
+            var searchCalls = 0;
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key")
+            {
+                SearchGameIdOverride = _ => { searchCalls++; return null; },
+            };
+
+            var result = provider.GetCoverArt(game, out var servedFromCache, out var matched, cacheDir);
+
+            Assert.False(servedFromCache);
+            Assert.Null(matched); // must NOT report image A's identity for image B's bytes
+            Assert.Equal(1, searchCalls); // forced a fresh lookup rather than trusting the stale sidecar
+            Assert.False(File.Exists(cachePath));
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetCoverArt_GenuineFetchThenSecondCall_IsARealCacheHit_ReportingTheSameEvidence()
+    {
+        // End-to-end round trip through the real write path (WriteMatchedGame) AND the real read path
+        // (TryReadMatchedGame) - every other cache-hit test above pre-seeds the sidecar by hand to test
+        // one specific validation rule in isolation; this one proves the two sides actually agree with
+        // each other in the ordinary, successful case.
+        var cacheDir = Path.Combine(Path.GetTempPath(), "GameLauncherTests-CoverArtCache-" + Guid.NewGuid());
+        try
+        {
+            var json = """{ "data": [{ "id": 222, "name": "Apex Legends", "types": ["origin"] }] }""";
+            var searchCalls = 0;
+            var provider = new SteamGridDbCoverArtProvider("fake-api-key")
+            {
+                SearchRequestOverride = _ => { searchCalls++; return json; },
+                FetchGridImageBytesOverride = _ => MakeValidPngBytes(),
+            };
+            var game = MakeEaGameEntry("Apex", catalogName: "Apex Legends");
+
+            var firstResult = provider.GetCoverArt(game, out var firstServedFromCache, out var firstMatched, cacheDir);
+            Assert.NotNull(firstResult);
+            Assert.False(firstServedFromCache);
+            Assert.Equal(222, firstMatched?.Id);
+            Assert.Equal(1, searchCalls);
+
+            var secondResult = provider.GetCoverArt(game, out var secondServedFromCache, out var secondMatched, cacheDir);
+
+            Assert.NotNull(secondResult);
+            Assert.True(secondServedFromCache);
+            Assert.Equal(222, secondMatched?.Id);
+            Assert.Equal("Apex Legends", secondMatched?.Title);
+            Assert.Equal(1, searchCalls); // the second call never searched again - a genuine cache hit
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
     }
 }

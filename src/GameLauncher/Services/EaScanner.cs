@@ -16,6 +16,34 @@ public static class EaScanner
 {
     private static readonly string[] LibraryFolderNames = { "EA Games", "Origin Games", "EASports" };
 
+    // EA/Origin sometimes installs a game under a folder/registry-key name that's a genuine
+    // ABBREVIATION of its real catalog title, not just a formatting variant IsConfidentMatch's own
+    // collapsed comparison could already recover on its own (compare "AWayOut" vs "A Way Out" - same
+    // words, no spaces - which that comparison already handles). Apex Legends is the confirmed real
+    // case: it installs to a folder simply named "Apex", and searching SteamGridDB for the literal
+    // string "Apex" finds an unrelated, differently-catalogued game of that exact name before ever
+    // finding "Apex Legends" - see SteamGridDbCoverArtProvider.SelectGameId's own remarks.
+    //
+    // Deliberately a short, explicit, hand-verified list - exactly the same discipline
+    // SteamGridDbCoverArtProvider.RomanNumeralSequelNumbers/AmbiguousUmbrellaProductNamesCollapsed
+    // already apply to other known, confirmed naming quirks - NEVER a heuristic that could silently
+    // relabel some other, unrelated game's identity. GameEntry.Name (the raw detected name, used for
+    // display/dedup/session-tracking) is never changed by this; only GameEntry.CatalogName, consulted
+    // solely for automatic cover-art matching, is affected. Case-insensitive: registry/folder casing
+    // isn't guaranteed consistent across installs.
+    private static readonly Dictionary<string, string> KnownAbbreviatedCatalogNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Apex"] = "Apex Legends",
+        };
+
+    /// <summary>Resolves `rawDetectedName` to its verified real catalog title, or null when no explicit,
+    /// hand-verified mapping exists for it - see KnownAbbreviatedCatalogNames's own remarks. Pulled out
+    /// as its own pure function specifically so it's unit-testable directly, without needing to fake the
+    /// Windows registry this class otherwise reads from.</summary>
+    internal static string? ResolveCatalogName(string rawDetectedName) =>
+        KnownAbbreviatedCatalogNames.TryGetValue(rawDetectedName, out var catalogName) ? catalogName : null;
+
     public static List<GameEntry> Scan()
     {
         var games = new List<GameEntry>();
@@ -161,6 +189,7 @@ public static class EaScanner
         {
             Id = id,
             Name = name,
+            CatalogName = ResolveCatalogName(name),
             ExecutablePath = exe,
             InstallDir = installDir,
             Source = GameSource.Ea,

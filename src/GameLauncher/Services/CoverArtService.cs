@@ -57,7 +57,7 @@ public static class CoverArtService
 
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            var gridArt = new SteamGridDbCoverArtProvider(apiKey).GetCoverArt(game, out var gridFromCache);
+            var gridArt = new SteamGridDbCoverArtProvider(apiKey).GetCoverArt(game, out var gridFromCache, out var matched);
             if (gridArt is not null)
             {
                 game.Icon = gridArt;
@@ -67,11 +67,17 @@ public static class CoverArtService
                 {
                     Provider = ArtworkProvider.SteamGridDb,
                     RetrievedFrom = gridFromCache ? ArtworkRetrievalMethod.LocalCache : ArtworkRetrievalMethod.NetworkDownload,
-                    // ProviderGameId/ProviderArtworkRef: SteamGridDbCoverArtProvider.GetCoverArt doesn't
-                    // currently surface which catalog id/image it matched, only the decoded bytes - a
-                    // known, explicit gap. Phase 1b's Identify-Game search needs that exposed anyway
-                    // (to render a candidate grid), and will close this at the same time rather than
-                    // threading it through twice.
+                    // Null only for a cache hit against an entry written before this evidence sidecar
+                    // existed (see SteamGridDbCoverArtProvider.GetCoverArt's own remarks) - a real but
+                    // self-healing gap: the very next time this game's cache is invalidated (a
+                    // CacheVersion bump, or the file going missing) a fresh fetch records it.
+                    ProviderGameId = matched?.Id.ToString(),
+                    ProviderTitle = matched?.Title,
+                    // ProviderArtworkRef (which SPECIFIC grid image among the game's available covers)
+                    // still isn't surfaced - GetGridImageUrl only returns the first grid's URL, not its
+                    // own id. Phase 1b's Identify-Game search needs that exposed anyway (to render a
+                    // candidate grid), and will close this at the same time rather than threading it
+                    // through twice.
                     MatchMethod = "ExactTitle",
                     IsUserSelected = false,
                     SelectedAt = DateTime.UtcNow,

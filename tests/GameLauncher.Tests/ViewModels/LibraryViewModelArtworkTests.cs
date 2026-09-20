@@ -663,6 +663,50 @@ public class LibraryViewModelArtworkTests : IDisposable
     }
 
     [Fact]
+    public async Task ResetCoverToAutomaticAsync_GameHasAVerifiedCatalogName_LookupReceivesIt_NotTheRawAbbreviatedName()
+    {
+        // The real, confirmed regression this pins: ResetCoverToAutomaticAsync builds a private scratch
+        // GameEntry for the immediate automatic lookup (see its own remarks on why it can't hand the
+        // lookup the live, UI-bound GameEntry directly) - an earlier version of that scratch copy left
+        // CatalogName off the list of fields carried over, silently reopening the exact "Apex" -> unrelated-
+        // game false-positive CatalogName exists to fix, specifically for Reset (Change Cover's own path
+        // never had this gap, since it never builds a scratch copy at all). This can happen whenever a
+        // user's explicit selection prevented the automatic matcher from ever running against the live
+        // GameEntry during a normal scan - Reset is the first time the live game's CatalogName would ever
+        // need to reach the automatic matcher for this particular game.
+        var game = new GameEntry
+        {
+            Id = "ea-apex-reset-test",
+            Name = "Apex",
+            CatalogName = "Apex Legends",
+            ExecutablePath = @"C:\Games\Apex\r5apex.exe",
+            InstallDir = @"C:\Games\Apex",
+            Source = GameSource.Ea,
+        };
+        _sut.SimulateRefreshResult([game]);
+        var existing = new ArtworkSelection { AssetId = Guid.NewGuid().ToString("D"), AssetExtension = "png", IsUserSelected = true };
+        _sut.SetArtworkForTest(game.Id, existing, revision: 1);
+
+        string? nameSeenByLookup = null;
+        string? catalogNameSeenByLookup = null;
+        var found = new ArtworkSelection { Provider = ArtworkProvider.SteamGridDb, ProviderTitle = "Apex Legends", MatchMethod = "ExactTitle" };
+        _sut.AutomaticCoverArtLookupForTest = (g, _) =>
+        {
+            nameSeenByLookup = g.Name;
+            catalogNameSeenByLookup = g.CatalogName;
+            g.IsCoverArt = true;
+            return found;
+        };
+
+        var outcome = await _sut.ResetCoverToAutomaticAsync(game.Id);
+
+        Assert.Equal(ArtworkChangeOutcome.Success, outcome);
+        Assert.Equal("Apex", nameSeenByLookup); // the raw detected name is still carried, unchanged
+        Assert.Equal("Apex Legends", catalogNameSeenByLookup); // and so is the verified catalog identity
+        Assert.Same(found, _sut.GetOverride(game.Id)!.Artwork);
+    }
+
+    [Fact]
     public async Task ResetCoverToAutomaticAsync_ImmediateLookupFindsNoMatch_ButConcurrentScanAlreadyRecordedAutomaticMetadata_ClearsIt()
     {
         // The real, confirmed ordering this covers: Reset's own commit lands at revision R. A CONCURRENT
