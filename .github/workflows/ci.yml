@@ -11,6 +11,7 @@ jobs:
     # net8.0-windows + UseWPF requires the Windows Desktop workload, which only exists on a Windows
     # runner - this can't build on ubuntu-latest/macos-latest no matter how the project is configured.
     runs-on: windows-latest
+    timeout-minutes: 30      # a hung test must fail the run, not hold it for hours
 
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +27,7 @@ jobs:
         run: dotnet build GameLauncher.sln --no-restore -c Release
 
       - name: Test
-        run: dotnet test GameLauncher.sln --no-build -c Release --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test GameLauncher.sln --no-build -c Release --logger "trx;LogFileName=test-results.trx" --blame-hang-timeout 6m --blame-hang-dump-type none
 
       - name: Publish test results
         if: always()

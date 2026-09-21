@@ -25,6 +25,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'   # progress records are noise in a build log (and can flood a captured stderr)
 
 function Fail([string]$Message) {
     if ($env:GITHUB_ACTIONS) { Write-Host "::error::$Message" } else { Write-Host "ERROR: $Message" -ForegroundColor Red }

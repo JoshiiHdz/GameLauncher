@@ -126,7 +126,7 @@ jobs:
       # Same gate ci.yml enforces on every push/PR - a release is exactly the wrong place to skip it,
       # since a tag push here goes straight to a public GitHub Release with no other review step.
       - name: Test
-        run: dotnet test GameLauncher.sln -c Release
+        run: dotnet test GameLauncher.sln -c Release --blame-hang-timeout 6m --blame-hang-dump-type none
 
       # default-api-key.txt is gitignored (see DefaultApiKey.cs's remarks - the key ships inside the
       # built exe, never in source control), so a fresh checkout never has one. Without this step every

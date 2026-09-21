@@ -37,14 +37,27 @@ public class RelayConfigScriptTests : IDisposable
 
     private static (int ExitCode, string Output) Run(params string[] args)
     {
-        var start = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        var start = new ProcessStartInfo("powershell.exe")
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true,
+        };
         foreach (var a in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", ScriptPath() }.Concat(args))
             start.ArgumentList.Add(a);
 
         using var process = Process.Start(start)!;
-        var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        return (process.ExitCode, output);
+        process.StandardInput.Close();                        // nothing to read: PowerShell must never sit waiting on a console that isn't there
+        // Both streams are drained CONCURRENTLY: reading one to the end before the other deadlocks when the process fills the other pipe first
+        // (fresh CI machines make PowerShell write progress/CLIXML to stderr), and a hung child must fail the test, never hang the run.
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(120_000))
+        {
+            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            throw new TimeoutException("powershell.exe did not finish within 120 s: " + args.FirstOrDefault());
+        }
+
+        Task.WaitAll(stdout, stderr);
+        return (process.ExitCode, stdout.Result + stderr.Result);
     }
 
     private (int ExitCode, string Output, string OutFile) Write(string? url, string? pin)
