@@ -1,0 +1,5 @@
+# Server-side deployment files run on Linux: bash breaks on CRLF, so they stay LF whatever the checkout settings.
+docs/deploy/**/*.sh text eol=lf
+docs/deploy/**/*.conf text eol=lf
+docs/deploy/**/*.tpl text eol=lf
+docs/deploy/**/*.py text eol=lf

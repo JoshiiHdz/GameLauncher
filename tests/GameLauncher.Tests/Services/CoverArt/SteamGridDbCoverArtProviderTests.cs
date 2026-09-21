@@ -58,37 +58,44 @@ public class SteamGridDbCoverArtProviderTests
     [InlineData("\"just a string\"")] // root is a bare string
     [InlineData("{}")] // missing "data" entirely
     [InlineData("""{ "data": "not an array" }""")] // "data" has the wrong type
-    [InlineData("""{ "data": [{ "id": "not a number", "name": "Apex" }] }""")] // "id" has the wrong type
-    [InlineData("""{ "data": [{ "name": "Apex" }] }""")] // "id" missing entirely
+    [InlineData("""{ "data": null }""")]
     [InlineData("""{ "data": [123] }""")] // array element isn't even an object
-    public void SelectGameId_UnexpectedShape_ReturnsNullWithoutThrowing(string malformedJson)
+    [InlineData("""{ "data": [{ "id": 1 }] }""")] // no name at all
+    [InlineData("""{ "data": [{ "id": 1, "name": 7 }] }""")] // name of the wrong type
+    [InlineData("""{ "data": [{ "id": 1, "name": "   " }] }""")] // a blank name is not a name
+    public void SelectGameId_UnexpectedShape_Throws_NeverReadAsNoMatch(string malformedJson)
     {
-        // Every one of these is syntactically valid JSON - only the SHAPE is wrong. The original code
-        // called GetProperty/GetString/GetInt32 straight off search results with no shape validation
-        // at all, so each of these used to throw InvalidOperationException (GetProperty's own
-        // documented behavior for an absent property, or one of the wrong kind) - not a JsonException,
-        // and so not caught by GetCoverArt's old catch clause, which could crash the whole scan over a
-        // single unexpected API response.
-        var id = SteamGridDbCoverArtProvider.SelectGameId(malformedJson, "Some Game", storefrontTag: "steam");
-        Assert.Null(id);
+        // Every one of these is syntactically valid JSON - only the SHAPE is wrong. The original code threw
+        // InvalidOperationException off bare GetProperty calls; the intermediate fix returned null, which is
+        // read as "SteamGridDB has no confident match" - a claim about the catalog that an unreadable response
+        // cannot support. It now throws InvalidDataException, which GetCoverArt reports as Unavailable.
+        Assert.Throws<InvalidDataException>(() => SteamGridDbCoverArtProvider.SelectGameId(malformedJson, "Some Game", storefrontTag: "steam"));
+    }
+
+    [Theory]
+    [InlineData("""{ "data": [{ "id": "not a number", "name": "Apex" }] }""")] // unreadable id, but the name proves it is a different title
+    [InlineData("""{ "data": [{ "id": -5, "name": "Apex" }] }""")]
+    [InlineData("""{ "data": [{ "name": "Apex" }] }""")]
+    public void SelectGameId_AnUnreadableIdOnAProvablyDifferentTitle_IsStillJustNoMatch(string json)
+    {
+        // The readable name proves this candidate cannot be the game searched for, so its other fields are
+        // irrelevant to uniqueness. Only a candidate that COULD be a match must be readable.
+        Assert.Null(SteamGridDbCoverArtProvider.SelectGameId(json, "Some Game", storefrontTag: "steam"));
     }
 
     [Fact]
-    public void SelectGameId_TaggedCandidateHasMalformedId_FallsThroughToNextConfidentResult()
+    public void SelectGameId_AnExactMatchBesideAnUnreadableExactMatch_FailsClosed_NotTheReadableOne()
     {
-        // A candidate that matches the storefront tag but has a malformed "id" must not abort the
-        // whole selection - it's simply skipped in favor of whatever's next. Using a genuinely
-        // confident fallback ("Apex Legends" itself, not a bare "Apex") so this test still proves its
-        // original point (malformed data doesn't crash/abort selection) under the stricter matching
-        // rules - a thin "Apex" fallback would now correctly be rejected regardless of the malformed id.
+        // The audited counterexample: the second exact-title entry might be a different product, and its
+        // unreadable id does not show that only one product matched. Uniqueness was never established, so
+        // 111 must not win. (This test used to assert that 111 DID win.)
         var json = """
             { "data": [
                 { "id": 111, "name": "Apex Legends", "types": ["steam"] },
                 { "id": "not a number", "name": "Apex Legends", "types": ["origin"] }
             ] }
             """;
-        var id = SteamGridDbCoverArtProvider.SelectGameId(json, "Apex Legends", storefrontTag: "origin");
-        Assert.Equal(111, id); // fell through to the valid result rather than throwing
+        Assert.Throws<InvalidDataException>(() => SteamGridDbCoverArtProvider.SelectGameId(json, "Apex Legends", storefrontTag: "origin"));
     }
 
     // ---- Confidence rejection: the two real, confirmed false positives -------------------------------
@@ -403,16 +410,16 @@ public class SteamGridDbCoverArtProviderTests
     }
 
     [Fact]
-    public void SelectGameId_MalformedItemAlongsideValidOnes_StillMatchesAValidOne()
+    public void SelectGameId_ANonObjectItemAlongsideAValidMatch_FailsClosed()
     {
+        // An element that is not even an object cannot be shown NOT to be a second exact match.
         var json = """
             { "data": [
                 123,
                 { "id": 222, "name": "Apex Legends", "types": ["origin"] }
             ] }
             """;
-        var id = SteamGridDbCoverArtProvider.SelectGameId(json, "Apex Legends", storefrontTag: "origin");
-        Assert.Equal(222, id);
+        Assert.Throws<InvalidDataException>(() => SteamGridDbCoverArtProvider.SelectGameId(json, "Apex Legends", storefrontTag: "origin"));
     }
 
     // ---- SelectGridImageUrl -----------------------------------------------------------------------
@@ -434,12 +441,21 @@ public class SteamGridDbCoverArtProviderTests
     [InlineData("[]")]
     [InlineData("{}")]
     [InlineData("""{ "data": "not an array" }""")]
+    [InlineData("""{ "data": null }""")]
     [InlineData("""{ "data": [{ "url": 123 }] }""")]
     [InlineData("""{ "data": [{}] }""")]
     [InlineData("""{ "data": [123] }""")]
-    public void SelectGridImageUrl_UnexpectedShape_ReturnsNullWithoutThrowing(string malformedJson)
+    [InlineData("""{ "data": [{ "url": "" }] }""")]
+    [InlineData("""{ "data": [{ "url": "   " }] }""")]
+    [InlineData("""{ "data": [{ "url": "not a url" }] }""")]
+    [InlineData("""{ "data": [{ "url": "/relative/cover.png" }] }""")]
+    [InlineData("""{ "data": [{ "url": "file:///C:/secret.png" }] }""")]
+    public void SelectGridImageUrl_UnexpectedShape_Throws_NeverReadAsNoArt(string malformedJson)
     {
-        Assert.Null(SteamGridDbCoverArtProvider.SelectGridImageUrl(malformedJson));
+        // A listing the provider cannot read says nothing about whether the game has art. Returning null read
+        // as "identified, no usable art" - a definite claim about the catalog - so it now throws, and
+        // GetCoverArt reports Unavailable. A valid EMPTY listing (above) is the real "no art" and stays null.
+        Assert.Throws<InvalidDataException>(() => SteamGridDbCoverArtProvider.SelectGridImageUrl(malformedJson));
     }
 
     // ---- Retrieval evidence: a cache hit must never be reported as a fresh network download --------

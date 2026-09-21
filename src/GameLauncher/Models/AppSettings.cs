@@ -1,3 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using GameLauncher.Serialization;
+
 namespace GameLauncher.Models;
 
 public sealed class AppSettings
@@ -8,6 +12,19 @@ public sealed class AppSettings
     /// <summary>See ArtworkConflict's own remarks - a dedup merge where both sides had their own
     /// explicit cover selection records the losing side here instead of silently discarding it.</summary>
     public List<ArtworkConflict> ArtworkConflicts { get; set; } = new();
+
+    /// <summary>A dedup merge where two user identity decisions could not both stand - preserved, never dropped
+    /// (design 8.2). Each element is read tolerantly; one we cannot understand is kept verbatim.</summary>
+    [JsonConverter(typeof(TolerantIdentityConflictListConverter))]
+    public List<IdentityConflict> IdentityConflicts { get; set; } = new();
+
+    /// <summary>Raw identity subtrees the user explicitly replaced ("Clear identity" on a quarantined record).
+    /// Written back verbatim and never deleted (design 5.2 item 5).</summary>
+    public List<JsonElement> QuarantineArchive { get; set; } = new();
+
+    /// <summary>Forward compatibility: top-level fields a later version adds survive this version's save.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
     public bool DetectSteam { get; set; } = true;
     public bool DetectEpic { get; set; } = true;
     public bool DetectGog { get; set; } = true;
@@ -34,6 +51,22 @@ public sealed class AppSettings
     /// for non-Steam games is fetched from SteamGridDB instead of falling back to the exe icon.
     /// </summary>
     public string? SteamGridDbApiKey { get; set; }
+
+    /// <summary>
+    /// Optional IGDB Client ID (a Twitch Developer application - dev.twitch.tv/console/apps): the user's OWN
+    /// application, used instead of the project's IGDB relay. It counts only together with the secret in
+    /// IgdbCredentialStore - see IgdbAccess.Resolve: a lone id is ignored, never combined with anything.
+    ///
+    /// With no complete pair of their own, users reach IGDB through the project's relay (DefaultIgdbRelay), which keeps the shared
+    /// Twitch credentials on its own server - no secret ships in the launcher, and nobody has to sign up for anything.
+    ///
+    /// The matching Client SECRET is deliberately NOT a field here - see IgdbCredentialStore's own
+    /// remarks for why a plain settings field was a real, confirmed plaintext-storage gap (settings.json,
+    /// its temp file, and its backup all inherit whatever this class serializes). It lives OS-protected,
+    /// outside this file, in IgdbCredentialStore instead. With no complete user pair and no relay in the build,
+    /// IGDB is skipped entirely and resolution falls straight to SteamGridDB.
+    /// </summary>
+    public string? IgdbClientId { get; set; }
 
     /// <summary>Check GitHub for a newer release on startup. Off just skips the check entirely -
     /// UpdateService.CheckForUpdateAsync is never called, not merely ignored.</summary>

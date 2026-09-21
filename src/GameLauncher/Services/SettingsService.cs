@@ -29,6 +29,11 @@ public sealed class SettingsService
     {
     }
 
+    /// <summary>The directory this instance reads/writes - lets LibraryViewModel place the IGDB credential
+    /// store beside it (see IgdbCredentialStore's remarks) so a caller that isolates settings can never
+    /// end up with an un-isolated credential store.</summary>
+    internal string DataDir => _dataDir;
+
     /// <summary>Lets tests point Load/Save at an isolated temp directory instead of the real
     /// %AppData%\GameLauncher - production code always uses the parameterless constructor above.</summary>
     public SettingsService(string dataDir) : this(dataDir, onSaveError: null)
@@ -86,7 +91,23 @@ public sealed class SettingsService
         {
             if (over.ArtworkRevision < 0 || over.ArtworkRevision > long.MaxValue - 1_000_000)
                 over.ArtworkRevision = 0;
+
+            // The identity counters get exactly the same clamp, for exactly the same reason (a negative or
+            // near-overflow value can only come from hand-editing or corruption; a wrong-typed value already
+            // loaded as 0 in TolerantLongConverter).
+            if (over.IdentityRevision < 0 || over.IdentityRevision > long.MaxValue - 1_000_000)
+                over.IdentityRevision = 0;
+            if (over.DecisionRevision < 0 || over.DecisionRevision > long.MaxValue - 1_000_000)
+                over.DecisionRevision = 0;
         }
+
+        // Identity data is tolerant at the record level (see TolerantIdentityConverters), so the only thing
+        // left to normalize is a collection that was persisted as JSON null.
+        settings.IdentityConflicts ??= new();
+        settings.QuarantineArchive ??= new();
+
+        // v1.18.x -> identity model: in memory, idempotent, non-destructive (see IdentityMigration).
+        Identity.IdentityMigration.Apply(settings);
 
         return settings;
     }

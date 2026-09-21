@@ -456,6 +456,16 @@
                 </StackPanel>
             </Grid>
 
+            <!-- Scan progress: a real bar (the launcher pass, then games identified so far) and what it is doing now. Only while scanning. -->
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14"
+                        Visibility="{Binding IsLoading, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <ProgressBar Height="6" Minimum="0" Maximum="100"
+                             Value="{Binding ScanProgressPercent, Mode=OneWay}"
+                             IsIndeterminate="{Binding IsScanIndeterminate}" />
+                <TextBlock Text="{Binding ScanProgressText}" FontSize="12" Opacity="0.75" Margin="0,6,0,0"
+                           TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+
             <!-- Update banner: sits above everything else (empty state included) so it's never missed,
                  but is a plain dismissible strip rather than a modal - checking/applying an update is
                  never allowed to block using the library in the meantime. -->

@@ -1,14 +1,24 @@
+using System.Text.Json.Serialization;
+using GameLauncher.Serialization;
+
 namespace GameLauncher.Models;
 
 /// <summary>Where an ArtworkSelection's image came from, as a distinct catalog/product identity -
 /// independent of ArtworkRetrievalMethod, which records HOW those bytes were obtained (a Steam image
 /// read from Steam's own local cache is a different fact from one downloaded off the CDN, even though
 /// both are ArtworkProvider.SteamCdn).</summary>
+// Persisted numerically, not by name (SettingsService's JsonSerializerOptions registers no
+// JsonStringEnumConverter) - settings.json stores each ArtworkSelection.Provider as a raw int. New
+// values MUST be appended at the end, never inserted between existing ones: doing so would silently
+// reinterpret every already-persisted Provider value on every existing user's settings.json as a
+// DIFFERENT provider the moment they update, corrupting their artwork attribution with no error or
+// warning. Igdb is appended last for exactly this reason.
 public enum ArtworkProvider
 {
     UserLocalFile,
     SteamGridDb,
     SteamCdn,
+    Igdb,
 }
 
 public enum ArtworkRetrievalMethod
@@ -45,4 +55,13 @@ public sealed class ArtworkSelection
     public string MatchMethod { get; set; } = "";
     public bool IsUserSelected { get; set; }
     public DateTime SelectedAt { get; set; }
+
+    /// <summary>The identity an AUTOMATIC artwork was fetched for: a catalog (namespace, id), or a launcher id for
+    /// launcher-derived art (Steam CDN). Null marks migrated legacy artwork - the continuity case, which needs a
+    /// Pending LegacyAssociation to be shown at all. Pinned (user) selections keep ProviderGameId as provenance of
+    /// the IMAGE only, never as identity, and are not subject to authorization.</summary>
+    [JsonConverter(typeof(TolerantIdentityKeyConverter))]
+    public IdentityKey? DerivedFrom { get; set; }
+
+    public ArtworkSelection Clone() => (ArtworkSelection)MemberwiseClone();
 }

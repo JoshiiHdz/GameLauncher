@@ -602,6 +602,20 @@ var
 begin
   Result := True; // proceed to the normal wizard unless one of the cases below says otherwise
 
+  // This installer's OWN version must be a well-formed X.Y.Z, exactly like every version it compares against. Every check below validates
+  // the INSTALLED version, but CompareVersionStrings answers "equal" (0) whenever either side fails to parse - so a build stamped with e.g.
+  // "1.18.2-relay.1" used to compare as equal to whatever was installed and be waved through, downgrade guard included. release.yml
+  // already enforces X.Y.Z for tags, but a hand-built installer bypasses it, so the installer refuses to run rather than trust its
+  // caller - silent runs too (no UI is shown for those; Setup just exits with a failure code).
+  if not IsWellFormedVersion('{#AppVersion}') then
+  begin
+    if not WizardSilent() then
+      MsgBox('This installer was built with the version "{#AppVersion}", which is not a plain X.Y.Z version, so it cannot safely tell whether ' +
+        'it would replace a newer copy. Rebuild it with a version like 1.18.2.', mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
   // Silent runs never show UI, ever - this maintenance window included. The normal wizard flow
   // (InitializeWizard's destination lock + CurStepChanged's fresh recheck) already handles a silent
   // run against an existing install correctly and was tested as such; nothing here changes that path.

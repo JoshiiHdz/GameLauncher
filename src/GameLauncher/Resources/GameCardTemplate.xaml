@@ -1,7 +1,15 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:conv="clr-namespace:GameLauncher.Converters"
-                    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+                    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+    <!-- The card's size lives HERE, once. The three numbers that used to be repeated below (the button width, the art height and the
+         rounded-corner clip) drifted apart too easily to widen a card by hand. Art keeps the 2:3 shape; the caption strip is 30 high, so
+         the clip is width x (art + 30). -->
+    <sys:Double x:Key="GameCardWidth">160</sys:Double>
+    <sys:Double x:Key="GameCardArtHeight">240</sys:Double>
+    <Rect x:Key="GameCardClipRect">0,0,160,270</Rect>
 
     <!-- The one card definition shared by MainWindow's Favorites section, main library grid, and Hidden
          section - and, via this standalone dictionary, by LibraryViewModelGameCardWiringTests, which
@@ -113,7 +121,7 @@
     <!-- One card definition shared by the Favorites section and the main library grid -->
     <DataTemplate x:Key="GameCardTemplate">
         <Button Style="{StaticResource GameCardStyle}"
-                   Margin="0,0,12,14" Width="124"
+                   Margin="0,0,12,14" Width="{StaticResource GameCardWidth}"
                    Command="{Binding DataContext.LaunchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                    CommandParameter="{Binding}"
                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
@@ -132,18 +140,27 @@
                     <MenuItem Header="Reset Cover to Automatic"
                               Command="{Binding PlacementTarget.Tag.ResetCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                               CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                    <Separator />
+                    <!-- Identity and artwork are two separate decisions: "Identify Game" says WHICH game this is,
+                         "Choose Cover from Catalog" picks an IMAGE (a custom cover) and never changes identity. -->
+                    <MenuItem Header="Identify Game..."
+                              Command="{Binding PlacementTarget.Tag.IdentifyGameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                              CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                    <MenuItem Header="Choose Cover from Catalog..."
+                              Command="{Binding PlacementTarget.Tag.ChooseCatalogCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                              CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                 </ContextMenu>
             </Button.ContextMenu>
             <Border x:Name="CardRoot" CornerRadius="8" Background="#33000000">
                 <!-- Explicit clip so the caption strip's bottom corners round too, not just the art -->
                 <Border.Clip>
-                    <RectangleGeometry Rect="0,0,124,216" RadiusX="8" RadiusY="8" />
+                    <RectangleGeometry Rect="{StaticResource GameCardClipRect}" RadiusX="8" RadiusY="8" />
                 </Border.Clip>
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.45" Color="Black" />
                 </Border.Effect>
                 <StackPanel>
-                    <Grid Width="124" Height="186">
+                    <Grid Width="{StaticResource GameCardWidth}" Height="{StaticResource GameCardArtHeight}">
                         <Border Background="{DynamicResource ControlFillColorSecondaryBrush}">
                             <Grid>
                                 <ui:SymbolIcon Symbol="Games24" FontSize="34" Opacity="0.35"
@@ -200,6 +217,16 @@
                                 <TextBlock Text="Running" FontSize="9" FontWeight="SemiBold" Foreground="White"
                                            Margin="4,0,0,0" />
                             </StackPanel>
+                        </Border>
+
+                        <!-- Identity badge: shown only when automatic identification could not settle which game this is.
+                             It invites the user to identify it; it says nothing about the cover being displayed. -->
+                        <Border HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                Margin="5,0,0,5" Padding="4,2" CornerRadius="4"
+                                Background="#8C000000"
+                                ToolTip="{Binding IdentityBadgeText}"
+                                Visibility="{Binding NeedsIdentity, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                            <ui:SymbolIcon Symbol="QuestionCircle24" FontSize="12" Foreground="#CCFFFFFF" />
                         </Border>
 
                         <!-- Hover reveal: Visibility swap on a property trigger, no animation loop -->

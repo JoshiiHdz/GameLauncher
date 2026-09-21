@@ -141,6 +141,19 @@ jobs:
         shell: bash
         run: echo -n "${{ secrets.STEAMGRIDDB_API_KEY }}" > src/GameLauncher/default-api-key.txt
 
+      # default-igdb-relay.txt is gitignored like default-api-key.txt (see DefaultIgdbRelay.cs): the https address of the project's IGDB relay
+      # and the pin of its public key are embedded at build time so a fresh install reaches IGDB with no setup and can authenticate the relay.
+      # Neither is a secret (every install has them) - the IGDB Client Secret lives only on the relay's server. UNLIKE the SteamGridDB key
+      # above, a release is NOT allowed to build without them: an empty value used to succeed and quietly produce another SteamGridDB-only
+      # installer. installer/Check-RelayConfig.ps1 fails the build unless IGDB_RELAY_URL (https://host) and IGDB_RELAY_PIN (sha256/...) are
+      # both set as repository VARIABLES (Settings > Secrets and variables > Actions > Variables). Development builds may still omit the file.
+      - name: Write and validate default IGDB relay configuration
+        shell: pwsh
+        env:
+          IGDB_RELAY_URL: ${{ vars.IGDB_RELAY_URL }}
+          IGDB_RELAY_PIN: ${{ vars.IGDB_RELAY_PIN }}
+        run: ./installer/Check-RelayConfig.ps1 -Mode Write -Url $env:IGDB_RELAY_URL -Pin $env:IGDB_RELAY_PIN -OutFile src/GameLauncher/default-igdb-relay.txt
+
       # Not PublishSingleFile: vpk pack does its own bundling on top of a plain multi-file
       # self-contained publish (see GameLauncher.csproj's remarks on the StartupObject property).
       # -p:Version overrides the csproj's <Version> for this build only, so the published exe's
@@ -173,6 +186,15 @@ jobs:
         run: >
           vpk pack -u GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe
           --releaseNotes release-notes.md --shortcuts StartMenuRoot
+
+      # Opens the package vpk just produced and reads the configuration that is actually embedded in the launcher inside it - the check that
+      # matters is on the artifact users install, not on the file this job wrote. Fails the release if it is missing, invalid or different.
+      - name: Verify the packaged relay configuration
+        shell: pwsh
+        run: |
+          $pkg = Get-ChildItem Releases -Filter 'GameLauncher-*-full.nupkg' | Select-Object -First 1
+          if (-not $pkg) { throw 'no full package was produced' }
+          ./installer/Check-RelayConfig.ps1 -Mode VerifyPackage -Package $pkg.FullName -ExpectedFile src/GameLauncher/default-igdb-relay.txt
 
       # Wraps the real, unmodified Setup.exe vpk pack just produced (Releases\GameLauncher-win-Setup.exe)
       # as a payload inside the wizard-driven installer - see installer/GameLauncher.iss's remarks for

@@ -417,4 +417,42 @@ public class GameScannerServiceTests
 
         Assert.True(automaticMatcherCalled);
     }
+
+    // ---- SafeApplyCoverArt: the scan's own cancellation is not a per-game failure ---------------------
+
+    [Fact]
+    public void ScanCancelledMidLookup_IsRethrown_NotSwallowedIntoAnIconFallback()
+    {
+        // The catch-all below (per-game failure -> exe icon) used to swallow OperationCanceledException
+        // too, so a superseded scan quietly carried on to the next game and started more network work.
+        var game = MakeGame("game-1", @"C:\Games\Test", GameSource.Manual);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var iconFallbackRan = false;
+
+        Assert.ThrowsAny<OperationCanceledException>(() => GameScannerService.SafeApplyCoverArt(
+            game, null, existingSelection: null, ct: cts.Token,
+            applyCoverArt: (_, _) => throw new OperationCanceledException(cts.Token),
+            getIcon: _ => { iconFallbackRan = true; return null; }));
+
+        Assert.False(iconFallbackRan);
+        Assert.Null(game.Icon);
+    }
+
+    [Fact]
+    public void OperationCanceledWithoutTheScanBeingCancelled_IsJustAFailure_SoTheIconFallbackStillRuns()
+    {
+        // e.g. a provider's own timeout surfacing as a TaskCanceledException while the scan is still
+        // wanted: that IS a per-game failure, and must not abort every other game's enrichment.
+        var game = MakeGame("game-1", @"C:\Games\Test", GameSource.Manual);
+        var fallbackIcon = new System.Windows.Media.Imaging.BitmapImage();
+
+        var exception = Record.Exception(() => GameScannerService.SafeApplyCoverArt(
+            game, null, existingSelection: null, ct: CancellationToken.None,
+            applyCoverArt: (_, _) => throw new TaskCanceledException("provider timeout"),
+            getIcon: _ => fallbackIcon));
+
+        Assert.Null(exception);
+        Assert.Same(fallbackIcon, game.Icon);
+    }
 }

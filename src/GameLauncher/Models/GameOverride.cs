@@ -1,3 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using GameLauncher.Serialization;
+
 namespace GameLauncher.Models;
 
 /// <summary>Per-game user customization, keyed by GameEntry.Id in AppSettings.Overrides. Id is
@@ -23,4 +27,24 @@ public sealed class GameOverride
     /// not int: this is a monotonic counter with no natural upper bound across a game's whole history of
     /// merges/changes, however unlikely overflow is in practice.</summary>
     public long ArtworkRevision { get; set; }
+
+    /// <summary>WHICH GAME this entry is - decided separately from which image it shows (Artwork above). See
+    /// GameIdentityRecord and docs/design/identity-artwork-pipeline.md. Never holds a display name.</summary>
+    [JsonConverter(typeof(TolerantIdentityRecordConverter))]
+    public GameIdentityRecord? Identity { get; set; }
+
+    /// <summary>Advances whenever the ACTIVE identity set changes, from any origin (user, merge or automatic).
+    /// Guards the premise an identity dialog displayed ("current identity: X").</summary>
+    [JsonConverter(typeof(TolerantLongConverter))]
+    public long IdentityRevision { get; set; }
+
+    /// <summary>Advances on every meaningful change to the USER's own identity decisions (Confirm/Reject/Clear),
+    /// whether or not the active identity changed - never on an automatic write. Guards the user's decisions
+    /// against a stale dialog (design 6.1).</summary>
+    [JsonConverter(typeof(TolerantLongConverter))]
+    public long DecisionRevision { get; set; }
+
+    /// <summary>Forward compatibility: fields a later version adds survive an intermediate version's save.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }

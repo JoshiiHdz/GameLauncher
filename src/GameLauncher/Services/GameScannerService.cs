@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows.Media.Imaging;
 using GameLauncher.Models;
+using GameLauncher.Services.Identity;
 
 namespace GameLauncher.Services;
 
@@ -29,7 +30,14 @@ public sealed record ScanResult(
 /// past it, and this result is correctly discarded as stale rather than clobbering something newer.
 /// AutomaticResult is null when an existing user selection was kept as-is (nothing new to persist) or
 /// when no automatic match was found (the game fell back to its exe icon).</summary>
-public sealed record ArtworkApplyResult(long AsOfRevision, ArtworkSelection? AutomaticResult);
+public sealed record ArtworkApplyResult(long AsOfRevision, ArtworkSelection? AutomaticResult, AutomaticUnitResult? Unit = null);
+
+/// <summary>One game's AUTOMATIC UNIT (design 6.5) as the worker produced it, with the currency tokens it captured
+/// BEFORE any slow work: the identity revision, the session identity generation and (inside Query) the fingerprint of the
+/// inputs it used. The UI-thread commit re-checks every one of them against the LIVE state before applying either half.
+/// WorkerShowedArt records whether the worker provisionally put cover pixels on the GameEntry (so a commit that rejects
+/// the artwork half knows it must replace them).</summary>
+public sealed record AutomaticUnitResult(UnitOutput Output, IdentityQuery Query, long IdentityRevision, long IdentityGeneration, bool WorkerShowedArt);
 
 /// <summary>A watched folder as it looked after WatchedFolderResolver ran on this scan's private copy
 /// of it. OriginalPath is the Path the live WatchedFolder had when this scan snapshotted it, used to
@@ -38,13 +46,34 @@ public sealed record HealedWatchedFolder(string OriginalPath, uint? VolumeSerial
 
 public sealed class GameScannerService
 {
+    private readonly IgdbCredentialStore _credentialStore;
+
+    /// <summary>The credential store is required, not defaulted - a scanner that silently fell back to
+    /// the production store would let any test that runs a scan read (and use, over the real network) the
+    /// developer's real IGDB secret. LibraryViewModel passes the store it derived from its own
+    /// SettingsService directory.</summary>
+    public GameScannerService(IgdbCredentialStore credentialStore)
+    {
+        _credentialStore = credentialStore;
+    }
+
     /// <summary>
     /// Always scans every launcher, regardless of its Detect toggle - the sidebar needs to know
     /// whether a source has any games at all (to decide whether its row shows up) independent of
     /// whether the user currently has it switched on, and toggling a source should only filter the
     /// library view, not force a rescan. LibraryViewModel.ApplyFilter applies the Detect toggles.
     /// </summary>
-    public Task<ScanResult> ScanAllAsync(AppSettings settings, CancellationToken ct = default)
+    /// <param name="identityGenerations">A snapshot of the session-only per-game identity generation, taken on the UI thread
+    /// when the scan starts - what lets the commit tell that ANY identity write (user, merge, another unit) happened since.</param>
+    /// <param name="resolutionContextOverride">Test seam: replaces the real catalog providers, launcher art and legacy cache.</param>
+    /// <param name="progress">Told what the scan is doing as it goes (each launcher source, then each game), for the progress bar. Reported from
+    /// the scan's background thread; a Progress&lt;T&gt; created on the UI thread delivers it there.</param>
+    /// <param name="displayedCoverIds">A snapshot, taken on the UI thread when the scan starts, of the games whose card is showing cover
+    /// pixels right now. The scan builds brand-new entries, so this is the only way the resolver can tell a recorded cover that is on
+    /// screen (worth protecting through an outage) from one that only exists as a record after a restart.</param>
+    public Task<ScanResult> ScanAllAsync(AppSettings settings, CancellationToken ct = default,
+        IReadOnlyDictionary<string, long>? identityGenerations = null, ResolutionContext? resolutionContextOverride = null,
+        IReadOnlySet<string>? displayedCoverIds = null, IProgress<ScanProgress>? progress = null)
     {
         // Deep-copied here, synchronously on the caller's (UI) thread, rather than letting the
         // background scan below touch settings.WatchedFolders (or the WatchedFolder objects inside it)
@@ -82,6 +111,11 @@ public sealed class GameScannerService
                 Favorite = kv.Value.Favorite,
                 DateAdded = kv.Value.DateAdded,
                 ArtworkRevision = kv.Value.ArtworkRevision,
+                // The identity record is copied too (Clone copies the lists; the entries are immutable records): a
+                // scan reads only its own private snapshot, exactly as for every other override field.
+                Identity = kv.Value.Identity?.Clone(),
+                IdentityRevision = kv.Value.IdentityRevision,
+                DecisionRevision = kv.Value.DecisionRevision,
                 // A new ArtworkSelection instance, not the live one by reference - sharing it would let
                 // the UI thread's own Change-Cover/Reset commit (which mutates a GameOverride's Artwork
                 // field in place) race this scan thread reading the same object, the exact class of bug
@@ -99,6 +133,7 @@ public sealed class GameScannerService
                         MatchMethod = a.MatchMethod,
                         IsUserSelected = a.IsUserSelected,
                         SelectedAt = a.SelectedAt,
+                        DerivedFrom = a.DerivedFrom,
                     }
                     : null,
             });
@@ -107,32 +142,43 @@ public sealed class GameScannerService
         // and read SteamGridDbApiKey straight off it from the background thread, retaining a reference
         // to shared mutable state on the worker for no reason - it only ever needed this one value.
         var steamGridDbApiKey = settings.SteamGridDbApiKey;
+        var igdbClientId = settings.IgdbClientId;
+        // Loaded here, synchronously, before Task.Run below - not inside the background lambda - for the
+        // same reason steamGridDbApiKey is captured as a local rather than read from a live reference:
+        // this must be a snapshot taken before crossing onto the worker thread, not a live read from it.
+        // IgdbCredentialStore.LoadSecret() does its own file IO/DPAPI unprotect, which is safe to call
+        // from either thread in isolation, but capturing it here keeps the discipline identical to every
+        // other credential this method already snapshots up front.
+        var igdbClientSecret = _credentialStore.LoadSecret();
+
+        // One context per scan (its breaker and revalidation budget are per-scan state). Built from the VALUE snapshots
+        // above - a background worker never reads live settings.
+        var resolutionContext = resolutionContextOverride ?? new ResolutionContext
+        {
+            Providers = CatalogProviders.Create(igdbClientId, igdbClientSecret, steamGridDbApiKey),
+            LauncherArt = SteamLauncherArt.Fetch,
+            LegacyCacheRoot = Path.Combine(AppPaths.DataDir, "CoverArtCache"),
+            Budget = new ResolutionBudget(25),
+        };
 
         return Task.Run(() =>
         {
             Logger.Info("Scan started.");
             var results = new List<GameEntry>();
 
-            results.AddRange(SafeScan("Steam", SteamScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("Epic", EpicScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("GOG", GogScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("Xbox", XboxScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("EA", EaScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("Ubisoft Connect", UbisoftScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("Battle.net", BattleNetScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("Rockstar Games Launcher", RockstarScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("Amazon Games", AmazonGamesScanner.Scan));
-            ct.ThrowIfCancellationRequested();
-            results.AddRange(SafeScan("Manual folders", () => ManualFolderScanner.Scan(watchedFolders)));
-            ct.ThrowIfCancellationRequested();
+            results.AddRange(RunSources(
+            [
+                ("Steam", SteamScanner.Scan),
+                ("Epic", EpicScanner.Scan),
+                ("GOG", GogScanner.Scan),
+                ("Xbox", XboxScanner.Scan),
+                ("EA", EaScanner.Scan),
+                ("Ubisoft Connect", UbisoftScanner.Scan),
+                ("Battle.net", BattleNetScanner.Scan),
+                ("Rockstar Games Launcher", RockstarScanner.Scan),
+                ("Amazon Games", AmazonGamesScanner.Scan),
+                ("Manual folders", () => ManualFolderScanner.Scan(watchedFolders)),
+            ], progress, ct));
 
             var (deduped, mergedGameIds) = DeduplicateByInstallLocation(results);
 
@@ -142,8 +188,11 @@ public sealed class GameScannerService
             var newDateAdded = new Dictionary<string, DateTime>();
             var artworkResults = new Dictionary<string, ArtworkApplyResult>();
 
+            var identified = 0;
             foreach (var game in deduped)
             {
+                progress?.Report(new ScanProgress(ScanPhase.IdentifyingGames, identified++, deduped.Count, game.Name));
+
                 // Cover art fetching below is the slowest part of a scan (network round-trips per
                 // game) - checking here, not just between sources above, means a superseded scan
                 // actually stops promptly instead of grinding through the rest of the library first.
@@ -164,10 +213,12 @@ public sealed class GameScannerService
                 game.DateAdded = dateAdded.Value;
 
                 var asOfRevision = over?.ArtworkRevision ?? 0;
-                var automaticResult = SafeApplyCoverArt(game, steamGridDbApiKey, over?.Artwork);
-                artworkResults[game.Id] = new ArtworkApplyResult(asOfRevision, automaticResult);
+                artworkResults[game.Id] = ResolveGameUnit(game, over, asOfRevision, identityGenerations, resolutionContext, ct,
+                    coverDisplayed: displayedCoverIds?.Contains(game.Id) ?? false);
                 game.PlatformIcon = PlatformIconService.GetIcon(game.Source);
             }
+
+            progress?.Report(new ScanProgress(ScanPhase.IdentifyingGames, deduped.Count, deduped.Count));
 
             // Closes the one gap the per-item check above can't: cancellation arriving during the
             // last item's (synchronous, blocking) cover-art fetch has nowhere left to be observed
@@ -195,6 +246,68 @@ public sealed class GameScannerService
             // Final ordering doesn't matter here - LibraryViewModel re-sorts per the user's chosen SortOption.
             return new ScanResult(deduped, newDateAdded, healedFolders, mergedGameIds, artworkResults);
         }, ct);
+    }
+
+    /// <summary>One game's automatic unit, run off the UI thread against private snapshots. Everything it needs was captured
+    /// BEFORE the slow work (the override snapshot, the identity generation, the fingerprint inside the query); the UI-thread
+    /// commit re-checks all of it against live state. A user-pinned cover is never replaced (it is displayed as before) but
+    /// identity is still resolved for it. An unexpected failure yields a unit that changes NOTHING - never a cleared cover.</summary>
+    internal static ArtworkApplyResult ResolveGameUnit(GameEntry game, GameOverride? over, long asOfRevision,
+        IReadOnlyDictionary<string, long>? identityGenerations, ResolutionContext context, CancellationToken ct, bool coverDisplayed = false)
+    {
+        var query = IdentityQuery.From(game); // built from DetectedTitle, never from the (possibly custom) display name
+        var generation = identityGenerations?.GetValueOrDefault(game.Id) ?? 0;
+        var identityRevision = over?.IdentityRevision ?? 0;
+        var pinned = over?.Artwork is { IsUserSelected: true };
+
+        if (pinned)
+            CoverArtService.ApplyStoredSafely(game, over!.Artwork!); // never throws; the pinned cover is authoritative
+
+        UnitOutput output;
+        try
+        {
+            output = AutomaticResolver.Run(new UnitInput
+            {
+                GameId = game.Id,
+                Query = query,
+                Prior = over?.Identity,
+                CurrentArtwork = over?.Artwork,
+                CurrentArtworkDisplayed = coverDisplayed,
+                ArtworkPinned = pinned,
+            }, context, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // a superseded scan is not a per-game failure
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Automatic identity/cover resolution failed unexpectedly for '{game.Name}' - leaving it unchanged.", ex);
+            output = new UnitOutput
+            {
+                NewRecord = over?.Identity is { IsQuarantined: true } ? null : (over?.Identity?.Clone() ?? new GameIdentityRecord()),
+                Artwork = ArtworkHalf.None,
+            };
+        }
+
+        var showedArt = false;
+        if (!pinned)
+        {
+            // Provisional pixels only: the commit publishes them if - and only if - the halves validate. Otherwise it
+            // replaces them, so nothing is ever shown that the authorization predicate does not allow.
+            if (output.Artwork is { Kind: ArtworkHalfKind.Set, Image: { } image })
+            {
+                game.Icon = image;
+                game.IsCoverArt = true;
+                showedArt = true;
+            }
+            else
+            {
+                CoverArtService.ApplyIconFallbackSafely(game);
+            }
+        }
+
+        return new ArtworkApplyResult(asOfRevision, output.Artwork.Selection, new AutomaticUnitResult(output, query, identityRevision, generation, showedArt));
     }
 
     /// <summary>
@@ -382,11 +495,20 @@ public sealed class GameScannerService
     /// none was found), for the caller to record as automatic metadata.</summary>
     internal static ArtworkSelection? SafeApplyCoverArt(
         GameEntry game, string? steamGridDbApiKey, ArtworkSelection? existingSelection,
+        string? igdbClientId = null, string? igdbClientSecret = null, CancellationToken ct = default,
         Func<GameEntry, string?, ArtworkSelection?>? applyCoverArt = null,
         Action<GameEntry, ArtworkSelection>? applyStoredArtworkSafely = null,
         Func<GameEntry, BitmapImage?>? getIcon = null)
     {
-        applyCoverArt ??= CoverArtService.Apply;
+        // applyCoverArt's own seam type is deliberately left at CoverArtService.Apply's OLD two-argument
+        // shape (game, steamGridDbApiKey) - widening it to also carry the IGDB credentials/ct would break
+        // every existing test that already supplies a two-argument override here (none of them are
+        // testing IGDB specifically; CoverArtServiceTests/IgdbCoverArtProviderTests cover that
+        // separately). The real, production default below closes over igdbClientId/igdbClientSecret/ct
+        // itself instead, so the live path still gets them without changing the seam's shape. ct lets a
+        // superseded scan interrupt an in-flight IGDB cover-image download rather than letting it run to
+        // completion regardless - see CoverArtService.Apply/IgdbCoverArtProvider.GetCoverArt's own remarks.
+        applyCoverArt ??= (g, key) => CoverArtService.Apply(g, key, igdbClientId, igdbClientSecret, ct: ct);
         applyStoredArtworkSafely ??= (g, s) => CoverArtService.ApplyStoredSafely(g, s);
         getIcon ??= IconService.GetIcon;
 
@@ -399,6 +521,14 @@ public sealed class GameScannerService
         try
         {
             return applyCoverArt(game, steamGridDbApiKey);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The scan itself was superseded - NOT a per-game enrichment failure. Falling back to the exe
+            // icon here (the catch below) would swallow the cancellation and let the loop go on to start
+            // network work for the next game; rethrowing lets ScanAllAsync's own cancellation handling
+            // (the same one its ct.ThrowIfCancellationRequested() checks feed) end the scan promptly.
+            throw;
         }
         catch (Exception ex)
         {
@@ -417,6 +547,23 @@ public sealed class GameScannerService
 
     // Isolates one source's failure (e.g. a Steam/manual library on a now-unplugged external drive)
     // so it can't wipe out games already found from every other source.
+    /// <summary>Runs each launcher source in order, telling `progress` which one is about to run, and stops promptly if the scan is superseded.
+    /// One failing source never takes the others down (SafeScan).</summary>
+    internal static List<GameEntry> RunSources(IReadOnlyList<(string Name, Func<List<GameEntry>> Scan)> sources, IProgress<ScanProgress>? progress,
+        CancellationToken ct)
+    {
+        var results = new List<GameEntry>();
+        for (var i = 0; i < sources.Count; i++)
+        {
+            progress?.Report(new ScanProgress(ScanPhase.LookingForGames, i, sources.Count, sources[i].Name));
+            results.AddRange(SafeScan(sources[i].Name, sources[i].Scan));
+            ct.ThrowIfCancellationRequested();
+        }
+
+        progress?.Report(new ScanProgress(ScanPhase.LookingForGames, sources.Count, sources.Count));
+        return results;
+    }
+
     private static List<GameEntry> SafeScan(string sourceName, Func<List<GameEntry>> scan)
     {
         try

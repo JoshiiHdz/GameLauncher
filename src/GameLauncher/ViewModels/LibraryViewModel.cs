@@ -10,6 +10,7 @@ using GameLauncher;
 using GameLauncher.Models;
 using GameLauncher.Services;
 using GameLauncher.Services.CoverArt;
+using GameLauncher.Services.Identity;
 using Microsoft.Win32;
 using Velopack;
 
@@ -18,7 +19,13 @@ namespace GameLauncher.ViewModels;
 public partial class LibraryViewModel : ObservableObject
 {
     private readonly SettingsService _settingsService;
-    private readonly GameScannerService _scannerService = new();
+    private readonly GameScannerService _scannerService;
+    private readonly IgdbCredentialStore _credentialStore;
+
+    /// <summary>Test-only visibility, so a test can prove the store this view model reads credentials from
+    /// lives under the SettingsService directory it was handed (see the constructor's remarks) rather than
+    /// the real one.</summary>
+    internal IgdbCredentialStore CredentialStoreForTest => _credentialStore;
     private readonly UpdateService _updateService = new();
     private readonly PendingUpdateNotesService _pendingUpdateNotesService;
     private readonly AppSettings _settings;
@@ -115,6 +122,18 @@ public partial class LibraryViewModel : ObservableObject
 
     [ObservableProperty]
     private string _statusText = "Ready";
+
+    /// <summary>How far along the running scan is, 0-100, for the progress bar (see ScanProgress). Meaningless while nothing is scanning.</summary>
+    [ObservableProperty]
+    private double _scanProgressPercent;
+
+    /// <summary>What the running scan is doing right now ("Identifying games... 12 of 40 - Apex Legends"), shown under the bar.</summary>
+    [ObservableProperty]
+    private string _scanProgressText = "";
+
+    /// <summary>True until the scan reports its first step, so the bar animates instead of sitting at an empty 0%.</summary>
+    [ObservableProperty]
+    private bool _isScanIndeterminate = true;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CreateDesktopShortcutCommand))]
@@ -311,10 +330,17 @@ public partial class LibraryViewModel : ObservableObject
     {
         _settingsService = settingsService;
         _pendingUpdateNotesService = pendingUpdateNotesService;
+        // Derived from the SettingsService's own directory, never defaulted independently - the same
+        // reason there is no settings-only overload above: isolating settings must isolate everything
+        // else this class reads or writes on disk, including the IGDB credential file.
+        _credentialStore = new IgdbCredentialStore(settingsService.DataDir);
+        _scannerService = new GameScannerService(_credentialStore);
         _settings = _settingsService.Load();
         foreach (var folder in _settings.WatchedFolders)
             WatchedFolders.Add(folder);
         _steamGridDbApiKey = _settings.SteamGridDbApiKey ?? string.Empty;
+        _igdbClientId = _settings.IgdbClientId ?? string.Empty;
+        _igdbSecretSaved = _credentialStore.HasSecret();
         _vibrantBackground = _settings.VibrantBackground;
         _minimizeToTrayWhileGaming = _settings.MinimizeToTrayWhileGaming;
         _isSidebarExpanded = _settings.SidebarExpanded;
@@ -545,6 +571,7 @@ public partial class LibraryViewModel : ObservableObject
                 else
                     Logger.Error($"Merge migration for '{winnerId}': artwork revision counter exhausted for the loser's history - adopting it as-is.");
                 _settings.Overrides[winnerId] = loserOverride;
+                AdoptMergedIdentityRevisions(winnerId, loserOverride);
                 continue;
             }
 
@@ -552,6 +579,9 @@ public partial class LibraryViewModel : ObservableObject
             winnerOverride.Hidden = winnerOverride.Hidden || loserOverride.Hidden;
             winnerOverride.CustomName ??= loserOverride.CustomName;
             winnerOverride.DateAdded ??= loserOverride.DateAdded;
+
+            // Identity merges independently of artwork: its own counters, its own conflicts (design 8.2).
+            MigrateMergedIdentity(loserId, winnerId, loserOverride, winnerOverride);
 
             // Strictly greater than EITHER side's prior value, never a copy of one side's number - a
             // scan result computed against either side's PRE-merge revision (on this id or, by numeric
@@ -740,6 +770,10 @@ public partial class LibraryViewModel : ObservableObject
         // stale _runningGameId at that point would find nothing and silently lose the badge.
         ReconcileRunningGameId(result.MergedGameIds);
 
+        // loser -> winner, so an identity dialog (or in-flight unit) still holding a merged-away id can find its game (6.4).
+        foreach (var (mergedLoserId, mergedWinnerId) in result.MergedGameIds)
+            _mergeAliases[mergedLoserId] = mergedWinnerId;
+
         // Captured BEFORE ReplaceAllGames discards these instances - ReconcileArtwork's stale/missing
         // branch needs the LAST live GameEntry for a given id, not the brand-new one this scan just
         // produced, to recover a display result a concurrent commit already applied to it (see
@@ -804,8 +838,16 @@ public partial class LibraryViewModel : ObservableObject
             if (over?.DateAdded is { } dateAdded)
                 game.DateAdded = dateAdded;
 
-            ReconcileArtwork(game, over, result.ArtworkResultsByGameId.GetValueOrDefault(game.Id),
-                previousGamesById.GetValueOrDefault(game.Id), decodedById);
+            var scanned = result.ArtworkResultsByGameId.GetValueOrDefault(game.Id);
+            if (scanned?.Unit is { } unit)
+            {
+                // The identity pipeline's automatic unit: identity half first, then the artwork half through the gates.
+                CommitAutomaticUnit(game, scanned, unit, previousGamesById.GetValueOrDefault(game.Id), decodedById, inPlace: false);
+            }
+            else
+            {
+                ReconcileArtwork(game, over, scanned, previousGamesById.GetValueOrDefault(game.Id), decodedById);
+            }
         }
 
         // Populates Games/FavoriteGames/HiddenGames from the now-fully-reconciled _allGames - in the same
@@ -1153,9 +1195,11 @@ public partial class LibraryViewModel : ObservableObject
 
         IsLoading = true;
         StatusText = "Scanning...";
+        ResetScanProgress();
+        var scanProgress = new Progress<ScanProgress>(p => ApplyScanProgress(p, cts)); // created here, on the UI thread: reports arrive here too
         try
         {
-            var result = await _scannerService.ScanAllAsync(_settings, token);
+            var result = await _scannerService.ScanAllAsync(_settings, token, SnapshotIdentityGenerations(), ResolutionContextForTest?.Invoke(), SnapshotDisplayedCovers(), scanProgress);
 
             // GameScannerService checks the token internally too, but only cooperatively - a
             // cancelled scan can still be mid-flight on a background thread pool thread when this
@@ -1210,12 +1254,33 @@ public partial class LibraryViewModel : ObservableObject
             if (ReferenceEquals(_refreshCts, cts))
             {
                 IsLoading = false;
+                ResetScanProgress();
 
                 // A scan is a burst of allocation (file/registry walking, decoding cover art) and the
                 // app goes idle straight after. Hand back what that burst left resident.
                 MemoryTrimmer.Trim("after scan");
             }
         }
+    }
+
+    private void ResetScanProgress()
+    {
+        ScanProgressPercent = 0;
+        ScanProgressText = "";
+        IsScanIndeterminate = true;
+    }
+
+    /// <summary>Shows one step of the running scan. A report that arrives after the scan finished, or from a scan that has since been
+    /// superseded, is ignored - it must not repaint a bar that now belongs to the newer scan (or to nothing). The bar never goes backwards.</summary>
+    internal void ApplyScanProgress(ScanProgress progress, CancellationTokenSource? owner)
+    {
+        if (!IsLoading || (owner is not null && !ReferenceEquals(_refreshCts, owner)))
+            return;
+
+        IsScanIndeterminate = false;
+        ScanProgressPercent = Math.Max(ScanProgressPercent, progress.Percent);
+        ScanProgressText = progress.Text;
+        StatusText = progress.Text;
     }
 
     // Async (and awaiting the refresh below) rather than firing RefreshCommand and discarding the
@@ -1424,8 +1489,17 @@ public partial class LibraryViewModel : ObservableObject
     /// <summary>The actual write+commit work, shared by both guarded entry points above - neither adds
     /// nor removes _artworkOperationsInFlight itself, so it can safely run under whichever of the two
     /// callers' own guard window is already held.</summary>
-    private async Task<ArtworkChangeOutcome> ApplyValidatedCoverImageCoreAsync(string gameId, ArtworkImageValidator.ValidatedImage validated, CancellationToken ct)
+    private async Task<ArtworkChangeOutcome> ApplyValidatedCoverImageCoreAsync(string gameId, ArtworkImageValidator.ValidatedImage validated, CancellationToken ct,
+        ArtworkSelection? catalogProvenance = null, long? expectedArtworkRevision = null)
     {
+        // A stale preview is refused BEFORE anything is staged (design 6.7, D3): a newer cover, a Reset or a merge that landed
+        // while the user was choosing must not be silently overwritten. CommitArtworkChange re-checks it at the commit itself.
+        if (expectedArtworkRevision is { } expected
+            && (_settings.Overrides.TryGetValue(gameId, out var current) ? current.ArtworkRevision : 0) != expected)
+        {
+            return ArtworkChangeOutcome.StaleSelection;
+        }
+
         string assetId;
         try
         {
@@ -1442,16 +1516,44 @@ public partial class LibraryViewModel : ObservableObject
 
         AfterAssetWrittenForTest?.Invoke(assetId);
 
+        // A pinned cover is a DISPLAY decision. When it came from a catalog, ProviderGameId/ProviderArtworkRef record where
+        // the IMAGE came from (provenance) - never which game is installed, and it has no DerivedFrom: identity never
+        // authorizes or removes it (I1, I3).
         return CommitArtworkChange(gameId, over => over.Artwork = new ArtworkSelection
         {
-            Provider = ArtworkProvider.UserLocalFile,
-            RetrievedFrom = ArtworkRetrievalMethod.UserSuppliedFile,
+            Provider = catalogProvenance?.Provider ?? ArtworkProvider.UserLocalFile,
+            RetrievedFrom = catalogProvenance is null ? ArtworkRetrievalMethod.UserSuppliedFile : ArtworkRetrievalMethod.NetworkDownload,
+            ProviderGameId = catalogProvenance?.ProviderGameId,
+            ProviderArtworkRef = catalogProvenance?.ProviderArtworkRef,
+            ProviderTitle = catalogProvenance?.ProviderTitle,
             AssetId = assetId,
             AssetExtension = validated.Extension,
-            MatchMethod = "UserLocalFile",
+            MatchMethod = catalogProvenance is null ? "UserLocalFile" : "UserChosenCatalogCover",
             IsUserSelected = true,
             SelectedAt = DateTime.UtcNow,
-        }, preparedIcon: validated.DecodedImage);
+            DerivedFrom = null,
+        }, preparedIcon: validated.DecodedImage, expectedRevision: expectedArtworkRevision, ct: ct);
+    }
+
+    /// <summary>Choose Cover from a catalog: pins an image the user picked among a catalog entry's covers (already downloaded and
+    /// validated) with its provenance. `expectedArtworkRevision` is the revision the dialog captured when it opened: if a newer
+    /// cover, a Reset or a merge landed while the user was choosing, this returns StaleSelection and applies NOTHING. Identity is
+    /// never read or written here.</summary>
+    public async Task<ArtworkChangeOutcome> ApplyCatalogCoverAsync(string gameId, ArtworkImageValidator.ValidatedImage validated,
+        ArtworkSelection provenance, long expectedArtworkRevision, CancellationToken ct = default)
+    {
+        gameId = ResolveAlias(gameId);
+        if (!_artworkOperationsInFlight.Add(gameId))
+            return ArtworkChangeOutcome.AlreadyInProgress;
+
+        try
+        {
+            return await ApplyValidatedCoverImageCoreAsync(gameId, validated, ct, provenance, expectedArtworkRevision);
+        }
+        finally
+        {
+            _artworkOperationsInFlight.Remove(gameId);
+        }
     }
 
     /// <summary>Clears the selection (synchronously, so the card immediately shows the exe icon rather
@@ -1473,6 +1575,24 @@ public partial class LibraryViewModel : ObservableObject
             if (outcome != ArtworkChangeOutcome.Success)
                 return outcome;
 
+            // Reset is an ARTWORK transaction only (identity untouched, I2). What follows is a SEPARATE, ordinary automatic
+            // unit flagged Trigger=Reset (cooldown bypassed, rejections never): with an active identity it fetches by id
+            // (zero title searches); with none it is the ordinary full resolution (design 6.6). The test seam below keeps the
+            // older name-based lookup path for the tests that predate the identity pipeline.
+            if (AutomaticCoverArtLookupForTest is null)
+            {
+                try
+                {
+                    await RunAutomaticUnitAsync(gameId, "Reset", force: true, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Logger.Warn($"'{gameId}': automatic cover lookup after Reset failed unexpectedly.", ex);
+                }
+
+                return outcome;
+            }
+
             _settings.Overrides.TryGetValue(gameId, out var overAfterReset);
             var asOfRevision = overAfterReset?.ArtworkRevision ?? 0;
 
@@ -1484,8 +1604,27 @@ public partial class LibraryViewModel : ObservableObject
             // Defaults to the real CoverArtService.Apply - overridable so tests can prove the immediate
             // lookup ran (or force a deterministic result) without depending on whether this checkout
             // happens to have a real embedded SteamGridDB key (default-api-key.txt) or reaching the
-            // network either way.
-            var applyCoverArt = AutomaticCoverArtLookupForTest ?? CoverArtService.Apply;
+            // network either way. An explicit lambda, not a bare method group, because CoverArtService.
+            // Apply has more optional parameters than AutomaticCoverArtLookupForTest's own two-argument
+            // seam type.
+            //
+            // The IGDB credentials are captured HERE, on the UI thread, BEFORE Task.Run below, as value
+            // snapshots the lambda closes over - a real, confirmed bug in an earlier version read
+            // _settings.IgdbClientId from INSIDE the lambda, i.e. on the background thread, retaining a
+            // live reference to shared mutable state (see GameScannerService.ScanAllAsync's own remarks).
+            // Loaded only on the real path: when a test supplies AutomaticCoverArtLookupForTest, no
+            // credential file is read at all.
+            Func<GameEntry, string?, ArtworkSelection?> applyCoverArt;
+            if (AutomaticCoverArtLookupForTest is { } lookupSeam)
+            {
+                applyCoverArt = lookupSeam;
+            }
+            else
+            {
+                var igdbClientId = _settings.IgdbClientId;
+                var igdbClientSecret = _credentialStore.LoadSecret();
+                applyCoverArt = (g, key) => CoverArtService.Apply(g, key, igdbClientId, igdbClientSecret, ct: ct);
+            }
             (BitmapImage? Icon, bool IsCoverArt, ArtworkSelection? Automatic) computed;
             try
             {
@@ -1669,15 +1808,27 @@ public partial class LibraryViewModel : ObservableObject
     ///
     /// The revision check runs FIRST, before `existing`/`over` are touched at all - see
     /// TryGetNextRevision's own remarks for why a caller must reject an exhausted mutation before
-    /// changing or removing anything, not fall back to reusing a stale value afterward.</summary>
-    private ArtworkChangeOutcome CommitArtworkChange(string gameId, Action<GameOverride> mutate, BitmapImage? preparedIcon = null)
+    /// changing or removing anything, not fall back to reusing a stale value afterward.
+    ///
+    /// `ct` is the caller's own cancellation (the Choose Cover dialog closing). It is checked HERE, as the very first statement, so
+    /// there is no await between the check and the mutation/save that follows: a cancellation that arrived during ANY earlier await
+    /// (validation, download, asset staging) commits nothing and throws OperationCanceledException. A staged asset may stay on disk
+    /// under the deferred-cleanup policy; that is never a reason to save a selection the user walked away from.</summary>
+    private ArtworkChangeOutcome CommitArtworkChange(string gameId, Action<GameOverride> mutate, BitmapImage? preparedIcon = null,
+        long? expectedRevision = null, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var game = _allGames.FirstOrDefault(g => g.Id == gameId);
         if (game is null)
             return ArtworkChangeOutcome.GameNoLongerExists;
 
         _settings.Overrides.TryGetValue(gameId, out var existing);
         var previousRevision = existing?.ArtworkRevision ?? 0;
+
+        // Re-checked HERE, synchronously, at the commit: the asset write above is async, so a newer change may have landed.
+        if (expectedRevision is { } expected && expected != previousRevision)
+            return ArtworkChangeOutcome.StaleSelection;
 
         if (!TryGetNextRevision(previousRevision, out var nextRevision))
         {

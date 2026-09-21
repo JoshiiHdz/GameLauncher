@@ -58,9 +58,18 @@ public static class ArtworkImageValidator
     /// too fault-tolerant to reliably construct a byte-level fixture that passes the dimension probe but
     /// fails a full decode (truncation and interior bit-flipping were both silently absorbed rather than
     /// rejected) - this seam tests the REQUIREMENT (a null full decode is rejected) directly and
-    /// deterministically instead of depending on a specific decoder's exact fault tolerance.</summary>
+    /// deterministically instead of depending on a specific decoder's exact fault tolerance.
+    ///
+    /// `requireAssetStoreFormat` (default true - every existing caller, including the user's Change Cover
+    /// path, is unchanged) restricts the container to the five formats ArtworkAssetStore can stage. That
+    /// restriction is about STAGING a user asset under a known extension, not about safety: the size,
+    /// dimension and full-decode checks below are what bound an image, and they apply either way. Automatic
+    /// provider art (ValidateProviderBytes) passes false, because it is never staged - SteamGridDB in
+    /// particular can serve formats outside that list (WebP is a documented grid mime type), and rejecting
+    /// them here would silently remove covers that displayed before validation was added. The returned
+    /// Extension is "" for a container outside the five (the caller has no use for it).</summary>
     public static ValidatedImage? ValidateBytes(byte[] bytes, string sourceForLogging,
-        Func<byte[], BitmapImage?>? decodeOverride = null)
+        Func<byte[], BitmapImage?>? decodeOverride = null, bool requireAssetStoreFormat = true)
     {
         if (bytes.Length == 0)
         {
@@ -74,10 +83,15 @@ public static class ArtworkImageValidator
             return null;
         }
 
-        var info = TryReadOriginalImageInfo(bytes);
+        var info = TryReadOriginalImageInfo(bytes, requireAssetStoreFormat);
         if (info is null)
         {
-            Logger.Warn($"Rejected cover image '{sourceForLogging}': couldn't read its dimensions (corrupt or unsupported format).");
+            // A WebP this machine simply cannot decode (no WebP codec installed) is NOT a damaged file, and is
+            // worded differently so the two can be told apart in the log - see WebpCodec.
+            Logger.Warn(WebpCodec.IsWebpContainer(bytes) && !WebpCodec.IsDecoderInstalled
+                ? $"Rejected cover image '{sourceForLogging}': it is a WebP image but this machine has no WebP decoder "
+                    + "(the Windows 'WebP Image Extensions' are not installed) - an unsupported codec, not a damaged file."
+                : $"Rejected cover image '{sourceForLogging}': couldn't read its dimensions (corrupt or unsupported format).");
             return null;
         }
 
@@ -108,6 +122,15 @@ public static class ArtworkImageValidator
             return null;
         }
 
+        // The real decoder only (a test's decodeOverride returns arbitrary bitmaps). A decode that "succeeds" but
+        // does not have the shape the header promised is a damaged image - see CoverArtDecoder.IsFaithfulDecode.
+        if (decodeOverride is null && !CoverArtDecoder.IsFaithfulDecode(decoded, width, height))
+        {
+            Logger.Warn($"Rejected cover image '{sourceForLogging}': it decoded to {decoded.PixelWidth}x{decoded.PixelHeight}, "
+                + $"which is not the {width}x{height} image its header declares (damaged or truncated data).");
+            return null;
+        }
+
         return new ValidatedImage(bytes, detectedExtension, decoded);
     }
 
@@ -122,7 +145,7 @@ public static class ArtworkImageValidator
     /// Only the five extensions ArtworkAssetStore actually accepts are recognized - anything else (an
     /// exotic WIC codec that happens to be registered on this machine, say) is treated as unsupported
     /// rather than staged under a made-up extension.</summary>
-    private static (int Width, int Height, string Extension)? TryReadOriginalImageInfo(byte[] bytes)
+    private static (int Width, int Height, string Extension)? TryReadOriginalImageInfo(byte[] bytes, bool requireAssetStoreFormat)
     {
         try
         {
@@ -138,8 +161,9 @@ public static class ArtworkImageValidator
                 TiffBitmapDecoder => "tiff",
                 _ => null,
             };
-            if (extension is null)
+            if (extension is null && requireAssetStoreFormat)
                 return null;
+            extension ??= "";
 
             var frame = decoder.Frames.Count > 0 ? decoder.Frames[0] : null;
             return frame is null ? null : (frame.PixelWidth, frame.PixelHeight, extension);
@@ -150,6 +174,15 @@ public static class ArtworkImageValidator
             return null;
         }
     }
+
+    /// <summary>The validation every AUTOMATIC provider image goes through - a freshly downloaded cover AND a
+    /// cache hit alike (finding: the providers used to decode straight through CoverArtDecoder.Decode, which
+    /// downsamples to a fixed display width and therefore never checked the original's size or dimensions).
+    /// Same bounds and same full decode as a user-supplied file; only the container-format allowlist is
+    /// relaxed, see ValidateBytes. Returns the frozen decoded bitmap (no second decode), or null with the
+    /// reason logged.</summary>
+    public static BitmapImage? ValidateProviderBytes(byte[] bytes, string sourceForLogging) =>
+        ValidateBytes(bytes, sourceForLogging, decodeOverride: null, requireAssetStoreFormat: false)?.DecodedImage;
 
     private static async Task<byte[]> ReadBoundedAsync(string path, int maxBytes, CancellationToken ct)
     {

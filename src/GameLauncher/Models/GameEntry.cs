@@ -6,7 +6,23 @@ namespace GameLauncher.Models;
 public sealed partial class GameEntry : ObservableObject
 {
     public required string Id { get; init; }
-    public required string Name { get; set; }
+
+    private string _name = "";
+    private string? _detectedTitle;
+
+    /// <summary>The DISPLAY name: the scanner's detected title until a custom name is overlaid on it. Mutable, and
+    /// the only name a user ever sees or edits.</summary>
+    public required string Name
+    {
+        get => _name;
+        // The FIRST assignment (every scanner creates the entry with the title it detected) is captured as
+        // DetectedTitle and never changes again, so overlaying a custom name later cannot reach a provider.
+        set { _name = value; _detectedTitle ??= value; }
+    }
+
+    /// <summary>What the scanner actually detected, immutable after construction and never a user's custom name
+    /// (design I7). Every provider search is built from this - never from Name.</summary>
+    public string DetectedTitle => _detectedTitle ?? _name;
     public required string ExecutablePath { get; init; }
     public required string InstallDir { get; init; }
     public required GameSource Source { get; init; }
@@ -45,6 +61,15 @@ public sealed partial class GameEntry : ObservableObject
 
     [ObservableProperty]
     private bool _favorite;
+
+    /// <summary>True when automatic identification could not settle which game this is (no confident match, an ambiguous name,
+    /// a contradiction, or unreadable identity data) - drives the small "?" badge that invites the user to identify it. A
+    /// pinned or existing cover is unaffected: this is about IDENTITY, not about what image is shown.</summary>
+    [ObservableProperty]
+    private bool _needsIdentity;
+
+    [ObservableProperty]
+    private string _identityBadgeText = "";
 
     /// <summary>True from the moment this game is launched until GameSessionWatcher confirms it has
     /// exited (or gives up ever finding it running). Drives the "Running" badge on its card.</summary>

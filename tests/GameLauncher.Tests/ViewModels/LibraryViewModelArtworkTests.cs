@@ -50,6 +50,18 @@ public class LibraryViewModelArtworkTests : IDisposable
         };
     }
 
+    [Fact]
+    public void CredentialStore_LivesUnderTheInjectedSettingsDirectory_NeverTheRealOne()
+    {
+        // The IGDB credential store is derived from the SettingsService it was handed, so a test that
+        // isolates settings automatically isolates credentials too - with no global switch to remember (or
+        // to have reset out from under it by a concurrently-running test class).
+        _sut.CredentialStoreForTest.SaveSecret("sentinel-secret");
+
+        var protectedFile = Assert.Single(Directory.GetFiles(_dataDir, "*.protected"));
+        Assert.StartsWith(Path.GetFullPath(_dataDir), Path.GetFullPath(protectedFile));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dataDir))

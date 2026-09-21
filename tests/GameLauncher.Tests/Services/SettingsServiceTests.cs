@@ -271,4 +271,87 @@ public class SettingsServiceTests : IDisposable
 
         Assert.Equal(42, loaded.Overrides["steam-100"].ArtworkRevision);
     }
+
+    // ---- IGDB client secret must never appear in settings.json or its backup -------------------------
+    // AppSettings.IgdbClientId is an ordinary field (not sensitive - see AppSettings' own remarks); the
+    // Client SECRET is deliberately NOT a field on AppSettings at all, living instead in
+    // IgdbCredentialStore's own OS-protected file. This proves that boundary holds end to end: saving a
+    // settings object (with the id set) never writes a sentinel secret value anywhere SettingsService
+    // touches, including the atomic-write temp file and the .bak backup.
+
+    private const string SentinelSecret = "sk_test_sentinel_secret_that_must_never_appear_in_settings_json";
+
+    /// <summary>A credential store over its OWN immutable directory beneath this test's temp dir (so
+    /// Dispose cleans it up too) - an instance, not a static override: see IgdbCredentialStore's remarks.
+    /// Holding the secret in the store while settings are saved is what makes the scans below meaningful:
+    /// the sentinel genuinely exists on this machine's disk during the save, just not where it must never
+    /// be.</summary>
+    private IgdbCredentialStore StoreHoldingTheSentinel()
+    {
+        var store = new IgdbCredentialStore(Path.Combine(_dataDir, "credential-store"));
+        store.SaveSecret(SentinelSecret);
+        return store;
+    }
+
+    private void AssertNoSettingsFileContainsTheSecret()
+    {
+        var settingsFiles = Directory.GetFiles(_dataDir, "settings.json*", SearchOption.TopDirectoryOnly);
+        Assert.NotEmpty(settingsFiles);
+        foreach (var path in settingsFiles)
+        {
+            var content = File.ReadAllText(path);
+            Assert.DoesNotContain(SentinelSecret, content);
+            Assert.DoesNotContain("IgdbClientSecret", content); // the property shouldn't exist on the model at all
+        }
+    }
+
+    [Fact]
+    public void Save_SettingsFile_NeverContainsAPlaintextIgdbSecret()
+    {
+        // First save: no settings.json exists yet, so SettingsService takes its File.Move path - this test
+        // deliberately does not depend on File.Replace (see the backup test below for that).
+        StoreHoldingTheSentinel();
+        var saved = _sut.Save(new AppSettings { IgdbClientId = "some-client-id" });
+        FailIfSaveThrew();
+        Assert.True(saved);
+
+        AssertNoSettingsFileContainsTheSecret();
+    }
+
+    [Fact]
+    public void Save_BackupFile_NeverContainsAPlaintextIgdbSecret()
+    {
+        // The second save is what produces settings.json.bak - via File.Replace, the same call the other
+        // backup tests in this class depend on (and the one the known environmental access-denied
+        // discrepancy affects). FailIfSaveThrew comes BEFORE the assertion on Save's return value: with
+        // the assertion first, a swallowed IOException/UnauthorizedAccessException surfaced only as a bare
+        // "Assert.True() Failure", before the helper could report the real exception.
+        StoreHoldingTheSentinel();
+        var settings = new AppSettings { IgdbClientId = "some-client-id" };
+
+        var firstSaved = _sut.Save(settings);
+        FailIfSaveThrew();
+        Assert.True(firstSaved);
+
+        var secondSaved = _sut.Save(settings);
+        FailIfSaveThrew();
+        Assert.True(secondSaved);
+        Assert.True(File.Exists(Path.Combine(_dataDir, "settings.json.bak")));
+
+        AssertNoSettingsFileContainsTheSecret();
+    }
+
+    [Fact]
+    public void AppSettings_HasNoSecretBearingProperty()
+    {
+        // Pins the actual model shape - a future accidental re-addition of a plain secret property on
+        // AppSettings would be caught here directly, environment-independently, rather than only
+        // inferred from the file scans above. Any public property with "Secret" in its name fails this.
+        var secretLike = typeof(AppSettings).GetProperties()
+            .Where(p => p.Name.Contains("Secret", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Name)
+            .ToList();
+
+        Assert.Empty(secretLike);
+    }
 }

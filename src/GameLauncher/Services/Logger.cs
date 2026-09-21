@@ -61,6 +61,8 @@ public static class Logger
                  + $"BattleNet={settings.DetectBattleNet} Rockstar={settings.DetectRockstar} AmazonGames={settings.DetectAmazonGames}; "
                  + $"watched folders={settings.WatchedFolders.Count}; "
                  + $"SteamGridDB key={(!string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey) ? "set (user)" : DefaultApiKey.SteamGridDb is not null ? "set (built-in)" : "none")}; "
+                 + $"IGDB: built-in relay={(DefaultIgdbRelay.Current is not null ? "present" : "absent")}, "
+                 + $"user Client ID={(!string.IsNullOrWhiteSpace(settings.IgdbClientId) ? "set" : "unset")}; "
                  + $"vibrant={settings.VibrantBackground}; tray while gaming={settings.MinimizeToTrayWhileGaming}; "
                  + $"sidebar expanded={settings.SidebarExpanded}");
 

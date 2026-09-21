@@ -8,3 +8,5 @@ installer/Output/
 
 # Baked-in default SteamGridDB key - deliberately not committed
 default-api-key.txt
+default-igdb-relay.txt
+igdb-test-credentials.txt

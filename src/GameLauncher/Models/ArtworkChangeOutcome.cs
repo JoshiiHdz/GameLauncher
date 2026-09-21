@@ -22,4 +22,8 @@ public enum ArtworkChangeOutcome
     /// long.MaxValue prior changes to this exact game), but a defined, safe terminal state rather than a
     /// silent correctness gap.</summary>
     RevisionExhausted,
+
+    /// <summary>The cover changed (a newer Change Cover/Reset, or a merge) while the user was choosing: nothing was applied
+    /// and the UI should revalidate instead of silently overwriting it (design 6.7, D3).</summary>
+    StaleSelection,
 }
