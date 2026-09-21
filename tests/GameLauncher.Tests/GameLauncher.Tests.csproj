@@ -31,6 +31,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- xUnit runs async tests on a pool of as many worker threads as there are CPU cores. Several tests here block a worker on purpose (a stalled
+         response body, a real subprocess, a TLS handshake) while other tests await a free worker to resume on; on a small machine (a 2-4 core CI
+         runner) every worker ends up blocked and the whole run hangs. A FIXED pool of 8 removes that starvation without oversubscribing the CPU:
+         measured on 4 and 2 cores, 8 passes every run, 6 still lets timing tests miss their deadlines, and unlimited workers oversubscribes so
+         badly that the tests which assert a wall-clock budget fail. The tests themselves are unchanged. -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\GameLauncher\GameLauncher.csproj" />
   </ItemGroup>
 
