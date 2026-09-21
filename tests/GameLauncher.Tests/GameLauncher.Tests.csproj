@@ -31,11 +31,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- xUnit runs async tests on a pool of as many worker threads as there are CPU cores. Several tests here block a worker on purpose (a stalled
-         response body, a real subprocess, a TLS handshake) while other tests await a free worker to resume on; on a small machine (a 2-4 core CI
-         runner) every worker ends up blocked and the whole run hangs. A FIXED pool of 8 removes that starvation without oversubscribing the CPU:
-         measured on 4 and 2 cores, 8 passes every run, 6 still lets timing tests miss their deadlines, and unlimited workers oversubscribes so
-         badly that the tests which assert a wall-clock budget fail. The tests themselves are unchanged. -->
+    <!-- Test collections run ONE AT A TIME. Many tests here assert a wall-clock budget (a stalled response body must be abandoned within its
+         deadline, a subprocess must finish promptly) or block a worker on purpose (a stalled stream, a real subprocess, a TLS handshake).
+         Run in parallel on a small machine (a 2-4 core CI runner) they either exhaust xUnit's core-sized worker pool and hang the whole run, or
+         starve each other of CPU and miss their deadlines - reproduced by pinning the run to 1-4 cores; a bounded or unbounded pool only moved the
+         failures around. Sequential takes ~80 s instead of ~47 s and passes on 2 and 4 cores. -->
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
