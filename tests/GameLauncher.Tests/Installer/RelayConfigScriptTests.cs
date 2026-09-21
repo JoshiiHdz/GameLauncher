@@ -175,6 +175,47 @@ public class RelayConfigScriptTests : IDisposable
     }
 
     [Fact]
+    public void ThePackageCheck_ChecksThePackageOfTheVersionBuilt_NeverAnOlderOneThatSitsInTheSameFolder()
+    {
+        // The release build downloads the PREVIOUS release's packages into the same folder for the delta. "The first *-full.nupkg" was an old one with
+        // no relay configuration - the guard failed the real v1.18.3 release for it. It must check exactly GameLauncher-<Version>-full.nupkg.
+        var releases = Path.Combine(_dir, "Releases");
+        Directory.CreateDirectory(releases);
+        foreach (var name in new[] { "GameLauncher-1.0.0-full.nupkg", "GameLauncher-9.9.9-full.nupkg" })
+        {
+            using var zip = ZipFile.Open(Path.Combine(releases, name), ZipArchiveMode.Create);
+            zip.CreateEntryFromFile(typeof(RelayConfigScriptTests).Assembly.Location, "lib/app/GameLauncher.dll");
+        }
+
+        var expected = Path.Combine(_dir, "expected.txt");
+        File.WriteAllLines(expected, [Url, PinA]);
+
+        var (_, output) = Run("-Mode", "VerifyPackage", "-PackageDirectory", releases, "-Version", "9.9.9", "-ExpectedFile", expected);
+
+        Assert.Contains("Verifying package: GameLauncher-9.9.9-full.nupkg", output);
+        Assert.DoesNotContain("1.0.0", output);
+    }
+
+    [Fact]
+    public void ThePackageCheck_FailsWhenThePackageForThatVersionIsMissing_EvenIfOthersExist_AndWhenNothingIdentifiesAPackage()
+    {
+        var releases = Path.Combine(_dir, "Releases");
+        Directory.CreateDirectory(releases);
+        using (var zip = ZipFile.Open(Path.Combine(releases, "GameLauncher-1.0.0-full.nupkg"), ZipArchiveMode.Create))
+            zip.CreateEntryFromFile(typeof(DefaultIgdbRelay).Assembly.Location, "lib/app/GameLauncher.dll");
+        var expected = Path.Combine(_dir, "expected.txt");
+        File.WriteAllLines(expected, [Url, PinA]);
+
+        var missing = Run("-Mode", "VerifyPackage", "-PackageDirectory", releases, "-Version", "2.0.0", "-ExpectedFile", expected);
+        var vague = Run("-Mode", "VerifyPackage", "-PackageDirectory", releases, "-ExpectedFile", expected);
+
+        Assert.NotEqual(0, missing.ExitCode);
+        Assert.Contains("package not found", missing.Output);
+        Assert.NotEqual(0, vague.ExitCode);
+        Assert.Contains("-PackageDirectory together with -Version", vague.Output);
+    }
+
+    [Fact]
     public void ThePackageCheck_FailsForAPackageWithoutTheLauncher_AndForAMissingPackage()
     {
         var empty = Path.Combine(_dir, "empty-full.nupkg");

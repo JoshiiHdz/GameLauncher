@@ -191,10 +191,9 @@ jobs:
       # matters is on the artifact users install, not on the file this job wrote. Fails the release if it is missing, invalid or different.
       - name: Verify the packaged relay configuration
         shell: pwsh
-        run: |
-          $pkg = Get-ChildItem Releases -Filter 'GameLauncher-*-full.nupkg' | Select-Object -First 1
-          if (-not $pkg) { throw 'no full package was produced' }
-          ./installer/Check-RelayConfig.ps1 -Mode VerifyPackage -Package $pkg.FullName -ExpectedFile src/GameLauncher/default-igdb-relay.txt
+        env:
+          VERSION: ${{ steps.get-version.outputs.version }}
+        run: ./installer/Check-RelayConfig.ps1 -Mode VerifyPackage -PackageDirectory Releases -Version $env:VERSION -ExpectedFile src/GameLauncher/default-igdb-relay.txt
 
       # Wraps the real, unmodified Setup.exe vpk pack just produced (Releases\GameLauncher-win-Setup.exe)
       # as a payload inside the wizard-driven installer - see installer/GameLauncher.iss's remarks for

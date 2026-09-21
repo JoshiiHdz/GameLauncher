@@ -9,7 +9,10 @@
     -Mode Write          before the build: requires a valid https address AND key pin(s), and writes src/GameLauncher/default-igdb-relay.txt.
                          Empty, malformed, plain-http or pin-less values FAIL the release.
     -Mode VerifyPackage  after `vpk pack`: opens the real package (.nupkg), loads the packaged GameLauncher.dll, reads the configuration that
-                         is actually embedded in it, and fails unless it is present, valid, and equal to what was written.
+                         is actually embedded in it, and fails unless it is present, valid, and equal to what was written. Give it -Package (a
+                         file), or -PackageDirectory with -Version: it then checks EXACTLY GameLauncher-<Version>-full.nupkg. That matters because
+                         the release build downloads the PREVIOUS release's packages into the same folder (for the delta), and "the first
+                         package there" is an old one that legitimately has no relay configuration.
 
   The rules mirror DefaultIgdbRelay.Parse in the launcher (which independently refuses anything else at runtime).
   Neither the address nor the pin is secret.
@@ -21,6 +24,8 @@ param(
     [string]$Pin,
     [string]$OutFile,
     [string]$Package,
+    [string]$PackageDirectory,
+    [string]$Version,
     [string]$ExpectedFile
 )
 
@@ -56,7 +61,12 @@ switch ($Mode) {
     }
 
     'VerifyPackage' {
+        if ([string]::IsNullOrWhiteSpace($Package)) {
+            if ([string]::IsNullOrWhiteSpace($PackageDirectory) -or [string]::IsNullOrWhiteSpace($Version)) { Fail 'give -Package, or -PackageDirectory together with -Version' }
+            $Package = Join-Path $PackageDirectory "GameLauncher-$Version-full.nupkg"
+        }
         if (-not (Test-Path -LiteralPath $Package)) { Fail "package not found: $Package" }
+        Write-Host "Verifying package: $(Split-Path -Leaf $Package)"
         if (-not (Test-Path -LiteralPath $ExpectedFile)) { Fail "expected configuration file not found: $ExpectedFile" }
         $expected = @((Get-Content -LiteralPath $ExpectedFile) | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
