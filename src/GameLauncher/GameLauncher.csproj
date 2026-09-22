@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
-    <Version>1.18.4</Version>
+    <Version>1.18.5</Version>
 
     <!-- Distribution moved from a portable single-file exe to a Velopack-installed app (see
          UpdateService.cs and App.xaml.cs's Main). Velopack does its own bundling via "vpk pack" on

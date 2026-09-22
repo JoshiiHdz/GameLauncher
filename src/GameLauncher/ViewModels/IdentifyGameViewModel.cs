@@ -237,9 +237,6 @@ public sealed partial class IdentifyGameViewModel : ObservableObject
     {
         foreach (var item in Candidates.Take(10).ToList())
         {
-            if (item.Candidate.ThumbnailUrl is not { } url)
-                continue;
-
             var provider = _providers.FirstOrDefault(p => p.Namespace == item.Candidate.Namespace);
             if (provider is null)
                 continue;
@@ -249,6 +246,22 @@ public sealed partial class IdentifyGameViewModel : ObservableObject
                 var image = await RunWork(() =>
                 {
                     ct.ThrowIfCancellationRequested();
+
+                    // IGDB's search response already carries a cover for free (ParseCandidates reads it), so
+                    // this is normally just a download. SteamGridDB's autocomplete endpoint returns no image
+                    // at all - without this fallback its candidates NEVER show a thumbnail, only the name and
+                    // the placeholder icon, no matter how long you wait. ListCovers is the same per-id lookup
+                    // Choose Cover already uses; it's one extra bounded call, only for the up to 10 candidates
+                    // actually shown, and only for a provider whose search didn't already include an image.
+                    var url = item.Candidate.ThumbnailUrl;
+                    if (url is null)
+                    {
+                        var firstCover = provider.ListCovers(item.Candidate.Id, ct).FirstOrDefault();
+                        url = firstCover is null ? null : firstCover.ThumbnailUrl ?? firstCover.ImageUrl;
+                    }
+                    if (url is null)
+                        return null;
+
                     var bytes = provider.DownloadImage(url, ct);
                     return bytes is null ? null : ArtworkImageValidator.ValidateProviderBytes(bytes, url);
                 });

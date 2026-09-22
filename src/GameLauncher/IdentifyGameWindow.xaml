@@ -117,12 +117,13 @@
                         </ListBox.ItemsPanel>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Width="96" Margin="4">
+                                <StackPanel Width="104" Margin="4">
                                     <!-- Stretch="Uniform", matching GameCardTemplate.xaml's GameArtImageStyle: the card that will actually
                                          display whichever cover is picked here never crops (some real covers - SteamGridDB banners in
-                                         particular - aren't 2:3), so this thumbnail must show the same full, letterboxed image, not a
-                                         different, cropped preview of it. -->
-                                    <Border Width="92" Height="138" CornerRadius="6" Background="{DynamicResource ControlFillColorSecondaryBrush}" ClipToBounds="True">
+                                         particular - aren't that same shape), so this thumbnail must show the same full, letterboxed
+                                         image, not a different, cropped preview of it. 100x130 matches the card's current 200x260
+                                         art ratio exactly. -->
+                                    <Border Width="100" Height="130" CornerRadius="6" Background="{DynamicResource ControlFillColorSecondaryBrush}" ClipToBounds="True">
                                         <Image Source="{Binding Thumbnail}" Stretch="Uniform"
                                                RenderOptions.BitmapScalingMode="HighQuality" />
                                     </Border>

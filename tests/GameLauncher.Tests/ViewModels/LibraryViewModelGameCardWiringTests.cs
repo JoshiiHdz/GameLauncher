@@ -2,10 +2,12 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Input;
+using GameLauncher.Behaviors;
 using GameLauncher.Models;
 using GameLauncher.Services;
 using GameLauncher.Tests.TestSupport;
@@ -146,6 +148,40 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
         }
     }
 
+    /// <summary>Finds the card's hover-revealed "..." overflow icon - the one element in the card tree
+    /// with ContextMenuButtonBehavior.OpensContextMenuOnClick set, rather than matching by name/tooltip
+    /// text that could drift independently of the actual feature.</summary>
+    private static Border FindOverflowButton(Button cardButton) =>
+        FindOverflowDescendant(cardButton)
+            ?? throw new InvalidOperationException("No overflow menu Border found under the card button.");
+
+    private static Border? FindOverflowDescendant(DependencyObject root)
+    {
+        if (root is Border border && ContextMenuButtonBehavior.GetOpensContextMenuOnClick(border))
+            return border;
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var found = FindOverflowDescendant(VisualTreeHelper.GetChild(root, i));
+            if (found is not null)
+                return found;
+        }
+
+        return null;
+    }
+
+    /// <summary>The name-header MenuItem (Tag="MenuHeader") each card's ContextMenu carries - found by tag rather
+    /// than by its (game-specific) text, and by IsEnabled==true rather than false, since it is a real, clickable
+    /// "close the menu" row now, not an inert label.</summary>
+    private static MenuItem GetMenuHeader(ContextMenu menu) =>
+        menu.Items.OfType<MenuItem>().Single(i => (string?)i.Tag == "MenuHeader");
+
+    /// <summary>The game name text shown inside a menu header, read from the Grid/TextBlock that is the
+    /// header's actual Header content (see GameCardTemplate.xaml's MenuHeaderName).</summary>
+    private static string GetMenuHeaderText(ContextMenu menu) =>
+        ((TextBlock)((Grid)GetMenuHeader(menu).Header).Children[0]).Text;
+
     private static (MenuItem ChangeCover, MenuItem Reset) OpenContextMenu(Button button)
     {
         var menu = button.ContextMenu ?? throw new InvalidOperationException("Card has no ContextMenu.");
@@ -154,12 +190,92 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
         PumpDispatcher();
 
         var items = menu.Items.OfType<MenuItem>().ToList();
-        var changeCover = items.Single(i => (string)i.Header == "Change Cover...");
-        var reset = items.Single(i => (string)i.Header == "Reset Cover to Automatic");
+        var changeCover = items.Single(i => i.Header as string == "Change Cover...");
+        var reset = items.Single(i => i.Header as string == "Reset Cover to Automatic");
         return (changeCover, reset);
     }
 
     // ---- Each menu targets the clicked card -----------------------------------------------------------
+
+    /// <summary>The card's own hover highlight can disappear the instant the mouse reaches this (separately-
+    /// rooted) popup, so the menu carries its own name header - this proves it shows the right game per-card,
+    /// not just a fixed value from whichever card opened first.</summary>
+    [Fact]
+    public void ContextMenu_ShowsTheGamesNameAsAHeader_ThatFollowsWhicheverCardWasClicked()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var gameA = MakeGame("game-a", "Game A");
+            var gameB = MakeGame("game-b", "Game B");
+            vm.SimulateRefreshResult([gameA, gameB]);
+            vm.Games.Add(gameA);
+            vm.Games.Add(gameB);
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var buttonA = FindCardButton(main, gameA);
+                var menuA = buttonA.ContextMenu!;
+                menuA.PlacementTarget = buttonA;
+                menuA.IsOpen = true;
+                PumpDispatcher();
+                Assert.Equal("Game A", GetMenuHeaderText(menuA));
+                menuA.IsOpen = false;
+
+                var buttonB = FindCardButton(main, gameB);
+                var menuB = buttonB.ContextMenu!;
+                menuB.PlacementTarget = buttonB;
+                menuB.IsOpen = true;
+                PumpDispatcher();
+                Assert.Equal("Game B", GetMenuHeaderText(menuB));
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    /// <summary>The header has no Command and no submenu, so - by WPF's own, unmodified MenuItem behavior, not
+    /// anything this app implements - a click anywhere on the row (including the "x") just closes the menu, the
+    /// same as clicking any other plain leaf item. This tests the facts that make that true, not the popup's
+    /// actual close animation/state, which an off-screen host cannot reliably drive with a synthetic click.</summary>
+    [Fact]
+    public void ContextMenu_HeaderIsAnOrdinaryClickableRow_WithNoCommandOrSubmenu_SoClickingItJustClosesTheMenu()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("game-a", "Game A");
+            vm.SimulateRefreshResult([game]);
+            vm.Games.Add(game);
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var button = FindCardButton(main, game);
+                var menu = button.ContextMenu!;
+                menu.PlacementTarget = button;
+                menu.IsOpen = true;
+                PumpDispatcher();
+
+                var header = GetMenuHeader(menu);
+
+                Assert.True(header.IsEnabled);
+                Assert.Null(header.Command);
+                Assert.Empty(header.Items);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
 
     [Fact]
     public void ContextMenu_InMainGrid_TargetsTheClickedGame_NotAnyOtherCard()
@@ -443,6 +559,104 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.Same(after, changeCoverAfter.CommandParameter);
                 Assert.Same(after, resetAfter.CommandParameter);
                 Assert.NotSame(before, changeCoverAfter.CommandParameter);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    // ---- Overflow "..." menu (hover icon, same actions as right-click) --------------------------------
+
+    [Fact]
+    public void OverflowMenuButton_IsCollapsedByDefault_AndWiredToTheSameHoverTriggerAsThePlayOverlay()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("game-a");
+            vm.SimulateRefreshResult([game]);
+            vm.Games.Add(game);
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var button = FindCardButton(main, game);
+                var overflow = FindOverflowButton(button);
+                Assert.Equal(Visibility.Collapsed, overflow.Visibility);
+
+                var dict = new ResourceDictionary
+                {
+                    Source = new Uri("pack://application:,,,/GameLauncher;component/Resources/GameCardTemplate.xaml"),
+                };
+                var template = (DataTemplate)dict["GameCardTemplate"];
+                var hoverTrigger = template.Triggers.OfType<Trigger>()
+                    .Single(t => t.Property == UIElement.IsMouseOverProperty && t.SourceName == "CardRoot");
+                var targetNames = hoverTrigger.Setters.OfType<Setter>().Select(s => s.TargetName).ToList();
+
+                Assert.Contains("HoverOverlay", targetNames);
+                Assert.Contains("CardMenuButton", targetNames);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void OverflowMenuButton_OpensTheSameFourActions_TargetingTheClickedGame_AndNeverLaunchesTheGame()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("game-a");
+            vm.SimulateRefreshResult([game]);
+            vm.Games.Add(game);
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var button = FindCardButton(main, game);
+                var overflow = FindOverflowButton(button);
+                var clicked = false;
+                button.Click += (_, _) => clicked = true;
+
+                var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent,
+                };
+                overflow.RaiseEvent(args);
+                PumpDispatcher();
+
+                Assert.True(args.Handled, "The overflow click must be marked handled so it never reaches the card's own Button.");
+                Assert.False(clicked, "Opening the overflow menu must never fire the card's own Click (which runs LaunchCommand).");
+
+                var menu = overflow.ContextMenu ?? throw new InvalidOperationException("Overflow Border has no ContextMenu.");
+                Assert.True(menu.IsOpen);
+                Assert.Same(overflow, menu.PlacementTarget);
+
+                var items = menu.Items.OfType<MenuItem>().ToList();
+                Assert.Equal(5, items.Count); // the 4 actions, plus the name header
+                Assert.Equal(game.Name, GetMenuHeaderText(menu));
+                var changeCover = items.Single(i => i.Header as string == "Change Cover...");
+                var reset = items.Single(i => i.Header as string == "Reset Cover to Automatic");
+                var identify = items.Single(i => i.Header as string == "Identify Game...");
+                var chooseCatalog = items.Single(i => i.Header as string == "Choose Cover from Catalog...");
+
+                Assert.Same(game, changeCover.CommandParameter);
+                Assert.Same(game, reset.CommandParameter);
+                Assert.Same(game, identify.CommandParameter);
+                Assert.Same(game, chooseCatalog.CommandParameter);
+                Assert.Same(vm.ChangeCoverCommand, changeCover.Command);
+                Assert.Same(vm.ResetCoverCommand, reset.Command);
+                Assert.Same(vm.IdentifyGameCommand, identify.Command);
+                Assert.Same(vm.ChooseCatalogCoverCommand, chooseCatalog.Command);
             }
             finally
             {

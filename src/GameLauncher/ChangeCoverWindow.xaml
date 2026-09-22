@@ -38,13 +38,14 @@
                 </TextBlock>
                 <TextBlock Text="Nothing is saved until you click Apply." FontSize="12" Opacity="0.6" Margin="0,0,0,14" />
 
-                <!-- The library card (GameCardTemplate.xaml's GameArtImageStyle) is a fixed 2:3 box with Stretch="Uniform" - it shows
-                     the WHOLE image, letterboxed against its own background when the source isn't 2:3, and never crops (some real
-                     covers - SteamGridDB banners in particular - are wide, and cropping those to fill the box used to cut real
-                     content off the sides). This box reproduces the card's own ratio, Stretch mode AND letterbox background (190x285,
-                     exactly 2:3; ControlFillColorSecondaryBrush) and clips to it, so what's shown here is exactly what the card will
-                     show once applied - not a differently-proportioned, or differently-cropped, approximation of it. -->
-                <Border x:Name="PreviewBorder" CornerRadius="8" Background="{DynamicResource ControlFillColorSecondaryBrush}" Width="190" Height="285"
+                <!-- The library card (GameCardTemplate.xaml's GameArtImageStyle) is a fixed box (GameCardWidth x GameCardArtHeight)
+                     with Stretch="Uniform" - it shows the WHOLE image, letterboxed against its own background when the source isn't
+                     that same shape, and never crops (some real covers - SteamGridDB banners in particular - are wide, and cropping
+                     those to fill the box used to cut real content off the sides). This box reproduces the card's own ratio, Stretch
+                     mode AND letterbox background (190x247, matching the card's current 200x260 art size; ControlFillColorSecondaryBrush)
+                     and clips to it, so what's shown here is exactly what the card will show once applied - not a differently-
+                     proportioned, or differently-cropped, approximation of it. -->
+                <Border x:Name="PreviewBorder" CornerRadius="8" Background="{DynamicResource ControlFillColorSecondaryBrush}" Width="190" Height="247"
                         HorizontalAlignment="Center" ClipToBounds="True">
                     <Image x:Name="PreviewImageElement" Source="{Binding PreviewImage}" Stretch="Uniform"
                            RenderOptions.BitmapScalingMode="HighQuality" />

@@ -175,7 +175,7 @@ public class ChangeCoverWindowTests
         });
     }
 
-    // ---- Portrait, square, and wide previews all letterbox in the card's own 2:3 box, never crop -------
+    // ---- Portrait, square, and wide previews all letterbox in the card's own box, never crop ------------
 
     [Theory]
     [InlineData(100, 300)] // portrait
@@ -189,11 +189,11 @@ public class ChangeCoverWindowTests
             var (window, _) = BuildDialog(image);
             try
             {
-                // 190x285 - the same 2:3 ratio (200x300) the library card itself uses (GameCardTemplate.xaml's GameCardWidth/
+                // 190x247 - the same ratio (200x260) the library card itself uses (GameCardTemplate.xaml's GameCardWidth/
                 // GameCardArtHeight). Fixed regardless of the source image's own aspect ratio - the FRAME never changes shape.
                 Assert.Equal(190, window.PreviewBorder.ActualWidth, precision: 0);
-                Assert.Equal(285, window.PreviewBorder.ActualHeight, precision: 0);
-                Assert.Equal(190.0 / 285.0, 200.0 / 300.0, precision: 3);
+                Assert.Equal(247, window.PreviewBorder.ActualHeight, precision: 0);
+                Assert.Equal(190.0 / 247.0, 200.0 / 260.0, precision: 3);
                 Assert.True(window.PreviewBorder.ClipToBounds);
 
                 // The dimension/ratio asserts above pin the FRAME, not the image inside it - a frame of the right shape holding a
@@ -245,7 +245,7 @@ public class ChangeCoverWindowTests
                 AssertScrollViewerEndsBeforeFooterBegins(window);
 
                 // The whole point of wrapping the content in a ScrollViewer: at the size where the fixed
-                // 190x285 crop box plus the header text and Expander no longer fit, it scrolls instead of
+                // 190x247 crop box plus the header text and Expander no longer fit, it scrolls instead of
                 // pushing into (or being silently clipped behind) the footer.
                 Assert.True(window.ContentScrollViewer.ScrollableHeight > 0,
                     "Expected the content to actually need scrolling at MinHeight - if this starts failing, MinHeight may have grown enough that this test no longer exercises the overlap risk it's meant to guard.");

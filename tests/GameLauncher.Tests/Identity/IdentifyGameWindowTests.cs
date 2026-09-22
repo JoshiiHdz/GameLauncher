@@ -162,12 +162,12 @@ public class IdentifyGameWindowTests
                     Pump();
 
                 Assert.Equal(3, window.CoverList.Items.Count);
-                var thumbnailBorders = Descendants<Border>(window.CoverList).Where(b => b.Width == 92 && b.Height == 138).ToList();
+                var thumbnailBorders = Descendants<Border>(window.CoverList).Where(b => b.Width == 100 && b.Height == 130).ToList();
                 Assert.Equal(3, thumbnailBorders.Count);
                 foreach (var border in thumbnailBorders)
                 {
-                    // The frame is always the card's own 2:3 ratio, whatever shape the source thumbnail is...
-                    Assert.Equal(92.0 / 138.0, 200.0 / 300.0, precision: 3);
+                    // The frame is always the card's own ratio, whatever shape the source thumbnail is...
+                    Assert.Equal(100.0 / 130.0, 200.0 / 260.0, precision: 3);
                     var image = Descendants<System.Windows.Controls.Image>(border).Single();
                     // ...and the image inside it never crops, matching GameCardTemplate.xaml's GameArtImageStyle exactly.
                     Assert.Equal(Stretch.Uniform, image.Stretch);
@@ -372,8 +372,8 @@ public class IdentifyGameWindowTests
                 menu.IsOpen = true;
                 Pump();
 
-                var identify = menu.Items.OfType<MenuItem>().Single(i => (string)i.Header == "Identify Game...");
-                var choose = menu.Items.OfType<MenuItem>().Single(i => (string)i.Header == "Choose Cover from Catalog...");
+                var identify = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Identify Game...");
+                var choose = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Choose Cover from Catalog...");
                 Assert.Same(h.Vm.IdentifyGameCommand, identify.Command);
                 Assert.Same(gameB, identify.CommandParameter);                   // the CLICKED card, not the first or last
                 Assert.Same(h.Vm.ChooseCatalogCoverCommand, choose.Command);

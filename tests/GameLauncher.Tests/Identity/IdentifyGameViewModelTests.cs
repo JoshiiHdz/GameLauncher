@@ -98,6 +98,65 @@ public class IdentifyGameViewModelTests : IDisposable
         Assert.False(dialog.IsSearching);
     }
 
+    /// <summary>Waits for the background thumbnail loader SearchAsync fires off (LoadThumbnailsAsync) without
+    /// awaiting it directly - it's deliberately fire-and-forget so a superseded search's downloads don't block
+    /// the next one, so a test has to poll for it to finish the same way the window itself just waits and redraws.</summary>
+    private static async Task WaitForThumbnails(IdentifyGameViewModel dialog, int count)
+    {
+        for (var i = 0; i < 100 && dialog.Candidates.Take(count).Any(c => c.Thumbnail is null); i++)
+            await Task.Delay(10);
+    }
+
+    [Fact]
+    public async Task Search_ACandidateWithItsOwnThumbnailUrl_IsDownloadedDirectly_NoExtraCoverLookup()
+    {
+        // IGDB's search response already carries a cover (see ParseCandidates) - asserting ListCovers is never
+        // called is what actually proves the fallback added for SteamGridDB (below) doesn't cost every provider
+        // an extra network round trip it never needed.
+        var game = await _h.Add(Foo());
+        _h.Igdb.Candidates = _ => [Cand(Cat.Igdb, "1", "Foo", thumb: "https://images.igdb.com/cover.jpg")];
+        _h.Igdb.Covers = _ => throw new InvalidOperationException("ListCovers should never be called when the candidate already has a ThumbnailUrl.");
+        _h.Igdb.Download = url => url == "https://images.igdb.com/cover.jpg" ? TestImages.Png(64, 96) : null;
+        var dialog = Open(game, _h.Igdb);
+
+        await dialog.SearchCommand.ExecuteAsync(null);
+        await WaitForThumbnails(dialog, 1);
+
+        Assert.NotNull(dialog.Candidates.Single().Thumbnail);
+    }
+
+    [Fact]
+    public async Task Search_ACandidateWithNoThumbnailUrlOfItsOwn_FallsBackToTheProvidersCoverListing()
+    {
+        // SteamGridDB's autocomplete endpoint returns no image at all (id/name/tags only) - without this
+        // fallback, its candidates showed the name and the placeholder icon forever, never a real cover.
+        var game = await _h.Add(Foo());
+        _h.Sgdb.Candidates = _ => [Cand(Cat.Sgdb, "9", "Foo", thumb: null)];
+        _h.Sgdb.Covers = id => id == "9" ? [new CoverChoice("r1", "https://cdn2.steamgriddb.com/full.png", "https://cdn2.steamgriddb.com/thumb.png")] : [];
+        _h.Sgdb.Download = url => url == "https://cdn2.steamgriddb.com/thumb.png" ? TestImages.Png(64, 96) : null;
+        var dialog = Open(game, _h.Sgdb);
+
+        await dialog.SearchCommand.ExecuteAsync(null);
+        await WaitForThumbnails(dialog, 1);
+
+        Assert.NotNull(dialog.Candidates.Single().Thumbnail);
+    }
+
+    [Fact]
+    public async Task Search_ACandidateWhoseProviderHasNoCoverEither_StaysWithoutAThumbnail_NotAnException()
+    {
+        var game = await _h.Add(Foo());
+        _h.Sgdb.Candidates = _ => [Cand(Cat.Sgdb, "9", "Foo", thumb: null)];
+        _h.Sgdb.Covers = _ => Array.Empty<CoverChoice>(); // nothing to fall back to
+        var dialog = Open(game, _h.Sgdb);
+
+        await dialog.SearchCommand.ExecuteAsync(null);
+        await Task.Delay(50); // give the (necessarily unsatisfiable) background load a chance to finish
+
+        Assert.Null(dialog.Candidates.Single().Thumbnail);
+        Assert.Single(dialog.Candidates); // the search result itself is unaffected - only its thumbnail is missing
+    }
+
     [Fact]
     public async Task AFailingProvider_NeverHidesTheOthersResults_AndIsNamed()
     {
