@@ -38,17 +38,15 @@
                 </TextBlock>
                 <TextBlock Text="Nothing is saved until you click Apply." FontSize="12" Opacity="0.6" Margin="0,0,0,14" />
 
-                <!-- The library card is a fixed 124x186 (an exact 2:3 ratio) with Stretch="UniformToFill" -
-                     it fills that box edge-to-edge and CROPS whatever doesn't fit, rather than letterboxing
-                     it. Showing the full, uncropped image here (Stretch="Uniform", as an earlier version of
-                     this window did) looks like a fair preview but isn't one: a landscape image would
-                     appear fully visible here and then lose real content - the sides trimmed away - the
-                     moment it's actually applied to a card. This box reproduces the card's own ratio and
-                     Stretch mode (190x285, exactly 2:3) and clips to it, so what's shown here is the actual
-                     crop the card will use, not a differently-proportioned approximation of it. -->
-                <Border x:Name="PreviewBorder" CornerRadius="8" Background="#1FFFFFFF" Width="190" Height="285"
+                <!-- The library card (GameCardTemplate.xaml's GameArtImageStyle) is a fixed 2:3 box with Stretch="Uniform" - it shows
+                     the WHOLE image, letterboxed against its own background when the source isn't 2:3, and never crops (some real
+                     covers - SteamGridDB banners in particular - are wide, and cropping those to fill the box used to cut real
+                     content off the sides). This box reproduces the card's own ratio, Stretch mode AND letterbox background (190x285,
+                     exactly 2:3; ControlFillColorSecondaryBrush) and clips to it, so what's shown here is exactly what the card will
+                     show once applied - not a differently-proportioned, or differently-cropped, approximation of it. -->
+                <Border x:Name="PreviewBorder" CornerRadius="8" Background="{DynamicResource ControlFillColorSecondaryBrush}" Width="190" Height="285"
                         HorizontalAlignment="Center" ClipToBounds="True">
-                    <Image x:Name="PreviewImageElement" Source="{Binding PreviewImage}" Stretch="UniformToFill"
+                    <Image x:Name="PreviewImageElement" Source="{Binding PreviewImage}" Stretch="Uniform"
                            RenderOptions.BitmapScalingMode="HighQuality" />
                 </Border>
 

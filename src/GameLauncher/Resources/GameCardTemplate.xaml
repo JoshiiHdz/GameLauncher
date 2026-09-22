@@ -7,9 +7,9 @@
     <!-- The card's size lives HERE, once. The three numbers that used to be repeated below (the button width, the art height and the
          rounded-corner clip) drifted apart too easily to widen a card by hand. Art keeps the 2:3 shape; the caption strip is 30 high, so
          the clip is width x (art + 30). -->
-    <sys:Double x:Key="GameCardWidth">160</sys:Double>
-    <sys:Double x:Key="GameCardArtHeight">240</sys:Double>
-    <Rect x:Key="GameCardClipRect">0,0,160,270</Rect>
+    <sys:Double x:Key="GameCardWidth">200</sys:Double>
+    <sys:Double x:Key="GameCardArtHeight">300</sys:Double>
+    <Rect x:Key="GameCardClipRect">0,0,200,330</Rect>
 
     <!-- The one card definition shared by MainWindow's Favorites section, main library grid, and Hidden
          section - and, via this standalone dictionary, by LibraryViewModelGameCardWiringTests, which
@@ -45,8 +45,12 @@
         </Setter>
     </Style>
 
-    <!-- Real cover art fills the tile edge-to-edge; a fallback exe icon stays small and centered
-         so it isn't stretched into a blurry mess. -->
+    <!-- A fallback exe icon stays small and centered so it isn't stretched into a blurry mess. Real cover art fills the tile's LAYOUT
+         SLOT (Stretch=Stretch on the Image element itself) but is drawn with Stretch=Uniform, never UniformToFill: some real covers
+         (SteamGridDB in particular allows several aspect ratios - banners as well as posters) are not the tile's 2:3 shape, and
+         UniformToFill was silently CROPPING those - the artwork's own edges get cut off, not a layout bug. Uniform never crops; a
+         mismatched aspect ratio letterboxes against ControlFillColorSecondaryBrush (the same background the exe-icon fallback sits on)
+         instead of losing part of the image. -->
     <Style x:Key="GameArtImageStyle" TargetType="Image">
         <Setter Property="Width" Value="52" />
         <Setter Property="Height" Value="52" />
@@ -57,7 +61,7 @@
             <DataTrigger Binding="{Binding IsCoverArt}" Value="True">
                 <Setter Property="Width" Value="NaN" />
                 <Setter Property="Height" Value="NaN" />
-                <Setter Property="Stretch" Value="UniformToFill" />
+                <Setter Property="Stretch" Value="Uniform" />
                 <Setter Property="HorizontalAlignment" Value="Stretch" />
                 <Setter Property="VerticalAlignment" Value="Stretch" />
             </DataTrigger>

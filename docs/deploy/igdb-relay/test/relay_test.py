@@ -308,6 +308,91 @@ def t_token_refresh_hardening():
         if os.path.exists(extra): os.remove(extra)
 
 
+def t_token_expiry_aware_renewal():
+    """Codex finding: the script validated a token's lifetime but never acted on it - a token good for as little as the accepted
+    minimum (one hour) would leave IGDB unavailable for most of the week until the next cron run. Drives the real script's scheduling
+    decision through RENEW_SCHEDULE_CMD/RENEW_CANCEL_CMD (test seams), never real systemd - that is proven separately, live, once."""
+    ctl("/reset")
+    inc = f"{BASE}/expiry-token.inc"
+    open(f"{BASE}/cred3", "w").write("IGDB_CLIENT_ID=testclientid0000000001\nIGDB_CLIENT_SECRET=supersecrettestvalue0002\n"); os.chmod(f"{BASE}/cred3", 0o600)
+    calls, cancels = f"{BASE}/schedule-calls.txt", f"{BASE}/cancel-calls.txt"
+    script = f"{HERE}/igdb-relay-refresh-token.sh"
+
+    def run(mode="ok", extra_env=None):
+        ctl(f"/mode?m={mode}")
+        env = dict(os.environ, CRED_FILE=f"{BASE}/cred3", TOKEN_INC=inc, TOKEN_URL=f"http://127.0.0.1:{FAKE}/oauth2/token",
+                   NGINX_TEST_CMD="true", NGINX_RELOAD_CMD="true",
+                   RENEW_SCHEDULE_CMD=f"bash -c 'echo \"$1\" >> {calls}' --", RENEW_CANCEL_CMD=f"bash -c 'echo called >> {cancels}'")
+        env.update(extra_env or {})
+        return subprocess.run(["bash", script], env=env, capture_output=True, text=True)
+
+    def reset_markers():
+        for f in (calls, cancels):
+            if os.path.exists(f): os.remove(f)
+
+    reset_markers()
+    r = run("tk_hour")   # the accepted minimum, 3600s
+    scheduled = open(calls).read().split() if os.path.exists(calls) else []
+    check("15 a token good for only one hour schedules an early renewal (5-minute safety margin: 3300s)",
+          r.returncode == 0 and scheduled == ["3300"], f"rc={r.returncode} scheduled={scheduled} stderr={r.stderr.strip()[:150]!r}")
+
+    reset_markers()
+    r2 = run("ok")   # the default ~57-day response - comfortably past the weekly cadence
+    check("15 a token that outlives the week schedules nothing, and cancels any earlier pending early renewal",
+          r2.returncode == 0 and not os.path.exists(calls) and os.path.exists(cancels), f"rc={r2.returncode} scheduled={os.path.exists(calls)}")
+
+    reset_markers()
+    r3 = run("tk_hour", {"RENEW_SAFETY_MARGIN": "3599"})   # the margin nearly consumes the token's whole life
+    scheduled3 = open(calls).read().split() if os.path.exists(calls) else []
+    check("15 the delay is never scheduled below its floor, even when the safety margin nearly exceeds the token's life",
+          r3.returncode == 0 and scheduled3 == ["30"], f"scheduled={scheduled3}")
+
+    reset_markers()
+    r4 = run("tk_hour", {"RENEW_SCHEDULE_CMD": "false"})   # scheduling itself fails
+    check("15 a scheduling failure does not roll back the already-committed token/reload, and the run still exits 0",
+          r4.returncode == 0 and "early renewal FAILED" in r4.stderr and "FAILED:" not in r4.stderr, f"rc={r4.returncode} stderr={r4.stderr.strip()[:200]!r}")
+    reset_markers()
+
+
+def t_failure_retry_scheduling():
+    """Audit finding: a FAILED attempt used to just exit, leaving the weekly cron as the only way back. It now schedules its own
+    BOUNDED retry, with the attempt count threaded through so it eventually gives up rather than retrying forever."""
+    ctl("/reset")
+    inc = f"{BASE}/retry-token.inc"
+    open(f"{BASE}/cred4", "w").write("IGDB_CLIENT_ID=testclientid0000000001\nIGDB_CLIENT_SECRET=supersecrettestvalue0002\n"); os.chmod(f"{BASE}/cred4", 0o600)
+    calls = f"{BASE}/retry-calls.txt"
+    script = f"{HERE}/igdb-relay-refresh-token.sh"
+
+    def run(mode, extra_env=None):
+        ctl(f"/mode?m={mode}")
+        env = dict(os.environ, CRED_FILE=f"{BASE}/cred4", TOKEN_INC=inc, TOKEN_URL=f"http://127.0.0.1:{FAKE}/oauth2/token",
+                   NGINX_TEST_CMD="true", NGINX_RELOAD_CMD="true", RENEW_SCHEDULE_CMD="true", RENEW_CANCEL_CMD="true",
+                   RENEW_RETRY_CMD=f"bash -c 'echo \"$1 $2\" >> {calls}' --", RENEW_MAX_RETRIES="2")
+        env.update(extra_env or {})
+        return subprocess.run(["bash", script], env=env, capture_output=True, text=True)
+
+    def logged():
+        return open(calls).read().split() if os.path.exists(calls) else []
+
+    if os.path.exists(calls): os.remove(calls)
+    r1 = run("token_400")                                    # a failed attempt (a rejected secret, a transient Twitch problem, ...)
+    check("16 a failed attempt schedules its own retry (delay, attempt number 1)", r1.returncode != 0 and logged() == ["600", "1"], f"rc={r1.returncode} logged={logged()}")
+
+    if os.path.exists(calls): os.remove(calls)
+    r2 = run("token_400", {"RENEW_RETRY_COUNT": "1"})        # as if THIS run was already that first retry, and it also failed
+    check("16 a second consecutive failure schedules attempt number 2, still within the bound", r2.returncode != 0 and logged() == ["600", "2"], f"logged={logged()}")
+
+    if os.path.exists(calls): os.remove(calls)
+    r3 = run("token_400", {"RENEW_RETRY_COUNT": "2"})        # RENEW_MAX_RETRIES=2 already reached
+    check("16 the retry count is BOUNDED - once the max is reached, no further retry is scheduled", r3.returncode != 0 and not logged() and "giving up" in r3.stderr,
+          f"logged={logged()} stderr={r3.stderr.strip()[:150]!r}")
+
+    if os.path.exists(calls): os.remove(calls)
+    r4 = run("ok", {"RENEW_RETRY_COUNT": "1"})               # a SUCCESSFUL run never schedules a "failure retry", whatever count it was handed
+    check("16 a successful run never schedules a failure-retry, however many failures preceded it", r4.returncode == 0 and not logged())
+    if os.path.exists(calls): os.remove(calls)
+
+
 def curl_code(url, pin=None, extra=(), body="fields name; limit 1;"):
     cmd = ["curl", "-sk", "-m", "10", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST", url, "-d", body, *extra]
     if pin:
@@ -379,9 +464,10 @@ def main():
     print(f"nginx idle: {base_rss[0]/1024:.1f} MB across {base_rss[1]} processes")
     try:
         if os.environ.get("RELAY_TESTS") == "hardening":       # quick mode for mutation checks: only the token-refresh hardening
-            t_token_refresh_hardening()
+            t_token_refresh_hardening(); t_token_expiry_aware_renewal(); t_failure_retry_scheduling()
         else:
-            t_fake_upstream(); t_rate_and_cache_budget(); t_failure_behaviour(); t_token_refresh(); t_token_refresh_hardening(); t_tls_pinned()
+            t_fake_upstream(); t_rate_and_cache_budget(); t_failure_behaviour(); t_token_refresh(); t_token_refresh_hardening()
+            t_token_expiry_aware_renewal(); t_failure_retry_scheduling(); t_tls_pinned()
         loaded = rss_kb()
         entries = int(subprocess.run(f"find {BASE}/cache -type f | wc -l", shell=True, capture_output=True, text=True).stdout)
         size = subprocess.run(f"du -sk {BASE}/cache", shell=True, capture_output=True, text=True).stdout.split()[0]

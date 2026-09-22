@@ -88,32 +88,8 @@
                 <Separator Margin="0,20" />
 
                 <TextBlock Text="Cover Art" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
-                <TextBlock Text="Steam games always get real box art automatically, no key needed. For every other source, add a free SteamGridDB API key (steamgriddb.com/profile/preferences/api) to fetch real box art instead of the exe icon."
-                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />
-
-                <ui:TextBox PlaceholderText="SteamGridDB API key (optional)"
-                            Text="{Binding SteamGridDbApiKey, UpdateSourceTrigger=LostFocus}" />
-
-                <TextBlock Text="IGDB (tried first)" FontWeight="SemiBold" Margin="0,18,0,4" />
-                <TextBlock Text="IGDB is asked first which game an entry is and for its cover; SteamGridDB is the fallback. Releases reach IGDB through the project's own server, so nothing needs to be entered here and no account is needed. Only if you would rather use your own: create a free application at dev.twitch.tv/console/apps and enter both its Client ID and Client Secret (both are required - a Client ID alone is ignored). Yours stay on this PC (the secret is encrypted for your Windows account) and go straight to Twitch/IGDB. A build without the project's server uses IGDB only when you enter your own."
-                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />
-
-                <ui:TextBox PlaceholderText="IGDB Client ID"
-                            Text="{Binding IgdbClientId, UpdateSourceTrigger=LostFocus}" />
-
-                <ui:PasswordBox x:Name="IgdbSecretBox" PlaceholderText="IGDB Client Secret" Margin="0,8,0,0"
-                                LostFocus="IgdbSecretBox_LostFocus" />
-                <Grid Margin="0,6,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="A client secret is saved." FontSize="12" Opacity="0.7"
-                               VerticalAlignment="Center"
-                               Visibility="{Binding IgdbSecretSaved, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                    <ui:Button Grid.Column="1" Content="Remove secret" Click="RemoveIgdbSecret_Click"
-                               Visibility="{Binding IgdbSecretSaved, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                </Grid>
+                <TextBlock Text="Real box art is fetched automatically for every source - Steam through its own store, everything else through IGDB (SteamGridDB as a fallback). Nothing to set up, no account needed."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,4" />
 
                 <Separator Margin="0,20" />
 

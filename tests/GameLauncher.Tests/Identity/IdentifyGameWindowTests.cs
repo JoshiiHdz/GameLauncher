@@ -132,6 +132,55 @@ public class IdentifyGameWindowTests
     }
 
     [Fact]
+    public void CoverThumbnails_MatchTheCardsStretchAndAspectRatio_ForPortraitSquareAndWideThumbnails()
+    {
+        // A user picks a cover by its THUMBNAIL here; the card is what shows it afterwards. If the two ever disagreed (one cropping,
+        // one letterboxing) the user would see one image while choosing and a differently-cropped one once applied.
+        _sta.RunAsync(async () =>
+        {
+            using var h = new IdentityHarness();
+            var game = await h.Add(Games.Manual("manual-foo", "Foo"));
+            h.Sgdb.Cover = _ => new CatalogCoverResult(CoverLookupStatus.Resolved, TestBitmaps.Distinct(90), false);
+            h.Sgdb.Candidates = _ => [new CatalogCandidate(Cat.Sgdb, "B", "Bar", null, null)];
+            var first = new IdentifyGameViewModel(h.Vm, [h.Igdb, h.Sgdb], game.Id, game.Name);
+            await first.SearchCommand.ExecuteAsync(null);
+            first.SelectedCandidate = first.Candidates.Single();
+            await first.ConfirmCommand.ExecuteAsync(null);
+
+            h.Sgdb.Covers = _ => [new CoverChoice("portrait", "https://cdn2.steamgriddb.com/p.png", null),
+                                  new CoverChoice("square", "https://cdn2.steamgriddb.com/s.png", null),
+                                  new CoverChoice("wide", "https://cdn2.steamgriddb.com/w.png", null)]; // a SteamGridDB-banner shape
+            var sizes = new Dictionary<string, (int W, int H)> { ["portrait"] = (100, 300), ["square"] = (200, 200), ["wide"] = (400, 150) };
+            h.Sgdb.Download = url => TestImages.Png(sizes[url.Contains("/p.") ? "portrait" : url.Contains("/s.") ? "square" : "wide"].W,
+                sizes[url.Contains("/p.") ? "portrait" : url.Contains("/s.") ? "square" : "wide"].H);
+            var vm = new IdentifyGameViewModel(h.Vm, [h.Igdb, h.Sgdb], game.Id, game.Name);
+
+            var window = Show(vm, startOnCovers: true);
+            try
+            {
+                for (var i = 0; i < 10 && vm.Covers.All(c => c.Thumbnail is null); i++)
+                    Pump();
+
+                Assert.Equal(3, window.CoverList.Items.Count);
+                var thumbnailBorders = Descendants<Border>(window.CoverList).Where(b => b.Width == 92 && b.Height == 138).ToList();
+                Assert.Equal(3, thumbnailBorders.Count);
+                foreach (var border in thumbnailBorders)
+                {
+                    // The frame is always the card's own 2:3 ratio, whatever shape the source thumbnail is...
+                    Assert.Equal(92.0 / 138.0, 200.0 / 300.0, precision: 3);
+                    var image = Descendants<System.Windows.Controls.Image>(border).Single();
+                    // ...and the image inside it never crops, matching GameCardTemplate.xaml's GameArtImageStyle exactly.
+                    Assert.Equal(Stretch.Uniform, image.Stretch);
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void TheButtons_AreBoundToTheRealCommands_ConfirmWorksThroughTheWindow()
     {
         _sta.RunAsync(async () =>
@@ -240,6 +289,47 @@ public class IdentifyGameWindowTests
                 Assert.Equal(width, root.Clip.Bounds.Width);                                 // the rounded-corner clip covers the whole width...
                 Assert.Equal(artHeight + 30, root.Clip.Bounds.Height);                       // ...and the whole art + caption strip
                 Assert.Equal(width, root.ActualWidth);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void RealCoverArt_IsNeverCropped_MismatchedAspectRatiosLetterboxInstead()
+    {
+        // A real, confirmed case: some SteamGridDB covers are wide banners, not 2:3 posters. UniformToFill used to crop them - the
+        // artwork's own edges got cut off, not a layout bug - which is what "cover art is partially cut off" was.
+        _sta.RunAsync(async () =>
+        {
+            using var h = new IdentityHarness();
+            var game = await h.Add(Games.Manual("manual-cover", "Foo"));
+            game.Icon = TestBitmaps.Distinct(90);
+            game.IsCoverArt = true;
+            h.Vm.Games.Add(game);
+            var dict = new ResourceDictionary { Source = new Uri("pack://application:,,,/GameLauncher;component/Resources/GameCardTemplate.xaml") };
+            var main = new ItemsControl { ItemTemplate = (DataTemplate)dict["GameCardTemplate"] };
+            main.SetBinding(ItemsControl.ItemsSourceProperty, new Binding(nameof(LibraryViewModel.Games)));
+            var window = new System.Windows.Window
+            {
+                DataContext = h.Vm, Content = main, Width = 900, Height = 700,
+                WindowStartupLocation = WindowStartupLocation.Manual, Left = -5000, Top = -5000, ShowActivated = false,
+            };
+            window.Resources.MergedDictionaries.Add(dict);
+            window.Show();
+            window.UpdateLayout();
+            try
+            {
+                var button = Descendants<System.Windows.Controls.Button>(main).First(b => ReferenceEquals(b.DataContext, game));
+                var art = Descendants<System.Windows.Controls.Image>(button).First(i => BindingOperations.GetBinding(i, System.Windows.Controls.Image.SourceProperty)?.Path.Path == "Icon");
+
+                Assert.Equal(System.Windows.Media.Stretch.Uniform, art.Stretch);              // never UniformToFill: the whole image, nothing cropped
+                Assert.Equal(double.NaN, art.Width);                                          // still fills its layout slot (letterboxed within it)...
+                Assert.Equal(System.Windows.HorizontalAlignment.Stretch, art.HorizontalAlignment); // ...it's the Stretch mode that stops the crop, not the size
             }
             finally
             {

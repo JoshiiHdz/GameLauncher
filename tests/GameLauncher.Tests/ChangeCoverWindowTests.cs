@@ -175,13 +175,13 @@ public class ChangeCoverWindowTests
         });
     }
 
-    // ---- Portrait, square, and landscape previews all crop to the card's own 2:3 box -------------------
+    // ---- Portrait, square, and wide previews all letterbox in the card's own 2:3 box, never crop -------
 
     [Theory]
     [InlineData(100, 300)] // portrait
     [InlineData(200, 200)] // square
-    [InlineData(400, 150)] // landscape
-    public void PreviewBorder_AlwaysCropsToTheCardsExactAspectRatio_RegardlessOfSourceImageShape(int width, int height)
+    [InlineData(400, 150)] // wide (the SteamGridDB-banner shape that a crop used to cut real content off of)
+    public void PreviewBorder_MatchesTheCardsAspectRatioAndStretchMode_ForEveryShapeOfSourceImage(int width, int height)
     {
         _sta.RunAsync(async () =>
         {
@@ -189,19 +189,18 @@ public class ChangeCoverWindowTests
             var (window, _) = BuildDialog(image);
             try
             {
-                // 190x285 - the same 2:3 ratio (124x186) the library card itself uses. Fixed regardless
-                // of the source image's own aspect ratio: that invariance IS the fix - see
-                // ChangeCoverWindow.xaml's own remarks on why Stretch="Uniform" here was wrong.
+                // 190x285 - the same 2:3 ratio (200x300) the library card itself uses (GameCardTemplate.xaml's GameCardWidth/
+                // GameCardArtHeight). Fixed regardless of the source image's own aspect ratio - the FRAME never changes shape.
                 Assert.Equal(190, window.PreviewBorder.ActualWidth, precision: 0);
                 Assert.Equal(285, window.PreviewBorder.ActualHeight, precision: 0);
-                Assert.Equal(190.0 / 285.0, 124.0 / 186.0, precision: 3);
-                Assert.True(window.PreviewBorder.ClipToBounds, "The crop box must actually clip - UniformToFill alone only overflows, it doesn't crop, without ClipToBounds.");
+                Assert.Equal(190.0 / 285.0, 200.0 / 300.0, precision: 3);
+                Assert.True(window.PreviewBorder.ClipToBounds);
 
-                // The dimension/ratio asserts above pin the FRAME, not the image inside it - a frame of
-                // the right shape holding a Stretch="Uniform" (letterboxed, not cropped) image would
-                // satisfy every assertion above while showing exactly the wrong thing again. This is the
-                // one assertion that actually pins the crop behavior itself.
-                Assert.Equal(Stretch.UniformToFill, window.PreviewImageElement.Stretch);
+                // The dimension/ratio asserts above pin the FRAME, not the image inside it - a frame of the right shape holding a
+                // Stretch="UniformToFill" (cropped) image would satisfy every assertion above while showing exactly the wrong thing:
+                // real cover art the card itself would show in full. This is the assertion that actually pins the no-crop behavior,
+                // matching GameCardTemplate.xaml's GameArtImageStyle (IsCoverArt trigger: Stretch="Uniform").
+                Assert.Equal(Stretch.Uniform, window.PreviewImageElement.Stretch);
             }
             finally
             {

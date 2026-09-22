@@ -31,6 +31,13 @@ class Data(BaseHTTPRequestHandler):
         with LOCK:
             mode = STATE["mode"]
         if path.path == "/oauth2/token":
+            # Every relay test's credentials file uses exactly this pair - accepting anything the request happened to carry would
+            # hide a real bug (e.g. the wrong CRED_FILE being read because a scheduled renewal didn't get it forwarded): that hop
+            # would still "succeed" against this fake server even though it authenticated as someone else entirely.
+            posted = dict(pair.split("=", 1) for pair in body.split("&") if "=" in pair)
+            if mode not in ("token_400", "token_slow", "token_evil") and (
+                    posted.get("client_id") != "testclientid0000000001" or posted.get("client_secret") != "supersecrettestvalue0002"):
+                return self._send(400, '{"status":400,"message":"invalid client id or secret"}')
             with LOCK:
                 STATE["tokens"] += 1
                 n = STATE["tokens"]
@@ -57,6 +64,7 @@ class Data(BaseHTTPRequestHandler):
                 "tk_expfloat": {**good, "expires_in": 5000000.5},
                 "tk_expbool": {**good, "expires_in": True},
                 "tk_array": [good],
+                "tk_hour": {**good, "expires_in": 3600},   # the minimum VALID lifetime this refresh script accepts - not malformed, just short
             }
             if mode in variants:
                 return self._send(200, json.dumps(variants[mode]))
