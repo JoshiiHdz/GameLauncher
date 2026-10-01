@@ -20,7 +20,7 @@ public readonly record struct InstallSizeResult(InstallSizeOutcome Outcome, long
 }
 
 /// <summary>
-/// Estimates a game's install folder size for the "≈ N GB" figure a card shows once its drive is
+/// Estimates a game's install folder size for the "N GB" figure a card shows once its drive is
 /// selected (see LibraryViewModel.EstimateSizesForSelectedDriveAsync). Deliberately an ESTIMATE, not a
 /// figure meant to match Explorer's own Properties dialog exactly - cluster-size rounding and files
 /// that change mid-walk mean two honest walks of the same folder can disagree slightly too.

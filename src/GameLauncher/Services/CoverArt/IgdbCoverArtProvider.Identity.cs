@@ -1,6 +1,5 @@
 using System.IO;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Windows.Media.Imaging;
 using GameLauncher.Models;
@@ -14,7 +13,15 @@ namespace GameLauncher.Services.CoverArt;
 public sealed partial class IgdbCoverArtProvider
 {
     /// <summary>The id-keyed cache version. Bump when what makes a cached image trustworthy for its id changes.</summary>
-    internal const int IdCacheVersion = 3; // Higher-resolution source art. Valid v2 covers remain an offline fallback.
+    // v4: the cover is the game's own current `cover` (not the first /covers row, which could be an older one - e.g. Fortnite). Valid
+    // v3/v2 covers are kept only as an offline fallback and are replaced as soon as a fetch succeeds.
+    internal const int IdCacheVersion = 4;
+
+    /// <summary>A cached cover older than this is looked up again (IGDB replaces covers over time); the cached copy still serves if the
+    /// lookup fails, and a fresh copy is never re-fetched on every scan.</summary>
+    internal static readonly TimeSpan CoverRefreshInterval = TimeSpan.FromDays(30);
+
+    private static readonly int[] OlderIdCacheVersions = { 3, 2 };
 
     private static readonly string IdCacheDir = Path.Combine(AppPaths.DataDir, "CoverArtCache", "Igdb");
 
@@ -316,11 +323,34 @@ public sealed partial class IgdbCoverArtProvider
             return null;
 
         var root = cacheDirOverride ?? IdCacheDir;
-        return IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(root, id, IdCacheVersion), id, "IGDB")
-            ?? IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(root, id, 2), id, "IGDB");
+        return IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(root, id, IdCacheVersion), id, "IGDB") ?? ReadOlderCachedCover(root, id);
     }
 
-    /// <summary>The cover for `id`, by id, through the identity-bound cache: a hit needs no network and no title search.</summary>
+    /// <summary>The newest valid cover from an earlier cache version, or null: an offline fallback only, never preferred over a fetch.</summary>
+    private static BitmapImage? ReadOlderCachedCover(string root, string id)
+    {
+        foreach (var version in OlderIdCacheVersions)
+        {
+            if (IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(root, id, version), id, "IGDB") is { } older)
+                return older;
+        }
+
+        return null;
+    }
+
+    private static bool IsStale(string path)
+    {
+        try
+        {
+            return DateTime.UtcNow - File.GetLastWriteTimeUtc(path) > CoverRefreshInterval;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false; // can't tell: keep serving the verified copy
+        }
+    }
+
+    /// <summary>The cover for `id`, by id, through the identity-bound cache: a fresh hit needs no network and no title search.</summary>
     internal CatalogCoverResult FetchCoverForId(string id, string title, string? cacheDirOverride, CancellationToken ct)
     {
         BitmapImage? previousQuality = null;
@@ -333,19 +363,34 @@ public sealed partial class IgdbCoverArtProvider
             var cacheDir = cacheDirOverride ?? IdCacheDir;
             var path = IdKeyedCoverCache.PathFor(cacheDir, id, IdCacheVersion);
             if (IdKeyedCoverCache.TryRead(path, id, "IGDB") is { } cached)
-                return new CatalogCoverResult(CoverLookupStatus.Resolved, cached, true);
+            {
+                if (!IsStale(path))
+                    return new CatalogCoverResult(CoverLookupStatus.Resolved, cached, true);
 
-            previousQuality = IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(cacheDir, id, 2), id, "IGDB");
+                // Old enough that IGDB may have replaced it: look again, and keep this copy if that lookup fails.
+                Logger.Info($"IGDB: cached cover for game {id} ('{title}') is over {CoverRefreshInterval.TotalDays:0} days old - checking for a newer one.");
+                previousQuality = cached;
+            }
+            else
+            {
+                previousQuality = ReadOlderCachedCover(cacheDir, id);
+                if (previousQuality is not null)
+                    Logger.Info($"IGDB: game {id} ('{title}') only has a cover cached by an older version - fetching the current one (the old one stays as an offline fallback).");
+            }
 
             var imageUrl = GetCoverImageUrl(gameId, ct);
             var bytes = imageUrl is null ? null : FetchBoundedImageBytes(imageUrl, ct);
             var decoded = bytes is null ? null : ValidateBytes(bytes, title);
             if (bytes is null || decoded is null)
+            {
+                Logger.Warn($"IGDB: game {id} ('{title}') has no usable cover image" + (previousQuality is not null ? " - keeping the cover already cached." : "."));
                 return previousQuality is not null
                     ? new CatalogCoverResult(CoverLookupStatus.Resolved, previousQuality, true)
                     : new CatalogCoverResult(CoverLookupStatus.IdentifiedWithoutUsableArt, null, false);
+            }
 
             ct.ThrowIfCancellationRequested(); // a cancelled lookup caches nothing
+            Logger.Info($"IGDB: fetched the current cover for game {id} ('{title}'), {decoded.PixelWidth}x{decoded.PixelHeight}.");
             IdKeyedCoverCache.Write(path, id, title, bytes);
             return new CatalogCoverResult(CoverLookupStatus.Resolved, decoded, false);
         }
@@ -355,7 +400,7 @@ public sealed partial class IgdbCoverArtProvider
         }
         catch (Exception ex)
         {
-            Logger.Warn($"IGDB: cover fetch for game {id} failed - unavailable.", ex);
+            Logger.Warn($"IGDB: cover fetch for game {id} failed - unavailable" + (previousQuality is not null ? "; showing the cover already cached." : "."), ex);
             return previousQuality is not null
                 ? new CatalogCoverResult(CoverLookupStatus.Resolved, previousQuality, true)
                 : new CatalogCoverResult(CoverLookupStatus.Unavailable, null, false);
@@ -503,6 +548,35 @@ public sealed partial class IgdbCoverArtProvider
                 var url = $"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/{imageId.GetString()}.jpg";
                 choices.Add(new CoverChoice(imageId.GetString()!, url, url));
             }
+        }
+
+        // The game's own current cover leads the list (best effort - the listing above still stands if this lookup fails).
+        try
+        {
+            var currentJson = SendApicalypseQuery("games", $"fields cover.image_id; where id = {gameId};", GetAccessToken(ct), ct);
+            if (SelectGameCoverImageId(currentJson, gameId) is { } currentId)
+            {
+                var index = choices.FindIndex(c => c.Ref == currentId);
+                if (index > 0)
+                {
+                    var current = choices[index];
+                    choices.RemoveAt(index);
+                    choices.Insert(0, current);
+                }
+                else if (index < 0)
+                {
+                    var url = $"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/{currentId}.jpg";
+                    choices.Insert(0, new CoverChoice(currentId, url, url));
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"IGDB: couldn't look up game {gameId}'s current cover to order the Choose Cover list.", ex);
         }
 
         return choices;

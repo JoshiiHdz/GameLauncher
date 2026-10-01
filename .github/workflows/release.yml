@@ -238,6 +238,19 @@ jobs:
           gh release upload ${{ github.ref_name }} installer\Output\GameLauncher-Setup.exe
           --repo ${{ github.repository }} --clobber
 
+      # vpk upload github publishes everything vpk pack produced. Two of those are not for end users: its own plain
+      # Setup.exe (only an INPUT to the wrapped installer above, which has already embedded it) and the portable zip -
+      # next to the real installer they only invite downloading the wrong file. The updater needs neither (it reads the
+      # feed and the .nupkg files), so they come off the release. Best effort: if a delete fails the release still
+      # publishes, just with the extra file.
+      - name: Remove release files end users do not need
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete-asset ${{ github.ref_name }} GameLauncher-win-Setup.exe --repo ${{ github.repository }} --yes
+          gh release delete-asset ${{ github.ref_name }} GameLauncher-win-Portable.zip --repo ${{ github.repository }} --yes
+
       # Only now, with both the Velopack feed assets and the wrapped installer confirmed present, does
       # the release actually become visible. --latest explicitly marks it as the newest release rather
       # than relying on publish-time ordering to decide that on its own.

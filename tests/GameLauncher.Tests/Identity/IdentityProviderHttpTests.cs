@@ -330,6 +330,154 @@ public class IdentityProviderHttpTests : IDisposable
             Assert.Contains("/t_cover_big_2x/", requestedImage);
     }
 
+    // IGDB can list more than one row in /covers for a game (replaced or localised art). The card used to take the first row, while the
+    // picker thumbnails showed the game's own current `cover` - so the card could keep an older cover than the one IGDB shows.
+    [Fact]
+    public void IgdbCover_UsesTheGamesOwnCurrentCover_NotTheFirstRowOfTheCoversTable()
+    {
+        var cache = Dir();
+        var requested = new List<string>();
+        var handler = IgdbApi((path, _) => path.EndsWith("/games", StringComparison.Ordinal)
+                ? Ok("""[{"id":7,"cover":{"id":900,"image_id":"co_new"}}]""")
+                : Ok("""[{"id":1,"image_id":"co_old"},{"id":900,"image_id":"co_new"}]"""),
+            request =>
+            {
+                requested.Add(request.RequestUri!.AbsoluteUri);
+                return Bytes(TestImages.Png(528, 748));
+            });
+
+        var result = Igdb(handler).FetchCoverForId("7", "Fortnite", cache, CancellationToken.None);
+
+        Assert.Equal(CoverLookupStatus.Resolved, result.Status);
+        Assert.Equal(["https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co_new.jpg"], requested);
+        Assert.Equal(1, handler.ApiCalls); // the games lookup answered it; the covers table was never needed
+    }
+
+    [Fact]
+    public void IgdbCover_AGameWithNoCoverField_FallsBackToTheCoversListing()
+    {
+        var cache = Dir();
+        string? requested = null;
+        var handler = IgdbApi((path, _) => path.EndsWith("/games", StringComparison.Ordinal)
+                ? Ok("""[{"id":7}]""")
+                : Ok("""[{"id":1,"image_id":"co_listed"}]"""),
+            request =>
+            {
+                requested = request.RequestUri!.AbsoluteUri;
+                return Bytes(TestImages.Png(528, 748));
+            });
+
+        Assert.Equal(CoverLookupStatus.Resolved, Igdb(handler).FetchCoverForId("7", "Foo", cache, CancellationToken.None).Status);
+        Assert.EndsWith("/co_listed.jpg", requested);
+        Assert.Equal(2, handler.ApiCalls);
+    }
+
+    [Theory]
+    [InlineData("""{"not":"an array"}""")]
+    [InlineData("""[7]""")]
+    [InlineData("""[{"id":7,"cover":123}]""")]                          // expansion unavailable: a bare id is unreadable, not "no cover"
+    [InlineData("""[{"id":7,"cover":{"id":9}}]""")]
+    [InlineData("""[{"id":7,"cover":{"id":9,"image_id":"  "}}]""")]
+    public void SelectGameCoverImageUrl_AnUnreadableAnswer_Throws_NeverReadAsNoCover(string body)
+    {
+        Assert.Throws<InvalidDataException>(() => IgdbCoverArtProvider.SelectGameCoverImageUrl(body, 7));
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("""[{"id":7}]""")]
+    [InlineData("""[{"id":7,"cover":null}]""")]
+    [InlineData("""[{"id":8,"cover":{"id":9,"image_id":"other"}}]""")]  // a different game's entry is not ours
+    public void SelectGameCoverImageUrl_NoCoverForThisGame_IsNull(string body)
+    {
+        Assert.Null(IgdbCoverArtProvider.SelectGameCoverImageUrl(body, 7));
+    }
+
+    [Fact]
+    public void SelectGameCoverImageUrl_BuildsTheCdnUrlFromTheGamesCover()
+    {
+        Assert.Equal("https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co1xyz.jpg",
+            IgdbCoverArtProvider.SelectGameCoverImageUrl("""[{"id":7,"cover":{"id":1,"image_id":"co1xyz"}}]""", 7));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IgdbCover_AnOldCachedCover_IsLookedUpAgain_AndStillServesIfThatFails(bool offline)
+    {
+        var cache = Dir();
+        var path = IdKeyedCoverCache.PathFor(cache, "7", IgdbCoverArtProvider.IdCacheVersion);
+        IdKeyedCoverCache.Write(path, "7", "Fortnite", TestImages.Png(60, 90));
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow - IgdbCoverArtProvider.CoverRefreshInterval - TimeSpan.FromDays(1));
+        var handler = IgdbApi((_, _) => offline
+            ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            : Ok("""[{"id":7,"cover":{"id":1,"image_id":"co_new"}}]"""), _ => Bytes(TestImages.Png(528, 748)));
+
+        var result = Igdb(handler).FetchCoverForId("7", "Fortnite", cache, CancellationToken.None);
+
+        Assert.Equal(CoverLookupStatus.Resolved, result.Status);
+        Assert.NotNull(result.Image);
+        Assert.Equal(offline, result.FromCache);
+        Assert.Equal(1, handler.ApiCalls);
+        // A successful refresh stamps the file as new again, so the next scan is not another lookup.
+        Assert.Equal(!offline, DateTime.UtcNow - File.GetLastWriteTimeUtc(path) < TimeSpan.FromMinutes(5));
+    }
+
+    [Fact]
+    public void IgdbCover_AFreshCachedCover_IsNotLookedUpAgain()
+    {
+        var cache = Dir();
+        var path = IdKeyedCoverCache.PathFor(cache, "7", IgdbCoverArtProvider.IdCacheVersion);
+        IdKeyedCoverCache.Write(path, "7", "Fortnite", TestImages.Png(60, 90));
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow - TimeSpan.FromDays(3));
+        var handler = IgdbApi((_, _) => Ok("[]"));
+
+        var result = Igdb(handler).FetchCoverForId("7", "Fortnite", cache, CancellationToken.None);
+
+        Assert.True(result.FromCache);
+        Assert.Equal(0, handler.ApiCalls);
+    }
+
+    [Fact]
+    public void IgdbCover_AV3CacheFromTheOldSelection_IsReplacedByTheCurrentCover_NotServedForever()
+    {
+        var cache = Dir();
+        IdKeyedCoverCache.Write(IdKeyedCoverCache.PathFor(cache, "7", 3), "7", "Fortnite", TestImages.Png(60, 90));
+        var handler = IgdbApi((_, _) => Ok("""[{"id":7,"cover":{"id":1,"image_id":"co_new"}}]"""), _ => Bytes(TestImages.Png(528, 748)));
+
+        var result = Igdb(handler).FetchCoverForId("7", "Fortnite", cache, CancellationToken.None);
+
+        Assert.False(result.FromCache);                                  // fetched, not served from the old version
+        Assert.True(File.Exists(IdKeyedCoverCache.PathFor(cache, "7", IgdbCoverArtProvider.IdCacheVersion)));
+        Assert.Equal(1, handler.ImageCalls);
+    }
+
+    [Fact]
+    public void IgdbChooseCover_PutsTheGamesCurrentCoverFirst()
+    {
+        var handler = IgdbApi((path, _) => path.EndsWith("/games", StringComparison.Ordinal)
+            ? Ok("""[{"id":7,"cover":{"id":2,"image_id":"co_current"}}]""")
+            : Ok("""[{"id":1,"image_id":"co_old"},{"id":2,"image_id":"co_current"}]"""));
+
+        var choices = Igdb(handler).ListCoversForId("7", CancellationToken.None);
+
+        Assert.Equal(["co_current", "co_old"], choices.Select(c => c.Ref).ToArray());
+    }
+
+    [Fact]
+    public void IgdbChooseCover_ACurrentCoverMissingFromTheListing_IsAddedFirst_AndALookupFailureKeepsTheListing()
+    {
+        var added = Igdb(IgdbApi((path, _) => path.EndsWith("/games", StringComparison.Ordinal)
+            ? Ok("""[{"id":7,"cover":{"id":2,"image_id":"co_current"}}]""")
+            : Ok("""[{"id":1,"image_id":"co_old"}]"""))).ListCoversForId("7", CancellationToken.None);
+        Assert.Equal(["co_current", "co_old"], added.Select(c => c.Ref).ToArray());
+
+        var failed = Igdb(IgdbApi((path, _) => path.EndsWith("/games", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            : Ok("""[{"id":1,"image_id":"co_old"}]"""))).ListCoversForId("7", CancellationToken.None);
+        Assert.Equal(["co_old"], failed.Select(c => c.Ref).ToArray());
+    }
+
     [Fact]
     public void IgdbCover_IsFetchedByIdOnce_ThenServedFromTheCacheWithNoNetworkAtAll()
     {

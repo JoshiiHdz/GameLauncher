@@ -191,7 +191,7 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
         PumpDispatcher();
 
         var items = menu.Items.OfType<MenuItem>().ToList();
-        var changeCover = items.Single(i => i.Header as string == "Change cover...");
+        var changeCover = items.Single(i => i.Header as string == "Change Cover Manually");
         var reset = items.Single(i => i.Header as string == "Reset cover to automatic");
         return (changeCover, reset);
     }
@@ -750,16 +750,15 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.Same(overflow, menu.PlacementTarget);
 
                 var items = menu.Items.OfType<MenuItem>().ToList();
-                Assert.Equal(9, items.Count); // the 8 actions, plus the name header
+                Assert.Equal(8, items.Count); // the 7 actions, plus the name header
                 Assert.Equal(game.Name, GetMenuHeaderText(menu));
                 var play = items.Single(i => i.Header as string == "Play");
                 var openLocation = items.Single(i => i.Header as string == "Open install location");
                 var favorite = items.Single(i => i.Header as string == "Add to favorites"); // game starts un-favorited
                 var hide = items.Single(i => i.Header as string == "Hide from library"); // game starts un-hidden
-                var changeCover = items.Single(i => i.Header as string == "Change cover...");
+                var changeCover = items.Single(i => i.Header as string == "Change Cover Manually");
                 var reset = items.Single(i => i.Header as string == "Reset cover to automatic");
                 var identify = items.Single(i => i.Header as string == "Identify game...");
-                var chooseCatalog = items.Single(i => i.Header as string == "Choose cover from catalog...");
 
                 Assert.Same(game, play.CommandParameter);
                 Assert.Same(game, openLocation.CommandParameter);
@@ -768,7 +767,6 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.Same(game, changeCover.CommandParameter);
                 Assert.Same(game, reset.CommandParameter);
                 Assert.Same(game, identify.CommandParameter);
-                Assert.Same(game, chooseCatalog.CommandParameter);
                 Assert.Same(vm.LaunchCommand, play.Command);
                 Assert.Same(vm.OpenInstallLocationCommand, openLocation.Command);
                 Assert.Same(vm.ToggleFavoriteCommand, favorite.Command);
@@ -776,7 +774,7 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.Same(vm.ChangeCoverCommand, changeCover.Command);
                 Assert.Same(vm.ResetCoverCommand, reset.Command);
                 Assert.Same(vm.IdentifyGameCommand, identify.Command);
-                Assert.Same(vm.ChooseCatalogCoverCommand, chooseCatalog.Command);
+                Assert.DoesNotContain(items, i => i.Header as string == "Choose cover from catalog..."); // the cover section is just these three
             }
             finally
             {

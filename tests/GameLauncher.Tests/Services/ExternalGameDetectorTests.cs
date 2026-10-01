@@ -36,6 +36,33 @@ public sealed class ExternalGameDetectorTests
     }
 
     [Fact]
+    public void ThePrebuiltIndex_GivesTheSameAnswerAsDetectingFromTheListEveryTime()
+    {
+        var provider = new FakeProcessProvider();
+        provider.AddRunning(1, "Game", @"C:\Games\One\Game.exe");
+        var detector = new ExternalGameDetector(provider);
+        ExternalGameCandidate[] games = [new("one", @"C:\Games\One\Game.exe"), new("two", @"C:\Games\Two\Other.exe"),
+            new("dup-a", @"C:\Same\Same.exe"), new("dup-b", @"C:\Same\Same.exe"), new("uri", "")];
+
+        var index = detector.BuildIndex(games);
+
+        Assert.Equal(2, index.PathCount);                       // the shared path and the empty one are not indexed
+        Assert.Equal(["Game", "Other"], index.Names.OrderBy(n => n).ToArray());
+        Assert.Equal(detector.Detect(games, default).Select(g => g.GameId), detector.Detect(index, default).Select(g => g.GameId));
+        Assert.Equal("one", Assert.Single(detector.Detect(index, default)).GameId);
+        Assert.Equal("one", Assert.Single(detector.Detect(index, default)).GameId);   // and it is reusable poll after poll
+    }
+
+    [Fact]
+    public void AnEmptyIndex_NeverEnumeratesProcesses()
+    {
+        var provider = new FakeProcessProvider();
+        var detector = new ExternalGameDetector(provider);
+
+        Assert.Empty(detector.Detect(detector.BuildIndex([new("uri", "")]), default));
+    }
+
+    [Fact]
     public void CancellationDoesNotBecomeAnEmptyResult()
     {
         Assert.Throws<OperationCanceledException>(() => new ExternalGameDetector(new FakeProcessProvider())

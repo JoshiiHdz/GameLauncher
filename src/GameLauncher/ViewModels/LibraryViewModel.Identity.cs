@@ -1,10 +1,8 @@
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
-using System.Windows.Media.Imaging;
 using GameLauncher.Models;
 using GameLauncher.Serialization;
 using GameLauncher.Services;
-using GameLauncher.Services.CoverArt;
 using GameLauncher.Services.Identity;
 
 namespace GameLauncher.ViewModels;

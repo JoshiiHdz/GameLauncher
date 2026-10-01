@@ -52,17 +52,21 @@ public class LibraryViewModelDriveFilterTests : IDisposable
 
     // ---- Filtering ---------------------------------------------------------------------------------
 
-    [Theory]
-    [InlineData(512L, "512 B")]
-    [InlineData(2048L, "≈ 2 KB")]
-    [InlineData(524288000L, "≈ 500 MB")]
-    [InlineData(2147483648L, "≈ 2 GB")]
-    [InlineData(2199023255552L, "≈ 2 TB")]
-    public void InstallSizes_UseReadableUnits(long bytes, string expected)
+    [Fact]
+    public void TheSizeText_IsEmptyUntilMeasured_ClearsWithTheSize_AndNeverCarriesAnApproximationSign()
     {
         var game = MakeGame("sized", @"G:\Games\Sized");
-        game.InstallSizeBytes = bytes;
-        Assert.Equal(expected, game.InstallSizeDisplay);
+        Assert.Equal("", game.InstallSizeDisplay);
+
+        foreach (var bytes in new[] { 512L, 2048L, 524288000L, 2147483648L, 2199023255552L })
+        {
+            game.InstallSizeBytes = bytes;
+            Assert.DoesNotContain("≈", game.InstallSizeDisplay);
+            Assert.DoesNotContain("~", game.InstallSizeDisplay);
+        }
+
+        game.InstallSizeBytes = null;
+        Assert.Equal("", game.InstallSizeDisplay);
     }
 
     [Fact]
@@ -235,6 +239,6 @@ public class LibraryViewModelDriveFilterTests : IDisposable
         _sut.SelectDriveCommand.Execute("G:");
 
         Assert.True(onG.HasInstallSize);
-        Assert.Equal("≈ 2 GB", onG.InstallSizeDisplay);
+        Assert.Equal("2 GB", onG.InstallSizeDisplay);
     }
 }

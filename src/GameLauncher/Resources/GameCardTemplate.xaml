@@ -48,17 +48,33 @@
              "x") just closes the menu, like any other plain MenuItem click; Tag="MenuHeader" is only so
              tests can find this row without matching on its game-specific text. -->
         <MenuItem Tag="MenuHeader" FontWeight="SemiBold">
+            <MenuItem.Template>
+                <ControlTemplate TargetType="MenuItem">
+                    <Border x:Name="Row" Background="Transparent" CornerRadius="4" Margin="1,0" Padding="12,0,0,0">
+                        <ContentPresenter ContentSource="Header" HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{StaticResource DesignSurface2}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </MenuItem.Template>
             <MenuItem.Header>
-                <Grid MinWidth="190">
+                <Grid MinWidth="220" Height="32">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="MenuHeaderName" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"
+                    <TextBlock x:Name="MenuHeaderName" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0"
                                TextTrimming="CharacterEllipsis"
                                Text="{Binding PlacementTarget.DataContext.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                    <ui:SymbolIcon Grid.Column="1" Symbol="Dismiss24" FontSize="12" Opacity="0.65"
-                                   VerticalAlignment="Center" ToolTip="Close menu" />
+                    <Border Grid.Column="1" Width="1" Margin="0,7" Background="{StaticResource DesignMuted}" Opacity="0.4" />
+                    <Border Grid.Column="2" Width="30" ToolTip="Close menu">
+                        <ui:SymbolIcon Symbol="Dismiss24" FontSize="12" Opacity="0.75"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0" />
+                    </Border>
                 </Grid>
             </MenuItem.Header>
         </MenuItem>
@@ -88,21 +104,11 @@
                 <ui:SymbolIcon Symbol="Star24" FontSize="15" />
             </MenuItem.Icon>
         </MenuItem>
-        <MenuItem Header="Change cover..."
+        <MenuItem Header="Change Cover Manually"
                   Command="{Binding PlacementTarget.Tag.ChangeCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                   CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
             <MenuItem.Icon>
                 <ui:SymbolIcon Symbol="Image24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
-        <!-- Not in the design's own menu, which has no catalog picker to reach - but this is the only
-             entry point to it, so dropping the row would delete the feature rather than restyle it.
-             Grouped with Change cover since both choose an IMAGE and neither touches identity. -->
-        <MenuItem Header="Choose cover from catalog..."
-                  Command="{Binding PlacementTarget.Tag.ChooseCatalogCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="ImageMultiple24" FontSize="15" />
             </MenuItem.Icon>
         </MenuItem>
         <!-- Identity and artwork are two separate decisions: "Identify game" says WHICH game this is,
@@ -363,15 +369,15 @@
                          in the design. The name is held at two lines' height so the rows of a grid stay
                          aligned whether a title wraps or not. -->
                     <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="Medium"
-                               Margin="0,9,0,0" Height="34" LineHeight="16.5" LineStackingStrategy="BlockLineHeight"
+                               Margin="0,8,0,0" MaxHeight="34" LineHeight="16.5" LineStackingStrategy="BlockLineHeight"
                                TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
                                ToolTip="{Binding Name}"
                                Foreground="{StaticResource DesignInk}" />
-                    <TextBlock FontSize="11" Foreground="{StaticResource DesignMuted}" Margin="0,2,0,0"
+                    <TextBlock FontSize="11" Foreground="{StaticResource DesignMuted}" Margin="0,1,0,0"
                                TextTrimming="CharacterEllipsis"
                                Text="{Binding Source, Converter={x:Static conv:GameSourceDisplayConverter.Instance}}" />
                     <!-- Storage information belongs to the selected-drive view, never on the artwork. -->
-                    <Border x:Name="InstallSizePanel" Margin="0,9,0,0" Padding="9,7" CornerRadius="6"
+                    <Border x:Name="InstallSizePanel" Margin="0,5,0,0" Padding="8,3" CornerRadius="5"
                             Background="{StaticResource DesignSurface}" BorderBrush="{StaticResource DesignStroke}" BorderThickness="1"
                             ToolTip="Approximate installed file size. Shared files and compression can affect actual disk usage."
                             Visibility="{Binding DataContext.HasSelectedDriveFilter, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">

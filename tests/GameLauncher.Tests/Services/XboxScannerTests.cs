@@ -530,6 +530,55 @@ public class XboxScannerTests : IDisposable
         Assert.Equal("Call of Duty: Black Ops 7", entry!.Name);
     }
 
+    // ---- Hub installs: the real title comes from the publisher's sibling packages ---------------------
+    // Real package names from an Xbox install whose only COD package is the hub ("38985CA0.COREBase" -> "Call of Duty(R)"); the
+    // title itself is named only by its DLC/stub siblings.
+
+    private static readonly string[] RealCodSiblings =
+    {
+        "38985CA0.COREBase", "38985CA0.BO7DLC56GamePassPack03", "38985CA0.BO7DLC17StandardLaunchTracker",
+        "38985CA0.BO7DLC01GameStub01", "38985CA0.BO7DLC19GamePassLaunchTracker", "Kwalee.ShiftAtMidnight",
+    };
+
+    [Theory]
+    [InlineData("Call of Duty")]
+    [InlineData("Call of Duty®")]
+    [InlineData("Call of Duty ")]
+    public void HubCatalogName_TheBareHubWithBlackOps7Siblings_NamesTheTitle(string hubName)
+    {
+        var siblings = XboxScanner.SamePublisher(RealCodSiblings, "38985CA0.COREBase");
+
+        Assert.Equal("Call of Duty: Black Ops 7", XboxScanner.ResolveHubCatalogName(hubName, siblings));
+    }
+
+    [Fact]
+    public void HubCatalogName_OtherPublishersPackages_NeverCount()
+    {
+        Assert.Equal(["38985CA0.COREBase", "38985CA0.BO7DLC56GamePassPack03", "38985CA0.BO7DLC17StandardLaunchTracker",
+                "38985CA0.BO7DLC01GameStub01", "38985CA0.BO7DLC19GamePassLaunchTracker"],
+            XboxScanner.SamePublisher(RealCodSiblings, "38985CA0.COREBase"));
+        Assert.Null(XboxScanner.ResolveHubCatalogName("Call of Duty", XboxScanner.SamePublisher(RealCodSiblings, "Kwalee.ShiftAtMidnight")));
+    }
+
+    [Theory]
+    [InlineData("Fortnite")]                                // not a hub name: never given a hint, whatever the siblings say
+    [InlineData("Call of Duty: Black Ops 7")]               // already specific
+    public void HubCatalogName_ANonHubName_GetsNoHint(string name) =>
+        Assert.Null(XboxScanner.ResolveHubCatalogName(name, RealCodSiblings));
+
+    public static IEnumerable<object[]> SiblingsNamingNoKnownTitle() => new[]
+    {
+        new object[] { Array.Empty<string>() },                                   // no siblings: nothing says which title it is
+        new object[] { new[] { "38985CA0.COREBase" } },
+        new object[] { new[] { "38985CA0.ZZ9DLC01GameStub01" } },                 // a code nobody has verified: not guessed
+        new object[] { new[] { "38985CA0.BO7Season1", "38985CA0.NotACode" } },    // not the DLC/stub naming the rule reads
+    };
+
+    [Theory]
+    [MemberData(nameof(SiblingsNamingNoKnownTitle))]
+    public void HubCatalogName_NoKnownTitleInTheSiblings_GivesNoHint(string[] siblings) =>
+        Assert.Null(XboxScanner.ResolveHubCatalogName("Call of Duty", siblings));
+
     // ---- Full Scan(): what gets filtered before ever reaching BuildCandidateEntry ---------------------
 
     [Theory]

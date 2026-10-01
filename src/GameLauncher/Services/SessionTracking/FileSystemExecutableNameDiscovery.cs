@@ -1,5 +1,4 @@
 using System.IO;
-using GameLauncher.Services;
 
 namespace GameLauncher.Services.SessionTracking;
 

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using GameLauncher.Models;
+using GameLauncher.Services.CoverArt;
 
 namespace GameLauncher.Services;
 
@@ -85,6 +86,7 @@ public static class XboxScanner
         ct.ThrowIfCancellationRequested();
         var packagedApps = StartAppsResolver.GetPackagedApps(ct);
         var packages = XboxPackageDiscovery.GetInstalledPackages(ct);
+        var installedPackageNames = packages.Where(p => Directory.Exists(p.InstallLocation)).Select(p => p.Name).ToList();
 
         // ---- 1: package registration (authoritative install locations + identity) --------------------
         foreach (var package in packages)
@@ -115,7 +117,8 @@ public static class XboxScanner
             }
 
             var entry = BuildCandidateEntry(package.InstallLocation, folderName, package.PackageFamilyName, packagedApps, ct,
-                canonicalIdRoot: canonicalTopLevelFolder, metadataRejectedSearch: out var metadataRejectedSearch);
+                canonicalIdRoot: canonicalTopLevelFolder, metadataRejectedSearch: out var metadataRejectedSearch,
+                siblingPackageNames: SamePublisher(installedPackageNames, package.Name));
 
             if (entry is not null)
             {
@@ -196,6 +199,7 @@ public static class XboxScanner
                                 Id = registered.Id,
                                 LegacyId = entry.LegacyId ?? (entry.Id != registered.Id ? entry.Id : registered.LegacyId),
                                 Name = registered.Name,
+                                CatalogName = registered.CatalogName,
                                 Source = GameSource.Xbox,
                                 InstallDir = entry.InstallDir,
                                 ExecutablePath = entry.ExecutablePath,
@@ -271,7 +275,7 @@ public static class XboxScanner
     internal static GameEntry? BuildCandidateEntry(string installRoot, string folderOrPackageName,
         string? packageFamilyName, IReadOnlyList<(string Name, string Aumid)> packagedApps, CancellationToken ct,
         out bool metadataRejectedSearch, int searchMaxDirectoriesToVisit = 20_000, TimeSpan? searchTimeBudget = null,
-        string? canonicalIdRoot = null, bool forceRejected = false)
+        string? canonicalIdRoot = null, bool forceRejected = false, IReadOnlyList<string>? siblingPackageNames = null)
     {
         var manifest = XboxGameManifest.ReadLaunchTarget(installRoot);
 
@@ -388,6 +392,18 @@ public static class XboxScanner
             Logger.Info($"  Xbox: '{folderOrPackageName}' is actually '{displayName}'.");
         }
 
+        var catalogName = siblingPackageNames is null ? null : ResolveHubCatalogName(displayName, siblingPackageNames);
+        if (catalogName is not null)
+        {
+            Logger.Info($"  Xbox: '{displayName}' is a multi-title hub package; the publisher's installed sibling packages name the title as "
+                + $"'{catalogName}' - searching cover art for that (the card keeps the name '{displayName}').");
+        }
+        else if (siblingPackageNames is not null && SteamGridDbCoverArtProvider.IsAmbiguousUmbrellaProduct(displayName))
+        {
+            Logger.Warn($"  Xbox: '{displayName}' is a multi-title hub package and no installed sibling package names a known title "
+                + "- cover art is not searched automatically for it (Identify Game can pick the title).");
+        }
+
         return new GameEntry
         {
             Id = $"xbox-{StableId(packageFamilyName ?? canonicalIdRoot ?? installRoot)}",
@@ -398,6 +414,7 @@ public static class XboxScanner
             // existed at all). Null whenever Id is already folder-based itself - nothing to reconcile.
             LegacyId = packageFamilyName is not null && canonicalIdRoot is not null ? $"xbox-{StableId(canonicalIdRoot)}" : null,
             Name = displayName,
+            CatalogName = catalogName,
             // A directory (not a file) when no CONFIRMED exe was found - IconService already treats a
             // directory ExecutablePath as "look for an icon inside it", the same handling every other
             // exe-less packaged entry already relies on; not a special case invented for this. Never the
@@ -409,6 +426,51 @@ public static class XboxScanner
             // apps - shell:appsFolder is how a real shortcut actually launches one.
             LaunchUri = aumid is null ? null : $"shell:appsFolder\\{aumid}",
         };
+    }
+
+    /// <summary>Title codes Activision's Game Pass packages carry in their sibling DLC/stub package names
+    /// ("38985CA0.BO7DLC01GameStub01" -> BO7), mapped to the real catalog title. Hand-verified entries only - one
+    /// seen in a real install's package list; extend it the same way (a code is added when a real install shows
+    /// it), never from a pattern guess.</summary>
+    private static readonly Dictionary<string, string> KnownHubTitleCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["BO7"] = "Call of Duty: Black Ops 7",
+    };
+
+    private static readonly Regex HubTitleCodePattern = new(
+        @"^[^.]+\.(?<code>[A-Za-z]{2,4}\d{1,2})DLC", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>Other installed packages from the same publisher as `packageName` (the text before its first dot).</summary>
+    internal static IReadOnlyList<string> SamePublisher(IReadOnlyList<string> installedPackageNames, string packageName)
+    {
+        var dot = packageName.IndexOf('.');
+        if (dot <= 0)
+            return Array.Empty<string>();
+
+        var prefix = packageName[..(dot + 1)];
+        return installedPackageNames.Where(n => n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    /// <summary>The real catalog title for a multi-title "hub" install, or null. Xbox registers Call of Duty as ONE
+    /// package named just "Call of Duty" whichever yearly title is installed; covers are never guessed for that bare name
+    /// (SteamGridDbCoverArtProvider.IsAmbiguousUmbrellaProduct), so such a game never got one. What does name the title is
+    /// the publisher's own sibling DLC/stub packages ("...BO7DLC01GameStub01"). It counts only when the display name IS the
+    /// bare hub name and those siblings name exactly ONE known title; two different known titles, or none, give no hint.
+    /// Name is untouched - this only feeds automatic cover matching, like EaScanner's CatalogName.</summary>
+    internal static string? ResolveHubCatalogName(string displayName, IEnumerable<string> siblingPackageNames)
+    {
+        if (!SteamGridDbCoverArtProvider.IsAmbiguousUmbrellaProduct(displayName))
+            return null;
+
+        var titles = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var name in siblingPackageNames)
+        {
+            var match = HubTitleCodePattern.Match(name);
+            if (match.Success && KnownHubTitleCodes.TryGetValue(match.Groups["code"].Value, out var title))
+                titles.Add(title);
+        }
+
+        return titles.Count == 1 ? titles.First() : null;
     }
 
     /// <summary>Resolves a manifest's ambiguity using ONLY independent, corroborating evidence - never a

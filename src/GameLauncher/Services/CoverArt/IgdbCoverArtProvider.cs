@@ -35,7 +35,9 @@ public sealed partial class IgdbCoverArtProvider : ICoverArtProvider
 {
     // v1: first version. Bump when changing match/selection logic, exactly as SteamGridDbCoverArtProvider
     // documents on its own CacheVersion.
-    private const int CacheVersion = 1;
+    // v2: the cover is now the game's own current `cover`, not the first row of the /covers table - a cover cached
+    // by v1 may be an older one than IGDB lists, so it is forgotten and fetched again.
+    private const int CacheVersion = 2;
 
     internal static int CacheVersionForTest => CacheVersion;
 
@@ -453,7 +455,7 @@ public sealed partial class IgdbCoverArtProvider : ICoverArtProvider
 
     private MatchSelection SearchGameId(string searchName, CancellationToken ct)
     {
-        var query = $"search \"{EscapeApicalypseString(searchName)}\"; fields name; limit 20;";
+        var query = $"search \"{EscapeApicalypseString(searchName)}\"; fields name,parent_game,version_parent; limit 20;";
 
         // Token acquisition happens unconditionally, even when SearchRequestOverride substitutes the
         // actual HTTP response - SearchRequestOverride is transport-level for the SEARCH call
@@ -499,8 +501,8 @@ public sealed partial class IgdbCoverArtProvider : ICoverArtProvider
         // not an object, no usable name, or a matching name with no usable positive id - throws
         // InvalidDataException, which GetCoverArt's boundary reports as Unavailable. It used to be skipped, so
         // one readable exact match beside one unreadable one resolved as if it were unique.
-        var confident = CatalogResponseReader.ReadConfidentCandidates(doc.RootElement, gameNameForLogging, "IGDB")
-            .Select(c => new MatchedGame(c.Id, c.Name)).ToList();
+        var candidates = CatalogResponseReader.ReadConfidentCandidates(doc.RootElement, gameNameForLogging, "IGDB");
+        var confident = candidates.Select(c => new MatchedGame(c.Id, c.Name)).ToList();
 
         if (confident.Count == 0)
         {
@@ -510,9 +512,19 @@ public sealed partial class IgdbCoverArtProvider : ICoverArtProvider
 
         if (confident.Count > 1)
         {
+            // Same-titled entries are not always rivals: IGDB lists some as CHILDREN of the main game (e.g. a second "Fortnite"
+            // whose parent_game is the first). That is a fact IGDB states, not a ranking guess - see PickSoleRootOfSameTitle.
+            var relations = string.Join(", ", candidates.Select(c => $"{c.Id}->{DescribeParents(c.Element)}"));
+            if (PickSoleRootOfSameTitle(candidates) is { } root)
+            {
+                Logger.Info($"  IGDB: '{gameNameForLogging}' matched {confident.Count} same-titled entries [{relations}]; every other one is a child of "
+                    + $"{root.Id}, so taking that main entry (id {root.Id}).");
+                return new MatchedGame(root.Id, root.Name);
+            }
+
             Logger.Warn($"IGDB: '{gameNameForLogging}' matched {confident.Count} equally-confident, distinct "
                 + $"candidates - ambiguous, skipping automatic match rather than guessing. "
-                + $"ids=[{string.Join(",", confident.Select(c => c.Id))}]");
+                + $"ids=[{string.Join(",", confident.Select(c => c.Id))}] parents=[{relations}]");
             ambiguous = true;
             return null;
         }
@@ -521,11 +533,115 @@ public sealed partial class IgdbCoverArtProvider : ICoverArtProvider
         return confident[0];
     }
 
+    /// <summary>Reads a candidate's parent relations: absent/null = no parent, a positive id = that parent, anything else =
+    /// unreadable (which can never be used to settle anything).</summary>
+    private static bool TryReadParents(JsonElement candidate, out List<int> parents)
+    {
+        parents = new List<int>();
+        foreach (var field in new[] { "parent_game", "version_parent" })
+        {
+            if (!candidate.TryGetProperty(field, out var value) || value.ValueKind == JsonValueKind.Null)
+                continue;
+
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var id) || id <= 0)
+                return false;
+
+            if (!parents.Contains(id))
+                parents.Add(id);
+        }
+
+        return true;
+    }
+
+    private static string DescribeParents(JsonElement candidate) =>
+        TryReadParents(candidate, out var parents) ? (parents.Count == 0 ? "none" : string.Join("/", parents)) : "unreadable";
+
+    /// <summary>Settles a same-title tie from IGDB's own relations, never from ranking or popularity: when exactly ONE of the exact-title
+    /// candidates has no parent_game/version_parent, and EVERY other one names that candidate (and only it) as its parent, the one
+    /// without a parent is the main entry. Anything else - two parentless entries, a child of some third game, a parent that is
+    /// unreadable - leaves the tie in place (null). A candidate having a parent is NOT by itself disqualifying (Minecraft's correct
+    /// entry has one): this only fires when the parent is another of the exact-title candidates.</summary>
+    internal static ConfidentCandidate? PickSoleRootOfSameTitle(IReadOnlyList<ConfidentCandidate> candidates)
+    {
+        var withParents = new List<(ConfidentCandidate Candidate, List<int> Parents)>();
+        foreach (var candidate in candidates)
+        {
+            if (!TryReadParents(candidate.Element, out var parents))
+                return null;
+
+            withParents.Add((candidate, parents));
+        }
+
+        var roots = withParents.Where(c => c.Parents.Count == 0).ToList();
+        if (roots.Count != 1)
+            return null;
+
+        var root = roots[0].Candidate;
+        return withParents.Where(c => c.Candidate.Id != root.Id).All(c => c.Parents.Count > 0 && c.Parents.All(p => p == root.Id))
+            ? root
+            : null;
+    }
+
+    /// <summary>The cover IGDB currently shows for the game. The game's OWN `cover` is authoritative and is what the Identify/Choose
+    /// picker thumbnails already used; the /covers table can hold more than one row for a game (replaced or localised art), and
+    /// taking its first row - which is what this used to do - could keep serving an older cover than the one IGDB lists. The /covers
+    /// listing is only the fallback for a game whose `cover` field is empty.</summary>
     private string? GetCoverImageUrl(int gameId, CancellationToken ct)
     {
+        var current = SelectGameCoverImageUrl(
+            SendApicalypseQuery("games", $"fields cover.image_id; where id = {gameId};", GetAccessToken(ct), ct), gameId);
+        if (current is not null)
+            return current;
+
+        Logger.Info($"IGDB: game {gameId} lists no cover of its own - using the first entry of its /covers listing instead.");
         var body = $"fields image_id; where game = {gameId};";
         var responseJson = SendApicalypseQuery("covers", body, GetAccessToken(ct), ct);
         return SelectCoverImageUrl(responseJson);
+    }
+
+    /// <summary>Parses a /v4/games response for `fields cover.image_id` into the cover's image URL. Null when the game is not listed
+    /// or lists no cover (the caller then tries the /covers listing). A response that is not an array, or an entry for this game that is
+    /// not an object, or a `cover` that is present but unreadable, THROWS InvalidDataException - an unreadable answer says nothing
+    /// about whether the game has a cover, so it is reported as Unavailable rather than silently read as "no cover".</summary>
+    internal static string? SelectGameCoverImageUrl(string responseJson, int expectedGameId) =>
+        SelectGameCoverImageId(responseJson, expectedGameId) is { } imageId
+            ? $"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/{imageId}.jpg"
+            : null;
+
+    /// <summary>The same parse as SelectGameCoverImageUrl, returning just the image id (Choose Cover needs the id to order its list).</summary>
+    internal static string? SelectGameCoverImageId(string responseJson, int expectedGameId)
+    {
+        using var doc = JsonDocument.Parse(responseJson);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("IGDB game response is not a JSON array - a malformed response, not an empty listing.");
+
+        foreach (var entry in doc.RootElement.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object)
+                throw new InvalidDataException("IGDB game response contains an entry that is not an object.");
+
+            // Only the entry for the game we asked about counts; one without an id (a minimal test double) is taken to be it.
+            if (entry.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.Number
+                && idProp.TryGetInt32(out var id) && id != expectedGameId)
+            {
+                continue;
+            }
+
+            if (!entry.TryGetProperty("cover", out var cover) || cover.ValueKind == JsonValueKind.Null)
+                return null;
+
+            if (cover.ValueKind != JsonValueKind.Object
+                || !cover.TryGetProperty("image_id", out var imageId) || imageId.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(imageId.GetString()))
+            {
+                // `cover` came back as a bare id (expansion unavailable) or without a usable image_id: unreadable, not absent.
+                throw new InvalidDataException("IGDB game response: the game's cover has no usable \"image_id\" string.");
+            }
+
+            return imageId.GetString();
+        }
+
+        return null;
     }
 
     /// <summary>Parses an IGDB /v4/covers response (a bare array) into the first cover's image URL. A valid
@@ -738,68 +854,11 @@ public sealed partial class IgdbCoverArtProvider : ICoverArtProvider
     private static BitmapImage? ValidateBytes(byte[] bytes, string sourceForLogging) =>
         ArtworkImageValidator.ValidateProviderBytes(bytes, sourceForLogging);
 
-    /// <summary>Identical design to SteamGridDbCoverArtProvider.CachedMatchEvidence - see its own remarks
-    /// for why every field is validated the way it is (a bare "{}" must not be trusted, a SearchedName
-    /// mismatch means a stale identity, an ImageSha256 mismatch means the sidecar doesn't actually
-    /// describe the image sitting next to it).</summary>
-    private readonly record struct CachedMatchEvidence(int Id, string Title, string SearchedName, string ImageSha256);
+    private static MatchedGame? TryReadMatchedGame(string metaPath, byte[] cachedImageBytes, string currentSearchName) =>
+        MatchEvidenceSidecar.TryRead(metaPath, cachedImageBytes, currentSearchName, "IGDB") is { } e ? new MatchedGame(e.Id, e.Title) : null;
 
-    private static string ComputeImageHash(byte[] bytes) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+    private static void WriteMatchedGame(string metaPath, MatchedGame matched, string searchName, byte[] imageBytes) =>
+        MatchEvidenceSidecar.Write(metaPath, matched.Id, matched.Title, searchName, imageBytes, "IGDB");
 
-    private static MatchedGame? TryReadMatchedGame(string metaPath, byte[] cachedImageBytes, string currentSearchName)
-    {
-        try
-        {
-            if (!File.Exists(metaPath))
-                return null;
-
-            // Bounded (ProviderHttp.MaxSidecarBytes): an oversized sidecar is unverifiable evidence, exactly like
-            // a corrupt one - null here makes the caller delete both files and re-fetch.
-            var sidecarText = ProviderImageIo.ReadBoundedSidecarText(metaPath, "IGDB");
-            if (sidecarText is null)
-                return null;
-
-            var evidence = JsonSerializer.Deserialize<CachedMatchEvidence>(sidecarText);
-            if (evidence.Id <= 0 || string.IsNullOrWhiteSpace(evidence.Title) || string.IsNullOrWhiteSpace(evidence.ImageSha256))
-                return null;
-
-            if (!string.Equals(evidence.SearchedName, currentSearchName, StringComparison.Ordinal))
-                return null;
-
-            if (!string.Equals(evidence.ImageSha256, ComputeImageHash(cachedImageBytes), StringComparison.Ordinal))
-                return null;
-
-            return new MatchedGame(evidence.Id, evidence.Title);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static void WriteMatchedGame(string metaPath, MatchedGame matched, string searchName, byte[] imageBytes)
-    {
-        try
-        {
-            var evidence = new CachedMatchEvidence(matched.Id, matched.Title, searchName, ComputeImageHash(imageBytes));
-            File.WriteAllText(metaPath, JsonSerializer.Serialize(evidence));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Logger.Warn($"IGDB: couldn't write match evidence for cached cover '{metaPath}'.", ex);
-        }
-    }
-
-    private static void TryDeleteMatchedGameFile(string metaPath)
-    {
-        try
-        {
-            if (File.Exists(metaPath))
-                File.Delete(metaPath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Logger.Warn($"IGDB: couldn't delete stale match evidence file '{metaPath}'.", ex);
-        }
-    }
+    private static void TryDeleteMatchedGameFile(string metaPath) => MatchEvidenceSidecar.TryDelete(metaPath, "IGDB");
 }

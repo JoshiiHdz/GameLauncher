@@ -126,6 +126,13 @@ public static class AutomaticResolver
 
         var signature = string.Join(",", ctx.Providers.Select(p => p.Namespace.Value));
         var inCooldown = !input.Force && IsInNegativeCooldown(record, query, ctx, signature);
+        if (inCooldown && record.LastAttempt is { } cooledAttempt)
+        {
+            // Without this a skipped game logs nothing at all, and "why no cover?" has no visible answer.
+            var left = ctx.NegativeCooldown - (ctx.Now() - cooledAttempt.At);
+            Logger.Info($"  identity: '{query.DetectedTitle}' - catalogs not asked again: cooldown, last result {cooledAttempt.Outcome}, "
+                + $"{FormatRemaining(left)} left (same inputs; Reset lookup asks again now).");
+        }
         var outcomes = new List<LookupOutcome>();
         var legacyArtFailed = false;
 
@@ -206,6 +213,7 @@ public static class AutomaticResolver
                 ct.ThrowIfCancellationRequested();
                 if (ctx.Breaker.ShouldSkip(provider.Namespace))
                 {
+                    Logger.Warn($"  identity: {provider.DisplayName} skipped for '{query.DetectedTitle}' - it failed several lookups in a row, so it is not asked again this scan.");
                     sawUnavailable = true;
                     continue;
                 }
@@ -216,6 +224,8 @@ public static class AutomaticResolver
                 if (ambiguousSeen && record.Confirmed is null
                     && IdentitySelection.SelectActive(record, query).IdFor(provider.Namespace) is null)
                 {
+                    Logger.Info($"  identity: {provider.DisplayName} not asked for '{query.DetectedTitle}' - the title was already ambiguous at another catalog, "
+                        + "and a second independent search must not guess against the same name.");
                     outcomes.Add(LookupOutcome.Ambiguous);
                     sawDefiniteNegative = true;
                     continue;
@@ -235,7 +245,10 @@ public static class AutomaticResolver
                     continue; // identity recorded above; nothing here could ever publish over a pinned cover
 
                 if (PreservesCurrent(provider.Namespace))
+                {
+                    Logger.Info($"  art: '{query.DetectedTitle}' keeps its current cover - a higher-priority catalog was unavailable, so the {provider.DisplayName} fallback is not fetched over it.");
                     continue; // identity above is recorded; the fallback's art is not fetched over a working cover
+                }
 
                 var cover = provider.FetchCover(entry.Id, entry.Title, ct);
                 ctx.Breaker.Note(provider.Namespace, cover.Status == CoverLookupStatus.Unavailable);
@@ -244,9 +257,14 @@ public static class AutomaticResolver
                     var candidateArt = new ArtworkHalf(ArtworkHalfKind.Set, BuildSelection(provider, entry, cover.FromCache, record), cover.Image);
                     if (cover.Image.PixelHeight > cover.Image.PixelWidth)
                     {
+                        Logger.Info($"  art: {provider.DisplayName} cover for '{entry.Title}' (id {entry.Id}) {cover.Image.PixelWidth}x{cover.Image.PixelHeight}"
+                            + (cover.FromCache ? " (cached)" : string.Empty) + " - used.");
                         published = candidateArt;
                         break;
                     }
+
+                    Logger.Info($"  art: {provider.DisplayName} cover for '{entry.Title}' (id {entry.Id}) is {cover.Image.PixelWidth}x{cover.Image.PixelHeight}, "
+                        + "not portrait - asking the next catalog for a portrait one first.");
 
                     // A valid catalog identity need not supply poster-shaped art. Keep its image as
                     // a fallback, but let the next catalog offer a verified portrait before stopping.
@@ -255,15 +273,27 @@ public static class AutomaticResolver
                     continue;
                 }
 
+                Logger.Warn($"  art: {provider.DisplayName} had no usable cover for '{entry.Title}' (id {entry.Id}): {cover.Status}.");
                 if (cover.Status == CoverLookupStatus.Unavailable) sawUnavailable = true;
                 else sawDefiniteNegative = true;
             }
         }
 
         // Re-check authorization: consulting another catalog may have changed the active identity.
-        if (published is null && nonPortraitFallback is { Selection: { } fallbackSelection }
-            && ArtworkAuthorization.IsAuthorized(fallbackSelection, IdentitySelection.SelectActive(record, query), query, record))
-            published = nonPortraitFallback;
+        if (published is null && nonPortraitFallback is { Selection: { } fallbackSelection })
+        {
+            if (ArtworkAuthorization.IsAuthorized(fallbackSelection, IdentitySelection.SelectActive(record, query), query, record))
+            {
+                Logger.Info($"  art: no catalog had a portrait cover for '{query.DetectedTitle}' - using the non-portrait {fallbackSelection.Provider} cover for "
+                    + $"'{fallbackSelection.ProviderTitle}'.");
+                published = nonPortraitFallback;
+            }
+            else
+            {
+                Logger.Warn($"  art: the non-portrait {fallbackSelection.Provider} cover for '{fallbackSelection.ProviderTitle}' is not authorized "
+                    + $"for '{query.DetectedTitle}' any more (the active identity changed) - not showing it.");
+            }
+        }
 
         // ---- C. LAUNCHER-DERIVED ART (Steam CDN): keyed by the launcher's own id, and only where authorized (D7) ----
         if (published is null && !input.ArtworkPinned && !PreservesCurrent(IdentifierNamespace.SteamApp))
@@ -408,12 +438,23 @@ public static class AutomaticResolver
         {
             var mapped = provider.MapLauncherId(launcherId, ct);
             if (mapped.Status == CatalogStatus.Ambiguous)
+            {
+                Logger.Warn($"  identity: {provider.DisplayName}: store id {launcherId.Namespace}:{launcherId.Id} maps to more than one game ({mapped.Note ?? "no reason given"}).");
                 return new NsResolution(LookupOutcome.Ambiguous, null);
+            }
 
             if (mapped.Status == CatalogStatus.Match && mapped.Match is { } idMatch)
-                return Rejected(idMatch)
-                    ? new NsResolution(LookupOutcome.Contradicted, null)
-                    : new NsResolution(LookupOutcome.Resolved, Entry(idMatch, IdentityTier.IdMapped));
+            {
+                if (Rejected(idMatch))
+                {
+                    Logger.Warn($"  identity: {provider.DisplayName}: store id {launcherId.Namespace}:{launcherId.Id} maps to '{idMatch.Title}' (id {idMatch.Id}), "
+                        + "which you rejected earlier - not used.");
+                    return new NsResolution(LookupOutcome.Contradicted, null);
+                }
+
+                Logger.Info($"  identity: {provider.DisplayName}: store id {launcherId.Namespace}:{launcherId.Id} -> '{idMatch.Title}' (id {idMatch.Id}).");
+                return new NsResolution(LookupOutcome.Resolved, Entry(idMatch, IdentityTier.IdMapped));
+            }
             // NoMatch / Unavailable here never blocks the title path: the id path can only ADD a mapping.
         }
 
@@ -435,11 +476,16 @@ public static class AutomaticResolver
             }
         }
 
+        LogTitleLookup(provider, query, found, viaAlternativeName);
+
         if (found.Status != CatalogStatus.Match || found.Match is not { } match)
             return new NsResolution(ToOutcome(found.Status), null);
 
         if (Rejected(match))
+        {
+            Logger.Warn($"  identity: {provider.DisplayName}: '{match.Title}' (id {match.Id}) matched '{query.SearchTitle}' but you rejected it earlier - not used.");
             return new NsResolution(LookupOutcome.Contradicted, null);
+        }
 
         var tier = viaAlternativeName ? IdentityTier.AlternativeName : IdentityTier.TitleExact;
         foreach (var launcherId in query.LauncherIds)
@@ -448,6 +494,8 @@ public static class AutomaticResolver
             {
                 case LauncherConsistency.Contradicted:
                     // A unique exact title is NOT accepted when the launcher's own id says it is a different game.
+                    Logger.Warn($"  identity: {provider.DisplayName}: '{match.Title}' (id {match.Id}) matches the title '{query.SearchTitle}' but the launcher's own id "
+                        + $"{launcherId.Namespace}:{launcherId.Id} points at a different game - not used.");
                     return new NsResolution(LookupOutcome.Contradicted, null);
                 case LauncherConsistency.Consistent:
                     tier = IdentityTier.TitleExactCorroborated;
@@ -582,6 +630,36 @@ public static class AutomaticResolver
     }
 
     // ------------------------------------------------------------------------------------------------------------------
+
+    internal static string FormatRemaining(TimeSpan left)
+    {
+        if (left <= TimeSpan.Zero)
+            return "0m";
+        return left.TotalHours >= 1 ? $"{(int)left.TotalHours}h {left.Minutes}m" : $"{Math.Max(1, (int)Math.Ceiling(left.TotalMinutes))}m";
+    }
+
+    /// <summary>The one line that says what a catalog answered for a title - including WHY it was ambiguous or unavailable
+    /// (the provider's own note), which was previously visible nowhere once a verdict came from the identity path.</summary>
+    private static void LogTitleLookup(ICatalogProvider provider, IdentityQuery query, CatalogSearchResult found, bool viaAlternativeName)
+    {
+        var how = viaAlternativeName ? " (alternative name)" : string.Empty;
+        switch (found.Status)
+        {
+            case CatalogStatus.Match when found.Match is { } m:
+                Logger.Info($"  identity: {provider.DisplayName}: '{query.SearchTitle}' -> '{m.Title}' (id {m.Id}){how}.");
+                break;
+            case CatalogStatus.Ambiguous:
+                Logger.Warn($"  identity: {provider.DisplayName}: '{query.SearchTitle}' is ambiguous - {found.Note ?? "no reason given"}; "
+                    + "no cover is guessed, and the other catalog is not asked either.");
+                break;
+            case CatalogStatus.Unavailable:
+                Logger.Warn($"  identity: {provider.DisplayName}: '{query.SearchTitle}' could not be looked up ({found.Note ?? "unavailable"}); nothing is cleared.");
+                break;
+            default:
+                Logger.Info($"  identity: {provider.DisplayName}: no confident match for '{query.SearchTitle}'{(found.Note is null ? "" : " - " + found.Note)}.");
+                break;
+        }
+    }
 
     private static bool IsInNegativeCooldown(GameIdentityRecord record, IdentityQuery query, ResolutionContext ctx, string signature)
     {

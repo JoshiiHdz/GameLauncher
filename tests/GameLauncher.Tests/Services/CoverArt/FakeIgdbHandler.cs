@@ -53,8 +53,14 @@ internal sealed class FakeIgdbHandler : HttpMessageHandler
             if (OnApi is not null)
                 return OnApi(request, callNumber, cancellationToken);
 
-            return request.RequestUri.AbsolutePath.EndsWith("/covers", StringComparison.Ordinal)
-                ? Json("""[{"image_id":"fake-image"}]""")
+            if (request.RequestUri.AbsolutePath.EndsWith("/covers", StringComparison.Ordinal))
+                return Json("""[{"image_id":"fake-image"}]""");
+
+            // The provider asks /games for the game's own current cover (`fields cover.image_id`), as real IGDB answers it; any other
+            // /games query (a title search) still gets an empty listing.
+            var body = request.Content?.ReadAsStringAsync(cancellationToken).Result ?? "";
+            return body.Contains("cover.image_id", StringComparison.Ordinal)
+                ? Json("""[{"cover":{"image_id":"fake-image"}}]""")
                 : Json("[]");
         }
 

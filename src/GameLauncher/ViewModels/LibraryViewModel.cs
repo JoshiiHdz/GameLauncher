@@ -7,11 +7,9 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GameLauncher;
 using GameLauncher.Models;
 using GameLauncher.Services;
 using GameLauncher.Services.CoverArt;
-using GameLauncher.Services.Identity;
 using Microsoft.Win32;
 using Velopack;
 
@@ -228,14 +226,6 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _minimizeToTrayWhileGaming = true;
 
-    /// <summary>True while the sidebar rail's Sources flyout is open - session-only UI state, never
-    /// persisted (unlike the detect-toggles themselves).</summary>
-    [ObservableProperty]
-    private bool _isSourcesFlyoutOpen;
-
-    [RelayCommand]
-    private void ToggleSourcesFlyout() => IsSourcesFlyoutOpen = !IsSourcesFlyoutOpen;
-
     /// <summary>Expanded sidebar (labels, launcher switches) vs. the collapsed icon rail. Persisted.</summary>
     [ObservableProperty]
     private bool _isSidebarExpanded = true;
@@ -361,55 +351,9 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private string _whatsNewNotes = string.Empty;
 
-    // Same launcher-exe icon extraction the game card platform badges already use, so the sidebar
-    // shows each launcher's real logo when it's installed on this PC - null (falls back to a
-    // letter badge in the view) for whichever ones aren't. Xbox has no equivalent property: its
-    // MSIX package icon can never be extracted by path, on any PC, so the view renders the
-    // hardcoded real Xbox logo (Assets\XboxLogo.png) for that row instead of attempting extraction
-    // at all.
-    public BitmapImage? SteamIcon => PlatformIconService.GetIcon(GameSource.Steam);
-    public BitmapImage? EpicIcon => PlatformIconService.GetIcon(GameSource.Epic);
-    public BitmapImage? GogIcon => PlatformIconService.GetIcon(GameSource.Gog);
-    public BitmapImage? EaIcon => PlatformIconService.GetIcon(GameSource.Ea);
-    public BitmapImage? UbisoftIcon => PlatformIconService.GetIcon(GameSource.Ubisoft);
-    public BitmapImage? BattleNetIcon => PlatformIconService.GetIcon(GameSource.BattleNet);
-    public BitmapImage? RockstarIcon => PlatformIconService.GetIcon(GameSource.Rockstar);
-    public BitmapImage? AmazonGamesIcon => PlatformIconService.GetIcon(GameSource.AmazonGames);
-
-    // Drives whether each sidebar source row shows up at all - only once a scan has actually found
-    // a game from that launcher, so a PC without (say) Battle.net installed never sees a Battle.net
-    // toggle it could never turn anything on. Set in ApplyFilter from the full, unfiltered scan
-    // result, not from the Detect-filtered Games list, so disabling a source can never hide its own
-    // row - there'd be no way back on.
-    [ObservableProperty]
-    private bool _hasSteamGames;
-
-    [ObservableProperty]
-    private bool _hasEpicGames;
-
-    [ObservableProperty]
-    private bool _hasGogGames;
-
-    [ObservableProperty]
-    private bool _hasXboxGames;
-
-    [ObservableProperty]
-    private bool _hasEaGames;
-
-    [ObservableProperty]
-    private bool _hasUbisoftGames;
-
-    [ObservableProperty]
-    private bool _hasBattleNetGames;
-
-    [ObservableProperty]
-    private bool _hasRockstarGames;
-
-    [ObservableProperty]
-    private bool _hasAmazonGames;
-
-    /// <summary>Hides the "SOURCES" header itself once every individual row above has already
-    /// hidden itself - otherwise a PC with no detected launchers shows a floating label over nothing.</summary>
+    /// <summary>True once a scan has found a game from any launcher with a sidebar switch (computed from the full,
+    /// unfiltered scan result in ApplyFilter, so switching a launcher off can never remove its own switch). Hides the
+    /// LAUNCHERS header when there is nothing under it.</summary>
     [ObservableProperty]
     private bool _hasAnySourceGames;
 
@@ -2306,8 +2250,21 @@ public partial class LibraryViewModel : ObservableObject
     }
 
     /// <summary>Test seam: stands in for the real explorer.exe launch - actually shelling out would be
-    /// slow, visible, and untestable for which path was requested.</summary>
+    /// slow, visible, and untestable. Receives the path Explorer was asked to show (the game's exe when it
+    /// is selected inside its folder, otherwise the folder itself).</summary>
     internal Action<string>? OpenFolderInExplorerForTest { get; set; }
+
+    /// <summary>What "Open install location" shows: the game's own executable, selected inside its folder, when that file
+    /// exists - so the user lands on the exact file, not at the top of a folder full of them - otherwise the install folder.
+    /// Null when neither exists any more. ExecutablePath can also be a directory (a packaged game with no confirmed exe)
+    /// or a path that has since gone, both of which fall back to the folder.</summary>
+    internal static (string Path, bool SelectFile)? ResolveInstallLocationTarget(GameEntry game)
+    {
+        if (!string.IsNullOrWhiteSpace(game.ExecutablePath) && File.Exists(game.ExecutablePath))
+            return (game.ExecutablePath, true);
+
+        return Directory.Exists(game.InstallDir) ? (game.InstallDir, false) : null;
+    }
 
     [RelayCommand]
     private void OpenInstallLocation(GameEntry? game)
@@ -2315,19 +2272,20 @@ public partial class LibraryViewModel : ObservableObject
         if (game is null)
             return;
 
-        if (!Directory.Exists(game.InstallDir))
+        if (ResolveInstallLocationTarget(game) is not var (path, selectFile))
         {
             StatusText = $"Can't find {game.Name}'s install folder anymore - it may have been moved or removed.";
-            Logger.Warn($"Open install location: '{game.InstallDir}' no longer exists for '{game.Name}'.");
+            Logger.Warn($"Open install location: neither '{game.ExecutablePath}' nor '{game.InstallDir}' exists any more for '{game.Name}'.");
             return;
         }
 
         try
         {
+            Logger.Info($"Open install location: '{game.Name}' -> {(selectFile ? "selecting" : "opening")} '{path}'.");
             if (OpenFolderInExplorerForTest is { } forTest)
-                forTest(game.InstallDir);
+                forTest(path);
             else
-                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{game.InstallDir}\"") { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo("explorer.exe", selectFile ? $"/select,\"{path}\"" : $"\"{path}\"") { UseShellExecute = true });
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
         {
@@ -2505,38 +2463,54 @@ public partial class LibraryViewModel : ObservableObject
         _ => true, // Manual folders have no toggle - always shown.
     };
 
+    /// <summary>ApplyFilter runs on every keystroke, sort change and refresh, and clearing then re-adding a collection
+    /// rebuilds every card even when nothing changed - so a collection is only touched when its contents really differ.</summary>
+    private static void ReplaceIfChanged<T>(ObservableCollection<T> target, IReadOnlyList<T> items)
+    {
+        if (target.SequenceEqual(items))
+            return;
+
+        target.Clear();
+        foreach (var item in items)
+            target.Add(item);
+    }
+
+    // The hero tint is sampled from pixels, so it is worked out once per cover image, not once per ApplyFilter.
+    private BitmapSource? _accentSource;
+    private Color? _accentColor;
+
+    private Color? AccentFor(BitmapSource? icon)
+    {
+        if (icon is null)
+            return null;
+
+        if (!ReferenceEquals(icon, _accentSource))
+        {
+            _accentColor = DominantColorExtractor.Extract(icon);
+            _accentSource = icon;
+        }
+
+        return _accentColor;
+    }
+
     private void ApplyFilter()
     {
         // Computed from the full, un-filtered scan result (not the Detect-filtered list below), so
-        // disabling a source can never make its own sidebar row disappear.
-        HasSteamGames = _allGames.Any(g => g.Source == GameSource.Steam);
-        HasEpicGames = _allGames.Any(g => g.Source == GameSource.Epic);
-        HasGogGames = _allGames.Any(g => g.Source == GameSource.Gog);
-        HasXboxGames = _allGames.Any(g => g.Source == GameSource.Xbox);
-        HasEaGames = _allGames.Any(g => g.Source == GameSource.Ea);
-        HasUbisoftGames = _allGames.Any(g => g.Source == GameSource.Ubisoft);
-        HasBattleNetGames = _allGames.Any(g => g.Source == GameSource.BattleNet);
-        HasRockstarGames = _allGames.Any(g => g.Source == GameSource.Rockstar);
-        HasAmazonGames = _allGames.Any(g => g.Source == GameSource.AmazonGames);
-        HasAnySourceGames = HasSteamGames || HasEpicGames || HasGogGames || HasXboxGames || HasEaGames
-            || HasUbisoftGames || HasBattleNetGames || HasRockstarGames || HasAmazonGames;
-
+        // disabling a source can never make its own sidebar row disappear. One pass, not one scan per launcher.
+        var present = _allGames.Select(g => g.Source).ToHashSet();
+        HasAnySourceGames = SourceItems.Any(i => present.Contains(i.Source));
         foreach (var item in SourceItems)
-            item.Refresh(_allGames.Any(g => g.Source == item.Source));
+            item.Refresh(present.Contains(item.Source));
 
-        IEnumerable<GameEntry> filtered = _allGames.Where(g => !g.Hidden && IsSourceEnabled(g.Source));
+        // The drive and search narrowing applies to visible and hidden games alike.
+        var selectedDrive = SelectedDriveLetter;
+        var search = SearchText;
+        var hasSearch = !string.IsNullOrWhiteSpace(search);
+        bool Matches(GameEntry g) => IsSourceEnabled(g.Source)
+            && (selectedDrive is null || string.Equals(DriveLetterOf(g.InstallDir), selectedDrive, StringComparison.OrdinalIgnoreCase))
+            && (!hasSearch || g.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
 
-        if (SelectedDriveLetter is { } selectedDrive)
-        {
-            filtered = filtered.Where(g =>
-                string.Equals(DriveLetterOf(g.InstallDir), selectedDrive, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(SearchText))
-        {
-            filtered = filtered.Where(g =>
-                g.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
-        }
+        IEnumerable<GameEntry> filtered = _allGames.Where(g => !g.Hidden && Matches(g));
 
         filtered = SortOption switch
         {
@@ -2582,48 +2556,24 @@ public partial class LibraryViewModel : ObservableObject
                 ?? ordered.OrderByDescending(g => g.DateAdded).FirstOrDefault()
             : null;
         HasFeaturedGame = FeaturedGame is not null;
-        HeroAccentColor = (FeaturedGame?.IsCoverArt == true ? DominantColorExtractor.Extract(FeaturedGame.Icon) : null)
-            ?? DefaultHeroAccentColor;
+        HeroAccentColor = (FeaturedGame?.IsCoverArt == true ? AccentFor(FeaturedGame.Icon) : null) ?? DefaultHeroAccentColor;
 
         // "Recently played": only games with real tracked sessions, newest first, capped so the strip
         // stays a strip. Empty (and hidden) until something has actually been played through the app.
-        RecentlyPlayedGames.Clear();
-        if (isHomeView)
-        {
-            foreach (var game in ordered.Where(g => g.HasPlayTime)
-                         .OrderByDescending(g => g.LastPlayedUtc)
-                         .Take(10))
-            {
-                RecentlyPlayedGames.Add(game);
-            }
-        }
+        ReplaceIfChanged(RecentlyPlayedGames, isHomeView
+            ? ordered.Where(g => g.HasPlayTime).OrderByDescending(g => g.LastPlayedUtc).Take(10).ToList()
+            : new List<GameEntry>());
         HasRecentlyPlayed = RecentlyPlayedGames.Count > 0;
 
-        FavoriteGames.Clear();
-        foreach (var game in ordered.Where(g => g.Favorite))
-            FavoriteGames.Add(game);
-
-        Games.Clear();
-        foreach (var game in ordered)
-            Games.Add(game);
-
+        ReplaceIfChanged(FavoriteGames, ordered.Where(g => g.Favorite).ToList());
+        ReplaceIfChanged(Games, ordered);
         HasFavorites = FavoriteGames.Count > 0;
 
-        // Hidden games: same source filter and search text as everything else, but sourced from
-        // g.Hidden directly rather than the `filtered` sequence above, since that sequence already
-        // excludes them by design (they must never leak into Games/FavoriteGames).
-        IEnumerable<GameEntry> hidden = _allGames.Where(g => g.Hidden && IsSourceEnabled(g.Source));
-        if (SelectedDriveLetter is { } hiddenSelectedDrive)
-        {
-            hidden = hidden.Where(g =>
-                string.Equals(DriveLetterOf(g.InstallDir), hiddenSelectedDrive, StringComparison.OrdinalIgnoreCase));
-        }
-        if (!string.IsNullOrWhiteSpace(SearchText))
-            hidden = hidden.Where(g => g.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
-
-        HiddenGames.Clear();
-        foreach (var game in hidden.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
-            HiddenGames.Add(game);
+        // Hidden games: same narrowing as everything else, but sourced from g.Hidden directly rather than
+        // the `filtered` sequence above, since that sequence already excludes them by design (they must
+        // never leak into Games/FavoriteGames).
+        ReplaceIfChanged(HiddenGames, _allGames.Where(g => g.Hidden && Matches(g))
+            .OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList());
 
         HasHiddenGames = HiddenGames.Count > 0;
         ShowHiddenSection = ShowHiddenGames && HasHiddenGames;

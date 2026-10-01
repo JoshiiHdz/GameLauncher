@@ -93,22 +93,25 @@ public sealed partial class GameEntry : ObservableObject
     [ObservableProperty]
     private bool _hasInstallSize;
 
+    /// <summary>The measured install size as plain text ("2 GB"), empty until measured.</summary>
     [ObservableProperty]
     private string _installSizeDisplay = "";
 
     partial void OnInstallSizeBytesChanged(long? value)
     {
         HasInstallSize = value is not null;
-        InstallSizeDisplay = value switch
-        {
-            null => "",
-            >= 1L << 40 => $"≈ {value.Value / (double)(1L << 40):0.#} TB",
-            >= 1L << 30 => $"≈ {value.Value / (double)(1L << 30):0.#} GB",
-            >= 1L << 20 => $"≈ {value.Value / (double)(1L << 20):0.#} MB",
-            >= 1024 => $"≈ {value.Value / 1024d:0.#} KB",
-            _ => $"{value.Value} B",
-        };
+        InstallSizeDisplay = FormatSize(value);
     }
+
+    private static string FormatSize(long? value) => value switch
+    {
+        null => "",
+        >= 1L << 40 => $"{value.Value / (double)(1L << 40):0.#} TB",
+        >= 1L << 30 => $"{value.Value / (double)(1L << 30):0.#} GB",
+        >= 1L << 20 => $"{value.Value / (double)(1L << 20):0.#} MB",
+        >= 1024 => $"{value.Value / 1024d:0.#} KB",
+        _ => $"{value.Value} B",
+    };
 
     /// <summary>Play time this app has actually tracked, in seconds - see GameOverride.TotalPlaySeconds
     /// for why this is explicitly not a lifetime total.</summary>

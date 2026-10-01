@@ -378,7 +378,7 @@ public class IdentifyGameWindowTests
                 window.UpdateLayout();
                 Assert.Equal(Visibility.Visible, Panel().Visibility);
                 var value = Descendants<TextBlock>(Panel()).Single(t => t.Name == "InstallSizeValue");
-                Assert.Equal("≈ 2 GB", value.Text);
+                Assert.Equal("2 GB", value.Text);
                 var art = Descendants<Border>(main).Single(b => b.Name == "CoverFill");
                 Assert.True(Panel().TranslatePoint(new System.Windows.Point(), main).Y
                     >= art.TranslatePoint(new System.Windows.Point(0, art.ActualHeight), main).Y);
@@ -423,15 +423,12 @@ public class IdentifyGameWindowTests
                 Pump();
 
                 var identify = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Identify game...");
-                var choose = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Choose cover from catalog...");
                 Assert.Same(h.Vm.IdentifyGameCommand, identify.Command);
                 Assert.Same(gameB, identify.CommandParameter);                   // the CLICKED card, not the first or last
-                Assert.Same(h.Vm.ChooseCatalogCoverCommand, choose.Command);
-                Assert.Same(gameB, choose.CommandParameter);
+                Assert.DoesNotContain(menu.Items.OfType<MenuItem>(), i => i.Header as string == "Choose cover from catalog...");
 
                 identify.Command.Execute(identify.CommandParameter);
-                choose.Command.Execute(choose.CommandParameter);
-                Assert.Equal(new[] { ("manual-b", false), ("manual-b", true) }, opened);
+                Assert.Equal(new[] { ("manual-b", false) }, opened);
 
                 // The badge: hidden for a normal card, visible once identification could not settle the game.
                 Border BadgeOf(GameEntry g)

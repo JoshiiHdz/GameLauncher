@@ -256,25 +256,6 @@
             </Setter>
         </Style>
 
-        <!-- One drive, shown as a small ring in the rail: the letter in a circular badge, a thin usage
-             bar beneath it standing in for the preview's conic-gradient ring (WPF has no native arc-
-             percentage primitive, and a hand-rolled one isn't worth the risk this pass), selection shown
-             as an accent ring around the badge. Reuses the exact same UsedFraction/IsSelected/
-             SummaryText bindings the drive-click filtering feature already proved out. -->
-        <Style x:Key="RailDriveButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="40" />
-            <Setter Property="Margin" Value="0,0,0,10" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <ContentPresenter />
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -828,6 +809,10 @@
                                                VerticalAlignment="Center" Margin="18,0,0,0" />
                                 <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="7,0,0,0"
                                            Text="{Binding FeaturedGame.InstallDir, Converter={x:Static conv:InstallDirToDriveConverter.Instance}}" />
+                                <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="5,0,0,0"
+                                           Visibility="{Binding FeaturedGame.HasInstallSize, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                    <Run Text="·" /><Run Text=" " /><Run Text="{Binding FeaturedGame.InstallSizeDisplay, Mode=OneWay}" />
+                                </TextBlock>
 
                                 <StackPanel Orientation="Horizontal" Margin="18,0,0,0"
                                             Visibility="{Binding FeaturedGame.HasPlayTime, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">

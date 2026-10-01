@@ -28,13 +28,19 @@ public partial class LibraryViewModel
         _settingsService.Save(_settings);
     }
 
+    internal static readonly TimeSpan ActivePollInterval = TimeSpan.FromSeconds(5);
+    internal static readonly TimeSpan IdlePollInterval = TimeSpan.FromSeconds(10);
+    private const long SlowPollMilliseconds = 500;
+
     // UI-thread coordinator; only process inspection runs on the worker, against an immutable snapshot.
     internal async Task MonitorExternalGamesAsync(CancellationToken ct)
     {
         var detector = new ExternalGameDetector();
         var warned = false;
         List<GameEntry>? candidateLibrary = null;
-        ExternalGameCandidate[] candidates = [];
+        ExternalGameIndex? index = null;
+        Logger.Info($"External game monitor started: checking every {ActivePollInterval.TotalSeconds:0}s while a game is tracked, "
+            + $"{IdlePollInterval.TotalSeconds:0}s otherwise.");
         try
         {
             while (!ct.IsCancellationRequested)
@@ -42,17 +48,23 @@ public partial class LibraryViewModel
                 if (TrackExternalGames && _allGames.Count > 0)
                 {
                     // Id/executable paths are immutable on GameEntry. Rebuild only on library publication,
-                    // not every poll; filtering/favoriting doesn't change what processes can be detected.
+                    // not every poll; filtering/favoriting doesn't change what processes can be detected. The index
+                    // (normalised exe paths, the unique-owner check, the process names to look for) is built here once,
+                    // not rebuilt from scratch on every poll.
                     if (!ReferenceEquals(candidateLibrary, _allGames))
                     {
                         candidateLibrary = _allGames;
-                        candidates = _allGames.Select(g => new ExternalGameCandidate(g.Id, g.ExecutablePath)).ToArray();
+                        index = detector.BuildIndex(_allGames.Select(g => new ExternalGameCandidate(g.Id, g.ExecutablePath)).ToArray());
+                        Logger.Info($"External game monitor: watching {index.PathCount} executable(s) across {index.NameCount} process name(s).");
                     }
                     var generation = _sessionActivityGeneration;
                     try
                     {
-                        var matches = await Task.Run(() => detector.Detect(candidates, ct), ct);
+                        var watch = System.Diagnostics.Stopwatch.StartNew();
+                        var matches = await Task.Run(() => detector.Detect(index!, ct), ct);
                         ct.ThrowIfCancellationRequested();
+                        if (watch.ElapsedMilliseconds > SlowPollMilliseconds)
+                            Logger.Warn($"External game check took {watch.ElapsedMilliseconds} ms (over {SlowPollMilliseconds} ms) - process listing is slow on this PC.");
                         if (TrackExternalGames && generation == _sessionActivityGeneration)
                             ApplyExternalObservations(matches);
                         warned = false;
@@ -67,7 +79,9 @@ public partial class LibraryViewModel
                 }
                 else if (_passiveSessions.Count > 0)
                     StopPassiveTracking();
-                await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                // A tracked session needs a tick at least every 15s to count (see ApplyExternalObservations), so 5s while one
+                // is live; with nothing running there is nothing to time, so look half as often.
+                await Task.Delay(_passiveSessions.Count > 0 ? ActivePollInterval : IdlePollInterval, ct);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
@@ -109,7 +123,7 @@ public partial class LibraryViewModel
             var token = ++_sessionCounter;
             _sessionGameIds[token] = id;
             _passiveSessions[token] = new PassiveSession { LastTick = now, LastSeenUtc = utc };
-            Logger.Info($"External game session detected: '{id}'. Tracking from now, not process start.");
+            Logger.Info($"External game session detected: '{_allGames.FirstOrDefault(g => g.Id == id)?.Name ?? id}' ({id}). Tracking from now, not process start.");
         }
         ReapplyRunningBadge();
     }

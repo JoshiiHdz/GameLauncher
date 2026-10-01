@@ -128,16 +128,4 @@ public class LibraryViewModelHeroTests : IDisposable
         // Never a transparent/default(Color) value - always a real, usable accent colour.
         Assert.True(_sut.HeroAccentColor.A > 0);
     }
-
-    [Fact]
-    public void ToggleSourcesFlyoutCommand_FlipsIsSourcesFlyoutOpen()
-    {
-        Assert.False(_sut.IsSourcesFlyoutOpen);
-
-        _sut.ToggleSourcesFlyoutCommand.Execute(null);
-        Assert.True(_sut.IsSourcesFlyoutOpen);
-
-        _sut.ToggleSourcesFlyoutCommand.Execute(null);
-        Assert.False(_sut.IsSourcesFlyoutOpen);
-    }
 }

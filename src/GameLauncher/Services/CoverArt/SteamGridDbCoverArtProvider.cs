@@ -716,88 +716,11 @@ public sealed partial class SteamGridDbCoverArtProvider : ICoverArtProvider
     private static BitmapImage? LoadBitmap(byte[] bytes, string sourceForLogging) =>
         ArtworkImageValidator.ValidateProviderBytes(bytes, sourceForLogging);
 
-    /// <summary>The sidecar's actual on-disk shape - deliberately NOT the same type GetCoverArt returns
-    /// (MatchedGame), which only carries what CoverArtService.Apply needs. This carries two additional
-    /// fields solely so a cache HIT can be validated before ever being trusted: SearchedName is the
-    /// resolved search identity (game.CatalogName ?? game.Name) THIS entry was fetched under, compared
-    /// against the CURRENT resolved identity on every read - a real, confirmed gap otherwise: a
-    /// CacheVersion bump alone only clears mistakes once, at release time, but an identity correction
-    /// that lands afterward (Reset picking up a CatalogName the scan that first cached this image never
-    /// had, or a future KnownAbbreviatedCatalogNames addition) would otherwise leave a stale-identity
-    /// cache entry being served indefinitely. ImageSha256 binds this sidecar to the SPECIFIC cached
-    /// image bytes it was written for - the image and its sidecar are two separate files written one
-    /// after the other (see GetCoverArt), so an old sidecar surviving a failed/interrupted rewrite of
-    /// the image itself must never be attributed to whatever image happens to be sitting at cachePath
-    /// now.</summary>
-    private readonly record struct CachedMatchEvidence(int Id, string Title, string SearchedName, string ImageSha256);
+    private static MatchedGame? TryReadMatchedGame(string metaPath, byte[] cachedImageBytes, string currentSearchName) =>
+        MatchEvidenceSidecar.TryRead(metaPath, cachedImageBytes, currentSearchName, "SteamGridDB") is { } e ? new MatchedGame(e.Id, e.Title) : null;
 
-    private static string ComputeImageHash(byte[] bytes) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+    private static void WriteMatchedGame(string metaPath, MatchedGame matched, string searchName, byte[] imageBytes) =>
+        MatchEvidenceSidecar.Write(metaPath, matched.Id, matched.Title, searchName, imageBytes, "SteamGridDB");
 
-    /// <summary>Reads the matched-game evidence sidecar written alongside a cached cover image (see
-    /// GetCoverArt's own remarks on why a cache hit needs this) - null for anything short of FULLY
-    /// verified evidence: a missing/corrupt/unrecognized-JSON sidecar (including one written before this
-    /// validation existed, whose absent new fields deserialize to null/0 and so fail the checks below
-    /// the same way); a non-positive id or empty title (a bare `{}` deserializes to exactly these
-    /// defaults - default field values are not evidence, and must never be presented as if they were);
-    /// a SearchedName that doesn't match `currentSearchName` (the cached image was resolved under a
-    /// DIFFERENT identity than the one being searched for now - stale, not wrong-shaped); or a hash that
-    /// doesn't match `cachedImageBytes` (the sidecar doesn't actually describe this image - see
-    /// CachedMatchEvidence's own remarks on why the two files can disagree). GetCoverArt treats every one
-    /// of these identically: delete both files and re-fetch, rather than silently keep serving something
-    /// that can no longer be verified.</summary>
-    private static MatchedGame? TryReadMatchedGame(string metaPath, byte[] cachedImageBytes, string currentSearchName)
-    {
-        try
-        {
-            if (!File.Exists(metaPath))
-                return null;
-
-            // Bounded (ProviderHttp.MaxSidecarBytes): an oversized sidecar is unverifiable evidence, exactly like
-            // a corrupt one - null here makes the caller delete both files and re-fetch.
-            var sidecarText = ProviderImageIo.ReadBoundedSidecarText(metaPath, "SteamGridDB");
-            if (sidecarText is null)
-                return null;
-
-            var evidence = JsonSerializer.Deserialize<CachedMatchEvidence>(sidecarText);
-            if (evidence.Id <= 0 || string.IsNullOrWhiteSpace(evidence.Title) || string.IsNullOrWhiteSpace(evidence.ImageSha256))
-                return null;
-
-            if (!string.Equals(evidence.SearchedName, currentSearchName, StringComparison.Ordinal))
-                return null;
-
-            if (!string.Equals(evidence.ImageSha256, ComputeImageHash(cachedImageBytes), StringComparison.Ordinal))
-                return null;
-
-            return new MatchedGame(evidence.Id, evidence.Title);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static void WriteMatchedGame(string metaPath, MatchedGame matched, string searchName, byte[] imageBytes)
-    {
-        try
-        {
-            var evidence = new CachedMatchEvidence(matched.Id, matched.Title, searchName, ComputeImageHash(imageBytes));
-            File.WriteAllText(metaPath, JsonSerializer.Serialize(evidence));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Logger.Warn($"SteamGridDB: couldn't write match evidence for cached cover '{metaPath}'.", ex);
-        }
-    }
-
-    private static void TryDeleteMatchedGameFile(string metaPath)
-    {
-        try
-        {
-            if (File.Exists(metaPath))
-                File.Delete(metaPath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    private static void TryDeleteMatchedGameFile(string metaPath) => MatchEvidenceSidecar.TryDelete(metaPath, "SteamGridDB");
 }

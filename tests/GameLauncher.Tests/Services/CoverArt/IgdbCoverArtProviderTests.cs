@@ -256,6 +256,91 @@ public class IgdbCoverArtProviderTests : IDisposable
         Assert.False(ambiguous);
     }
 
+    // ---- Same-title ties settled by IGDB's own parent relation ----------------------------------------------------------
+
+    // A SANITIZED excerpt of the real /v4/games response for `search "Fortnite"` (2026-10-01): two entries are titled exactly
+    // "Fortnite" - 1905 (no parent) and 231090 (parent_game = 1905) - beside many differently-titled children. Before this rule the
+    // two exact matches made the lookup Ambiguous, so the game never got a cover.
+    private const string RealFortniteSearch = """
+        [{"id":303239,"first_release_date":1714521600,"name":"Fortnite: May 2024 Fortnite Crew Pack","parent_game":1905},
+         {"id":231090,"first_release_date":1515542400,"name":"Fortnite","parent_game":1905},
+         {"id":1905,"first_release_date":1593388800,"name":"Fortnite"},
+         {"id":324915,"first_release_date":1733443200,"name":"Fortnite OG","parent_game":1905},
+         {"id":279764,"first_release_date":1702080000,"name":"Fortnite Festival","parent_game":1905},
+         {"id":366638,"name":"Fortnite Festival: I","parent_game":279764}]
+        """;
+
+    [Fact]
+    public void SelectMatchedGame_TwoSameTitledEntries_WhereOneIsTheOthersChild_ResolvesToTheMainEntry()
+    {
+        var matched = IgdbCoverArtProvider.SelectMatchedGame(RealFortniteSearch, "Fortnite", out var ambiguous);
+
+        Assert.False(ambiguous);
+        Assert.Equal(new IgdbCoverArtProvider.MatchedGame(1905, "Fortnite"), matched);
+    }
+
+    [Fact]
+    public void SelectMatchedGame_TwoSameTitledEntriesWithNoParents_StaysAmbiguous()
+    {
+        var matched = IgdbCoverArtProvider.SelectMatchedGame(
+            """[{"id":1,"name":"Fortnite"},{"id":2,"name":"Fortnite"}]""", "Fortnite", out var ambiguous);
+
+        Assert.Null(matched);
+        Assert.True(ambiguous);
+    }
+
+    [Theory]
+    [InlineData("""[{"id":1,"name":"Foo"},{"id":2,"name":"Foo","parent_game":99}]""")]                      // the child's parent is some OTHER game
+    [InlineData("""[{"id":1,"name":"Foo"},{"id":2,"name":"Foo","parent_game":1},{"id":3,"name":"Foo","parent_game":99}]""")]
+    [InlineData("""[{"id":1,"name":"Foo","parent_game":2},{"id":2,"name":"Foo","parent_game":1}]""")]       // a loop: no root at all
+    [InlineData("""[{"id":1,"name":"Foo"},{"id":2,"name":"Foo","parent_game":"1"}]""")]                    // an unreadable parent proves nothing
+    [InlineData("""[{"id":1,"name":"Foo"},{"id":2,"name":"Foo","parent_game":0}]""")]
+    [InlineData("""[{"id":1,"name":"Foo"},{"id":2,"name":"Foo","version_parent":1,"parent_game":99}]""")]  // one parent is the root, the other is not
+    public void SelectMatchedGame_ARelationThatDoesNotProveOneMainEntry_StaysAmbiguous(string json)
+    {
+        var matched = IgdbCoverArtProvider.SelectMatchedGame(json, "Foo", out var ambiguous);
+
+        Assert.Null(matched);
+        Assert.True(ambiguous);
+    }
+
+    [Fact]
+    public void SelectMatchedGame_VersionParentCountsLikeParentGame()
+    {
+        var matched = IgdbCoverArtProvider.SelectMatchedGame(
+            """[{"id":7,"name":"Foo","version_parent":3},{"id":3,"name":"Foo"}]""", "Foo", out var ambiguous);
+
+        Assert.False(ambiguous);
+        Assert.Equal(3, matched?.Id);
+    }
+
+    [Fact]
+    public void SelectMatchedGame_ASingleExactMatchThatHasAParent_IsStillTheMatch()
+    {
+        // Minecraft's real shape: the correct entry has a parent_game of its own. A parent alone never disqualifies.
+        var matched = IgdbCoverArtProvider.SelectMatchedGame(
+            """[{"id":135400,"name":"Minecraft","parent_game":121},{"id":121,"name":"Minecraft: Java Edition"}]""", "Minecraft", out var ambiguous);
+
+        Assert.False(ambiguous);
+        Assert.Equal(135400, matched?.Id);
+    }
+
+    [Fact]
+    public void TheTitleSearch_AsksIgdbForTheParentFields_TheTieBreakNeeds()
+    {
+        string? sentQuery = null;
+        var game = MakeGame("Fortnite");
+        var igdb = new IgdbCoverArtProvider("id", "secret")
+        {
+            AccessTokenOverrideForTest = "token",
+            SearchRequestOverride = query => { sentQuery = query; return "[]"; },
+        };
+
+        igdb.GetCoverArt(game, out _, out _, out _, NewCacheDir());
+
+        Assert.Contains("fields name,parent_game,version_parent;", sentQuery);
+    }
+
     [Fact]
     public void SelectCoverImageUrl_AValidCover_BuildsTheCdnUrl()
     {
