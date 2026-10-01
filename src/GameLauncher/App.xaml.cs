@@ -68,7 +68,7 @@ public partial class App : Application
         _singleInstanceMutex = new Mutex(initiallyOwned: true, name: SingleInstanceMutexName, out var createdNew);
         if (!createdNew)
         {
-            Logger.Info("Another instance of Game Launcher is already running - bringing it to the front instead of opening a second one.");
+            Logger.Info("Another instance of Axis Game Launcher is already running - bringing it to the front instead of opening a second one.");
             SignalExistingInstance();
             Shutdown();
             return;
@@ -134,8 +134,8 @@ public partial class App : Application
     {
         Logger.Error("Unhandled exception on the UI thread - the app will now close.", e.Exception);
         MessageBox.Show(
-            $"Game Launcher hit an unexpected error and needs to close.\n\nDetails were saved to:\n{Logger.CurrentLogPath}",
-            "Game Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
+            $"Axis Game Launcher hit an unexpected error and needs to close.\n\nDetails were saved to:\n{Logger.CurrentLogPath}",
+            "Axis Game Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
         // Leave e.Handled false: the exception already logged, now let the process end normally
         // rather than pretend the app is still in a known-good state.
     }

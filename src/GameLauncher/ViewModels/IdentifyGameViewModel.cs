@@ -233,10 +233,21 @@ public sealed partial class IdentifyGameViewModel : ObservableObject
         }
     }
 
-    private async Task LoadThumbnailsAsync(int generation, CancellationToken ct)
+    private Task LoadThumbnailsAsync(int generation, CancellationToken ct)
     {
-        foreach (var item in Candidates.Take(10).ToList())
+        // Each provider already bounds its result page. Load ALL listed candidates, not the first
+        // ten of the combined list (which starved SteamGridDB behind IGDB). One sequential queue per
+        // provider keeps requests bounded without letting a slow IGDB image block SteamGridDB.
+        var groups = Candidates.ToArray().GroupBy(item => item.Candidate.Namespace).ToArray();
+        return Task.WhenAll(groups.Select(group => LoadProviderThumbnailsAsync(group.ToArray(), generation, ct)));
+    }
+
+    private async Task LoadProviderThumbnailsAsync(IReadOnlyList<CandidateItem> items, int generation, CancellationToken ct)
+    {
+        foreach (var item in items)
         {
+            if (ct.IsCancellationRequested || generation != _searchGeneration)
+                return;
             var provider = _providers.FirstOrDefault(p => p.Namespace == item.Candidate.Namespace);
             if (provider is null)
                 continue;
@@ -251,8 +262,8 @@ public sealed partial class IdentifyGameViewModel : ObservableObject
                     // this is normally just a download. SteamGridDB's autocomplete endpoint returns no image
                     // at all - without this fallback its candidates NEVER show a thumbnail, only the name and
                     // the placeholder icon, no matter how long you wait. ListCovers is the same per-id lookup
-                    // Choose Cover already uses; it's one extra bounded call, only for the up to 10 candidates
-                    // actually shown, and only for a provider whose search didn't already include an image.
+                    // Choose Cover already uses; it's one extra bounded call per listed candidate,
+                    // only for a provider whose search didn't already include an image.
                     var url = item.Candidate.ThumbnailUrl;
                     if (url is null)
                     {

@@ -7,4 +7,6 @@ public enum GameSortOption
     Source,
     FavoritesFirst,
     RecentlyAdded,
+    LargestInstalled,
+    MostPlayed,
 }

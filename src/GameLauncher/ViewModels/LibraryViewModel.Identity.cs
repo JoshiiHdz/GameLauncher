@@ -175,6 +175,15 @@ public partial class LibraryViewModel
         RemoveUnauthorizedAutomaticArtwork(game, over, liveQuery, legacyContinuityValidated: published && half.LegacyContinuity);
         RefreshIdentityBadge(game);
 
+        // The scan's cover count describes worker results, not what survived publication. Record
+        // missing/rejected covers here so a gaming-PC log can distinguish lookup failure from a
+        // stale result discarded by migration or a concurrent user action.
+        if (!game.IsCoverArt || !IsValidated(identityHalf))
+            Logger.Info($"Artwork publish: '{game.Name}' ({game.Id}); identity={identityHalf}; "
+                + $"result={half.Kind}; artworkRevisionCurrent={artworkRevisionCurrent}; published={published}; "
+                + $"coverDisplayed={game.IsCoverArt && game.Icon is not null}; "
+                + $"reason={over?.Identity?.LastAttempt?.Outcome.ToString() ?? "none"}.");
+
         return Report(game.Id, identityHalf, published);
     }
 

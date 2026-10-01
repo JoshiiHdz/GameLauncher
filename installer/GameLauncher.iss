@@ -6,7 +6,7 @@
 ;
 ; This script does NOT reimplement Velopack's install layout, app identity, or update mechanism in
 ; any way - it only collects choices from the user (where to install, whether to make a desktop icon,
-; and - via the maintenance window below - what to do if Game Launcher is already installed) and then
+; and - via the maintenance window below - what to do if Axis Game Launcher is already installed) and then
 ; calls the real, unmodified Velopack Setup.exe (embedded as a payload below) with
 ; `--silent --installto "<chosen folder>"`, exactly the same call this project's own local dry-run
 ; testing already verified works correctly: Velopack's own uninstall registry entry, Update.exe, the
@@ -16,7 +16,7 @@
 ; Uninstallable=no below is equally deliberate: Velopack's Setup.exe already writes a complete, correct
 ; "Apps & Features" entry (DisplayName, DisplayIcon, UninstallString -> Update.exe --uninstall) the
 ; moment it runs. If this installer also registered its own uninstall entry, Windows would show two
-; separate "Game Launcher" entries. Velopack owns uninstall - this installer does not duplicate it.
+; separate "Axis Game Launcher" entries. Velopack owns uninstall - this installer does not duplicate it.
 ;
 ; The one thing this installer *does* independently own is the optional desktop shortcut (Velopack's
 ; own --shortcuts pack setting is StartMenuRoot only - see release.yml's Pack step) - and even that
@@ -57,9 +57,9 @@
 ; from Velopack's own "GameLauncher" package id (see release.yml's Pack step remarks). Never reuse
 ; this GUID for a different application.
 AppId={{7F3E9A1C-4D62-4B8F-9A5E-1C8B6D2F0E3A}
-AppName=Game Launcher
+AppName=Axis Game Launcher
 AppVersion={#AppVersion}
-AppPublisher=Game Launcher
+AppPublisher=Axis Game Launcher
 DefaultDirName={localappdata}\GameLauncher
 DisableProgramGroupPage=yes
 Uninstallable=no
@@ -105,15 +105,15 @@ Source: "{#VelopackSetupExe}"; DestDir: "{tmp}"; Flags: dontcopy
 [Icons]
 ; The one shortcut this installer creates itself - Velopack's own pack config deliberately omits
 ; Desktop (see release.yml) so this checkbox is the only thing that controls it.
-Name: "{autodesktop}\Game Launcher"; Filename: "{app}\GameLauncher.exe"; Tasks: desktopicon
+Name: "{autodesktop}\Axis Game Launcher"; Filename: "{app}\GameLauncher.exe"; Tasks: desktopicon
 
 [Run]
 ; --silent below suppresses Velopack's own normal post-install auto-launch, so this is the only thing
 ; that offers to start the app - a standard Inno finish-page checkbox instead, checked by default,
 ; skipped automatically for a /SILENT or /VERYSILENT run (skipifsilent). Only reachable via the fresh-
-; install wizard path - the maintenance window's own "Open Game Launcher" button covers the
+; install wizard path - the maintenance window's own "Open Axis Game Launcher" button covers the
 ; already-installed case independently (see InitializeSetup).
-Filename: "{app}\GameLauncher.exe"; Description: "Launch Game Launcher"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\GameLauncher.exe"; Description: "Launch Axis Game Launcher"; Flags: postinstall nowait skipifsilent
 
 [Code]
 var
@@ -267,7 +267,7 @@ begin
   ExistingInstallNotice.Width := WizardForm.DirEdit.Width;
   ExistingInstallNotice.Height := 48;
   ExistingInstallNotice.Caption :=
-    'Game Launcher is already installed here, so this will update that copy in place. To move it ' +
+    'Axis Game Launcher is already installed here, so this will update that copy in place. To move it ' +
     'to a different folder, first uninstall the existing copy from Windows Settings > Apps, then ' +
     'run this installer again.';
 end;
@@ -364,27 +364,27 @@ begin
     case SetupResult of
       vsrPathMismatch:
         begin
-          MsgBox('Game Launcher is already installed at:' + #13#10 + ExistingInstallPath + #13#10#13#10 +
+          MsgBox('Axis Game Launcher is already installed at:' + #13#10 + ExistingInstallPath + #13#10#13#10 +
             'To install it somewhere else, first uninstall the existing copy from Windows Settings > ' +
             'Apps, then run this installer again.', mbCriticalError, MB_OK);
           Abort;
         end;
       vsrVersionUnknown:
         begin
-          MsgBox('Game Launcher''s installed version could not be verified, so this installer will not ' +
+          MsgBox('Axis Game Launcher''s installed version could not be verified, so this installer will not ' +
             'run over it. Uninstall the existing copy from Windows Settings > Apps, then run this ' +
             'installer again.', mbCriticalError, MB_OK);
           Abort;
         end;
       vsrNewerInstalled:
         begin
-          MsgBox('A newer version of Game Launcher is already installed. This installer will not ' +
+          MsgBox('A newer version of Axis Game Launcher is already installed. This installer will not ' +
             'downgrade it.', mbCriticalError, MB_OK);
           Abort;
         end;
       vsrExecFailed:
         begin
-          MsgBox('Game Launcher could not be installed. Please try again, or check ' +
+          MsgBox('Axis Game Launcher could not be installed. Please try again, or check ' +
             '%LocalAppData%\velopack\velopack.log for details.', mbCriticalError, MB_OK);
           Abort;
         end;
@@ -393,7 +393,7 @@ begin
 end;
 
 // The maintenance window's "Repair"/"Update to vX.Y.Z" action. ExpectedPath is where the maintenance
-// window found Game Launcher installed when it was shown, but that's only used to report a meaningful
+// window found Axis Game Launcher installed when it was shown, but that's only used to report a meaningful
 // error if RunVelopackSetupTo rejects the call - the actual path/version re-verification, immediately
 // before Exec rather than here, now lives entirely inside RunVelopackSetupTo (see its remarks), since
 // a check performed here first would just be an earlier, equally stale-able snapshot on top of the one
@@ -409,19 +409,19 @@ begin
 
   case SetupResult of
     vsrSuccess:
-      MsgBox('Game Launcher has been repaired successfully.', mbInformation, MB_OK);
+      MsgBox('Axis Game Launcher has been repaired successfully.', mbInformation, MB_OK);
     vsrPathMismatch:
-      MsgBox('Game Launcher''s installed location changed since this window opened. Please run this ' +
+      MsgBox('Axis Game Launcher''s installed location changed since this window opened. Please run this ' +
         'installer again.', mbCriticalError, MB_OK);
     vsrVersionUnknown:
-      MsgBox('Game Launcher''s installed version could not be verified. Please close this window and ' +
+      MsgBox('Axis Game Launcher''s installed version could not be verified. Please close this window and ' +
         'run Setup again.', mbCriticalError, MB_OK);
     vsrNewerInstalled:
-      MsgBox('A newer version of Game Launcher is now installed than this Setup can offer, so the ' +
+      MsgBox('A newer version of Axis Game Launcher is now installed than this Setup can offer, so the ' +
         'repair was cancelled to avoid downgrading it. Please close this window and run Setup again.',
         mbCriticalError, MB_OK);
     vsrExecFailed:
-      MsgBox('Game Launcher could not be repaired. Please try again, or check ' +
+      MsgBox('Axis Game Launcher could not be repaired. Please try again, or check ' +
         '%LocalAppData%\velopack\velopack.log for details.', mbCriticalError, MB_OK);
   end;
 end;
@@ -439,12 +439,12 @@ begin
   UpdateExePath := AddBackslash(InstallPath) + 'Update.exe';
   if not FileExists(UpdateExePath) then
   begin
-    MsgBox('Could not find Game Launcher''s uninstaller - it may already have been removed.',
+    MsgBox('Could not find Axis Game Launcher''s uninstaller - it may already have been removed.',
       mbCriticalError, MB_OK);
     Exit;
   end;
 
-  if MsgBox('This will remove Game Launcher and all its files from:' + #13#10 + InstallPath + #13#10#13#10 +
+  if MsgBox('This will remove Axis Game Launcher and all its files from:' + #13#10 + InstallPath + #13#10#13#10 +
        'Continue?', mbConfirmation, MB_YESNO) <> IDYES then
     Exit;
 
@@ -458,14 +458,14 @@ begin
   if not (DetectExistingInstall() and
           (CompareText(RemoveBackslashUnlessRoot(ExistingInstallPath), RemoveBackslashUnlessRoot(InstallPath)) = 0)) then
   begin
-    MsgBox('Game Launcher''s installed location changed since this window opened. Please run this ' +
+    MsgBox('Axis Game Launcher''s installed location changed since this window opened. Please run this ' +
       'installer again.', mbCriticalError, MB_OK);
     Exit;
   end;
 
   if Exec(UpdateExePath, '--uninstall --silent', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and
      (ResultCode = 0) then
-    MsgBox('Game Launcher has been uninstalled.', mbInformation, MB_OK)
+    MsgBox('Axis Game Launcher has been uninstalled.', mbInformation, MB_OK)
   else
     MsgBox('Uninstall may not have completed successfully. Check ' +
       '%LocalAppData%\velopack\velopack.log for details.', mbCriticalError, MB_OK);
@@ -490,13 +490,13 @@ var
 begin
   F := CreateCustomForm(ScaleX(380), ScaleY(320), False, False);
   try
-    F.Caption := 'Game Launcher Setup';
+    F.Caption := 'Axis Game Launcher Setup';
     F.Position := poScreenCenter;
     F.BorderStyle := bsDialog;
 
     TitleLabel := TNewStaticText.Create(F);
     TitleLabel.Parent := F;
-    TitleLabel.Caption := 'Game Launcher is already installed';
+    TitleLabel.Caption := 'Axis Game Launcher is already installed';
     TitleLabel.Left := ScaleX(20);
     TitleLabel.Top := ScaleY(20);
     TitleLabel.Font.Style := [fsBold];
@@ -542,7 +542,7 @@ begin
 
     OpenBtn := TNewButton.Create(F);
     OpenBtn.Parent := F;
-    OpenBtn.Caption := 'Open Game Launcher';
+    OpenBtn.Caption := 'Open Axis Game Launcher';
     OpenBtn.Left := ScaleX(20);
     OpenBtn.Top := Y;
     OpenBtn.Width := F.ClientWidth - ScaleX(40);
@@ -662,7 +662,7 @@ begin
     not VersionKnown);
 
   case Action of
-    mrYes: // Open Game Launcher
+    mrYes: // Open Axis Game Launcher
       Exec(AddBackslash(InstallPath) + 'GameLauncher.exe', '', '', SW_SHOW, ewNoWait, ResultCode);
     mrRetry: // Repair / Update
       RunMaintenanceRepair(InstallPath);

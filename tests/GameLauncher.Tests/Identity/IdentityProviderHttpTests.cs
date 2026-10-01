@@ -301,6 +301,35 @@ public class IdentityProviderHttpTests : IDisposable
 
     // ---- IGDB: id-keyed cover -------------------------------------------------------------------------------------------
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IgdbCover_UpgradesOldQuality_WithoutDiscardingItsOfflineFallback(bool offline)
+    {
+        var cache = Dir();
+        var oldPath = IdKeyedCoverCache.PathFor(cache, "7", 2);
+        IdKeyedCoverCache.Write(oldPath, "7", "Foo", TestImages.Png(60, 90));
+        string? requestedImage = null;
+        var handler = IgdbApi((_, _) => offline
+            ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            : Ok("""[{"image_id":"co1"}]"""), request =>
+            {
+                requestedImage = request.RequestUri!.AbsoluteUri;
+                return Bytes(TestImages.Png(528, 748));
+            });
+        var provider = Igdb(handler);
+        Assert.NotNull(provider.ReadCachedCoverForId("7", cache));
+        Assert.Equal(0, handler.ApiCalls);
+        var result = provider.FetchCoverForId("7", "Foo", cache, CancellationToken.None);
+        Assert.Equal(CoverLookupStatus.Resolved, result.Status);
+        Assert.NotNull(result.Image);
+        Assert.Equal(offline, result.FromCache);
+        Assert.True(File.Exists(oldPath));
+        Assert.Equal(!offline, File.Exists(IdKeyedCoverCache.PathFor(cache, "7", IgdbCoverArtProvider.IdCacheVersion)));
+        if (!offline)
+            Assert.Contains("/t_cover_big_2x/", requestedImage);
+    }
+
     [Fact]
     public void IgdbCover_IsFetchedByIdOnce_ThenServedFromTheCacheWithNoNetworkAtAll()
     {

@@ -198,7 +198,7 @@ jobs:
       # Wraps the real, unmodified Setup.exe vpk pack just produced (Releases\GameLauncher-win-Setup.exe)
       # as a payload inside the wizard-driven installer - see installer/GameLauncher.iss's remarks for
       # exactly how it preserves Velopack's install layout, app identity, and uninstall/update
-      # ownership. AppVersion drives the wizard's title bar ("Setup - Game Launcher version X.Y.Z");
+      # ownership. AppVersion drives the wizard's title bar ("Setup - Axis Game Launcher version X.Y.Z");
       # VelopackSetupExe points the [Files] payload at the real file instead of the placeholder name
       # used for local script testing.
       - name: Build wrapped installer
@@ -218,7 +218,7 @@ jobs:
           vpk upload github
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
-          --releaseName "Game Launcher v${{ steps.get-version.outputs.version }}"
+          --releaseName "Axis Game Launcher v${{ steps.get-version.outputs.version }}"
           --tag ${{ github.ref_name }}
 
       # A second, separate upload rather than copying into Releases\ before the step above: vpk

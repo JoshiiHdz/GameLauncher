@@ -283,11 +283,15 @@ public class IdentifyGameWindowTests
                 var artHeight = (double)dict["GameCardArtHeight"];
                 var button = Descendants<System.Windows.Controls.Button>(main).First(b => ReferenceEquals(b.DataContext, game));
                 var root = Descendants<Border>(button).First(b => b.Name == "CardRoot");
+                // The rounded clip lives on the ART border now, not on the whole tile: the design has no
+                // card panel, so name/platform are plain text below the artwork rather than a strip
+                // inside it. CardRoot is the (unpainted) hover region spanning both.
+                var art = Descendants<Border>(button).First(b => b.Clip is not null);
 
                 Assert.True(width > 124);                                                    // wider than the old 124
                 Assert.Equal(width, button.ActualWidth);                                     // the card really is that wide
-                Assert.Equal(width, root.Clip.Bounds.Width);                                 // the rounded-corner clip covers the whole width...
-                Assert.Equal(artHeight + 30, root.Clip.Bounds.Height);                       // ...and the whole art + caption strip
+                Assert.Equal(width, art.Clip.Bounds.Width);                                  // the rounded-corner clip covers the whole width...
+                Assert.Equal(artHeight, art.Clip.Bounds.Height);                             // ...and exactly the artwork's height
                 Assert.Equal(width, root.ActualWidth);
             }
             finally
@@ -299,16 +303,18 @@ public class IdentifyGameWindowTests
         });
     }
 
-    [Fact]
-    public void RealCoverArt_IsNeverCropped_MismatchedAspectRatiosLetterboxInstead()
+    [Theory]
+    [InlineData(30)]
+    [InlineData(60)]
+    [InlineData(90)]
+    public void RealCoverArt_FillsCompactFrame_WithoutDistortingProportions(int sourceHeight)
     {
-        // A real, confirmed case: some SteamGridDB covers are wide banners, not 2:3 posters. UniformToFill used to crop them - the
-        // artwork's own edges got cut off, not a layout bug - which is what "cover art is partially cut off" was.
+        // Compact dimensions and aspect-preserving, centred fill must stay in sync.
         _sta.RunAsync(async () =>
         {
             using var h = new IdentityHarness();
             var game = await h.Add(Games.Manual("manual-cover", "Foo"));
-            game.Icon = TestBitmaps.Distinct(90);
+            game.Icon = TestBitmaps.Distinct(sourceHeight);
             game.IsCoverArt = true;
             h.Vm.Games.Add(game);
             var dict = new ResourceDictionary { Source = new Uri("pack://application:,,,/GameLauncher;component/Resources/GameCardTemplate.xaml") };
@@ -325,11 +331,15 @@ public class IdentifyGameWindowTests
             try
             {
                 var button = Descendants<System.Windows.Controls.Button>(main).First(b => ReferenceEquals(b.DataContext, game));
-                var art = Descendants<System.Windows.Controls.Image>(button).First(i => BindingOperations.GetBinding(i, System.Windows.Controls.Image.SourceProperty)?.Path.Path == "Icon");
+                var coverFill = Descendants<Border>(button).First(b => b.Name == "CoverFill");
+                var brush = Assert.IsType<System.Windows.Media.ImageBrush>(coverFill.Background);
 
-                Assert.Equal(System.Windows.Media.Stretch.Uniform, art.Stretch);              // never UniformToFill: the whole image, nothing cropped
-                Assert.Equal(double.NaN, art.Width);                                          // still fills its layout slot (letterboxed within it)...
-                Assert.Equal(System.Windows.HorizontalAlignment.Stretch, art.HorizontalAlignment); // ...it's the Stretch mode that stops the crop, not the size
+                Assert.Equal(200d, coverFill.ActualWidth);
+                Assert.Equal(260d, coverFill.ActualHeight);
+                Assert.Equal(System.Windows.Media.Stretch.UniformToFill, brush.Stretch);
+                Assert.Equal(System.Windows.Media.AlignmentX.Center, brush.AlignmentX);       // ...and the crop comes evenly off both sides,
+                Assert.Equal(System.Windows.Media.AlignmentY.Center, brush.AlignmentY);       // not all off one edge
+                Assert.Equal(System.Windows.Visibility.Visible, coverFill.Visibility);        // real cover art, so the fill is what's showing
             }
             finally
             {
@@ -337,6 +347,46 @@ public class IdentifyGameWindowTests
             }
 
             await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void CardSize_IsBelowArtwork_AndOnlyVisibleWhileADriveIsSelected()
+    {
+        _sta.RunAsync(async () =>
+        {
+            using var h = new IdentityHarness();
+            var game = await h.Add(Games.Manual("sized", "Sized Game"));
+            game.InstallSizeBytes = 2L << 30;
+            h.Vm.InstallSizeEstimatorForTest = (_, _) => 2L << 30;
+            var dict = new ResourceDictionary { Source = new Uri("pack://application:,,,/GameLauncher;component/Resources/GameCardTemplate.xaml") };
+            var main = new ItemsControl { ItemTemplate = (DataTemplate)dict["GameCardTemplate"] };
+            main.SetBinding(ItemsControl.ItemsSourceProperty, new Binding(nameof(LibraryViewModel.Games)));
+            var window = new System.Windows.Window
+            {
+                DataContext = h.Vm, Content = main, Width = 900, Height = 700,
+                Left = -5000, Top = -5000, ShowActivated = false,
+            };
+            window.Resources.MergedDictionaries.Add(dict);
+            window.Show();
+            try
+            {
+                window.UpdateLayout();
+                Border Panel() => Descendants<Border>(main).Single(b => b.Name == "InstallSizePanel");
+                Assert.Equal(Visibility.Collapsed, Panel().Visibility); // Cached size must not expose it.
+                h.Vm.SelectDriveCommand.Execute("C:");
+                window.UpdateLayout();
+                Assert.Equal(Visibility.Visible, Panel().Visibility);
+                var value = Descendants<TextBlock>(Panel()).Single(t => t.Name == "InstallSizeValue");
+                Assert.Equal("≈ 2 GB", value.Text);
+                var art = Descendants<Border>(main).Single(b => b.Name == "CoverFill");
+                Assert.True(Panel().TranslatePoint(new System.Windows.Point(), main).Y
+                    >= art.TranslatePoint(new System.Windows.Point(0, art.ActualHeight), main).Y);
+                h.Vm.SelectDriveCommand.Execute("C:");
+                window.UpdateLayout();
+                Assert.Equal(Visibility.Collapsed, Panel().Visibility);
+            }
+            finally { window.Close(); }
         });
     }
 
@@ -372,8 +422,8 @@ public class IdentifyGameWindowTests
                 menu.IsOpen = true;
                 Pump();
 
-                var identify = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Identify Game...");
-                var choose = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Choose Cover from Catalog...");
+                var identify = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Identify game...");
+                var choose = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Choose cover from catalog...");
                 Assert.Same(h.Vm.IdentifyGameCommand, identify.Command);
                 Assert.Same(gameB, identify.CommandParameter);                   // the CLICKED card, not the first or last
                 Assert.Same(h.Vm.ChooseCatalogCoverCommand, choose.Command);

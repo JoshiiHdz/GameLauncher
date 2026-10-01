@@ -1,6 +1,7 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using GameLauncher.Models;
 
 namespace GameLauncher.Services;
@@ -28,8 +29,8 @@ namespace GameLauncher.Services;
 ///      same as before - kept, not replaced, per the ask to keep XboxGames as A fallback, not THE
 ///      location. A package's InstallLocation and its containing XboxGames folder entry can both name
 ///      the SAME real install (e.g. InstallLocation is "...\Game\Content", the umbrella folder is
-///      "...\Game") - reconciled by containment, not exact-path equality, so this never double-adds one
-///      install as two separate games.
+///      "...\Game"). Containment handles that case; package/activation identity reconciles the separate
+///      WindowsApps and XboxGames paths that have no textual containment relationship at all.
 ///
 ///   4. Whenever metadata doesn't name a confident executable, the search for one (XboxExeSearch) is
 ///      bounded by directory-visit/time budgets and cancellation (checked during enumeration too, not
@@ -66,7 +67,9 @@ public static class XboxScanner
     private static readonly string[] StubNamePatterns =
         { " dlc", "launch tracker", "game stub", "game pass pack", "pre-order", "preorder" };
 
-    public static List<GameEntry> Scan(CancellationToken ct = default)
+    public static List<GameEntry> Scan(CancellationToken ct = default) => Scan(GetReadyDrives().ToList(), ct);
+
+    internal static List<GameEntry> Scan(IReadOnlyList<string> readyDrives, CancellationToken ct = default)
     {
         var games = new List<GameEntry>();
         var handledXboxGamesDirs = new List<string>();
@@ -79,12 +82,12 @@ public static class XboxScanner
         // nothing, and falls back to a full-tree search (or a free-text AUMID guess) that can pick up and
         // launch, or activate, the exact target the deeper manifest already, explicitly, rejected.
         var rejectedManifestTopLevelDirs = new List<string>();
-        var readyDrives = GetReadyDrives().ToList();
         ct.ThrowIfCancellationRequested();
         var packagedApps = StartAppsResolver.GetPackagedApps(ct);
+        var packages = XboxPackageDiscovery.GetInstalledPackages(ct);
 
         // ---- 1: package registration (authoritative install locations + identity) --------------------
-        foreach (var package in XboxPackageDiscovery.GetInstalledPackages(ct))
+        foreach (var package in packages)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -105,7 +108,7 @@ public static class XboxScanner
                 continue; // no evidence this package is a game at all - never add "every registered app"
 
             var folderName = Path.GetFileName((canonicalTopLevelFolder ?? package.InstallLocation).TrimEnd(Path.DirectorySeparatorChar));
-            if (IsStub(folderName))
+            if (IsStub(folderName) || IsStub(package.Name))
             {
                 Logger.Info($"  Xbox: skipping DLC/stub package '{folderName}'.");
                 continue;
@@ -131,6 +134,7 @@ public static class XboxScanner
             }
         }
 
+        var registeredEntries = games.ToArray();
         // ---- 2: XboxGames folders on every ready drive, for anything step 1 didn't already cover ------
         var anyFolderFound = false;
         foreach (var drive in readyDrives)
@@ -168,13 +172,39 @@ public static class XboxScanner
                     var normalizedGameDir = NormalizeDir(gameDir);
                     var forceRejected = rejectedManifestTopLevelDirs.Any(d => string.Equals(d, normalizedGameDir, StringComparison.OrdinalIgnoreCase));
 
-                    // No confirmed PackageFamilyName here - Get-AppxPackage never surfaced this install at
-                    // all, so identity resolution falls all the way back to the old, weakest tier
-                    // (free-text folder-name-vs-Start-Menu-title matching) inside BuildCandidateEntry.
-                    var entry = BuildCandidateEntry(gameDir, name, packageFamilyName: null, packagedApps, ct,
-                        forceRejected: forceRejected, metadataRejectedSearch: out _);
+                    var metadataRoot = XboxGameManifest.FindMetadataRoot(gameDir);
+                    var identityName = XboxGameManifest.ReadIdentityName(metadataRoot);
+                    var families = packages.Where(p => identityName is not null
+                            && string.Equals(p.Name, identityName, StringComparison.OrdinalIgnoreCase))
+                        .Select(p => p.PackageFamilyName).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                    var family = families.Length == 1 ? families[0] : null;
+                    var entry = BuildCandidateEntry(metadataRoot, name, family, packagedApps, ct,
+                        canonicalIdRoot: gameDir, forceRejected: forceRejected, metadataRejectedSearch: out _);
                     if (entry is not null)
-                        games.Add(entry);
+                    {
+                        // WindowsApps registration and XboxGames content are often unrelated paths for
+                        // the same activation target. Match identity, never titles or folder similarity.
+                        var matches = registeredEntries.Where(g => g.Id == entry.Id
+                            || (entry.LaunchUri is not null && g.LaunchUri is not null
+                                && string.Equals(g.LaunchUri, entry.LaunchUri, StringComparison.OrdinalIgnoreCase)))
+                            .ToArray();
+                        if (matches.Length == 1)
+                        {
+                            var registered = matches[0];
+                            games[games.FindIndex(g => g.Id == registered.Id)] = new GameEntry
+                            {
+                                Id = registered.Id,
+                                LegacyId = entry.LegacyId ?? (entry.Id != registered.Id ? entry.Id : registered.LegacyId),
+                                Name = registered.Name,
+                                Source = GameSource.Xbox,
+                                InstallDir = entry.InstallDir,
+                                ExecutablePath = entry.ExecutablePath,
+                                LaunchUri = registered.LaunchUri ?? entry.LaunchUri,
+                            };
+                            Logger.Info($"  Xbox: reconciled package registration and content folder for '{registered.Name}' ({gameDir}).");
+                        }
+                        else games.Add(entry);
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -244,6 +274,13 @@ public static class XboxScanner
         string? canonicalIdRoot = null, bool forceRejected = false)
     {
         var manifest = XboxGameManifest.ReadLaunchTarget(installRoot);
+
+        if (manifest.Outcome == XboxManifestOutcome.NonPlayableContent)
+        {
+            metadataRejectedSearch = true;
+            Logger.Info($"  Xbox: '{folderOrPackageName}' declares DLC content, not a standalone game - skipping.");
+            return null;
+        }
 
         var resolvedTarget = manifest.Outcome == XboxManifestOutcome.Single ? manifest.Target : null;
         var unresolvedAmbiguity = false;
@@ -533,7 +570,10 @@ public static class XboxScanner
     private static bool IsStub(string folderName)
     {
         var lower = folderName.ToLowerInvariant();
-        return StubNamePatterns.Any(lower.Contains);
+        var compact = Normalize(folderName);
+        return StubNamePatterns.Any(lower.Contains)
+            || new[] { "launchtracker", "gamestub", "gamepasspack", "preorder" }.Any(compact.Contains)
+            || Regex.IsMatch(folderName, @"(?:^|[\s._-]|(?<=\d))dlc(?=\d|[\s._-]|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static bool HasMicrosoftGameConfig(string installLocation)

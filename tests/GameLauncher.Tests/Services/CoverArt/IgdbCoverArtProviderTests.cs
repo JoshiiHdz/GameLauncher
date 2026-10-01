@@ -259,7 +259,7 @@ public class IgdbCoverArtProviderTests : IDisposable
     [Fact]
     public void SelectCoverImageUrl_AValidCover_BuildsTheCdnUrl()
     {
-        Assert.Equal("https://images.igdb.com/igdb/image/upload/t_cover_big/co1abc.jpg",
+        Assert.Equal("https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co1abc.jpg",
             IgdbCoverArtProvider.SelectCoverImageUrl("""[{"id":1,"image_id":"co1abc"}]"""));
     }
 

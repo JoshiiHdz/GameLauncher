@@ -38,22 +38,20 @@
                 </TextBlock>
                 <TextBlock Text="Nothing is saved until you click Apply." FontSize="12" Opacity="0.6" Margin="0,0,0,14" />
 
-                <!-- The library card (GameCardTemplate.xaml's GameArtImageStyle) is a fixed box (GameCardWidth x GameCardArtHeight)
-                     with Stretch="Uniform" - it shows the WHOLE image, letterboxed against its own background when the source isn't
-                     that same shape, and never crops (some real covers - SteamGridDB banners in particular - are wide, and cropping
-                     those to fill the box used to cut real content off the sides). This box reproduces the card's own ratio, Stretch
-                     mode AND letterbox background (190x247, matching the card's current 200x260 art size; ControlFillColorSecondaryBrush)
-                     and clips to it, so what's shown here is exactly what the card will show once applied - not a differently-
-                     proportioned, or differently-cropped, approximation of it. -->
+                <!-- Match the compact card's ratio and centred fill; full-source view remains below. -->
                 <Border x:Name="PreviewBorder" CornerRadius="8" Background="{DynamicResource ControlFillColorSecondaryBrush}" Width="190" Height="247"
                         HorizontalAlignment="Center" ClipToBounds="True">
-                    <Image x:Name="PreviewImageElement" Source="{Binding PreviewImage}" Stretch="Uniform"
-                           RenderOptions.BitmapScalingMode="HighQuality" />
+                    <!-- Same fit and centre alignment as GameCardTemplate's CoverFill. -->
+                    <Border x:Name="PreviewImageElement">
+                        <Border.Background>
+                            <ImageBrush ImageSource="{Binding PreviewImage}" Stretch="UniformToFill"
+                                        AlignmentX="Center" AlignmentY="Center"
+                                        RenderOptions.BitmapScalingMode="HighQuality" />
+                        </Border.Background>
+                    </Border>
                 </Border>
 
-                <!-- Collapsed by default - the card crop above is the one that matters for Apply, but a
-                     user deciding BETWEEN two candidate files may still want to see what the source image
-                     actually contains before the crop. -->
+                <!-- Optional wider frame for comparing landscape images. -->
                 <Expander Header="Show full image" Margin="0,12,0,0" HorizontalAlignment="Center">
                     <Border CornerRadius="8" Background="#1FFFFFFF" Width="240" Height="160" Margin="0,8,0,0">
                         <Image Source="{Binding PreviewImage}" Stretch="Uniform"

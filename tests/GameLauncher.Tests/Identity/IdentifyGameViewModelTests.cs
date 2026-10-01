@@ -108,6 +108,63 @@ public class IdentifyGameViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Search_BothProvidersReturnFullPages_EveryListedCandidateGetsAPreview()
+    {
+        var game = await _h.Add(Foo());
+        _h.Igdb.Candidates = _ => Enumerable.Range(1, 12)
+            .Select(i => Cand(Cat.Igdb, i.ToString(), thumb: $"https://images.igdb.com/{i}.png")).ToArray();
+        _h.Sgdb.Candidates = _ => Enumerable.Range(1, 12)
+            .Select(i => Cand(Cat.Sgdb, i.ToString())).ToArray();
+        var listed = new System.Collections.Concurrent.ConcurrentBag<string>();
+        _h.Sgdb.Covers = id =>
+        {
+            listed.Add(id);
+            return [new CoverChoice(id, $"https://cdn2.steamgriddb.com/{id}.png", null)];
+        };
+        _h.Igdb.Download = _ => TestImages.Png(64, 96);
+        _h.Sgdb.Download = _ => TestImages.Png(64, 128);
+        var dialog = Open(game);
+        try
+        {
+            await dialog.SearchCommand.ExecuteAsync(null);
+            await WaitForThumbnails(dialog, 24);
+            Assert.Equal(24, dialog.Candidates.Count);
+            Assert.All(dialog.Candidates, c => Assert.NotNull(c.Thumbnail));
+            Assert.Equal(12, listed.Distinct().Count());
+        }
+        finally { dialog.Cancel(); }
+    }
+
+    [Fact]
+    public async Task Search_OneProvidersPreviewIsBlocked_OtherProviderStillLoads()
+    {
+        var game = await _h.Add(Foo());
+        using var release = new ManualResetEventSlim();
+        var blocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _h.Igdb.Candidates = _ => [Cand(Cat.Igdb, "1", thumb: "https://images.igdb.com/1.png")];
+        _h.Sgdb.Candidates = _ => [Cand(Cat.Sgdb, "2")];
+        _h.Igdb.Download = _ =>
+        {
+            blocked.TrySetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("test safety cap");
+            return TestImages.Png(64, 96);
+        };
+        _h.Sgdb.Covers = _ => [new CoverChoice("2", "https://cdn2.steamgriddb.com/2.png", null)];
+        _h.Sgdb.Download = _ => TestImages.Png(64, 96);
+        var dialog = Open(game);
+        try
+        {
+            await dialog.SearchCommand.ExecuteAsync(null);
+            await blocked.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            for (var i = 0; i < 100 && dialog.Candidates.Last().Thumbnail is null; i++)
+                await Task.Delay(10);
+            Assert.Null(dialog.Candidates.First().Thumbnail);
+            Assert.NotNull(dialog.Candidates.Last().Thumbnail);
+        }
+        finally { dialog.Cancel(); release.Set(); }
+    }
+
+    [Fact]
     public async Task Search_ACandidateWithItsOwnThumbnailUrl_IsDownloadedDirectly_NoExtraCoverLookup()
     {
         // IGDB's search response already carries a cover (see ParseCandidates) - asserting ListCovers is never

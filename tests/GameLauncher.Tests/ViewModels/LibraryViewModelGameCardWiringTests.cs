@@ -5,6 +5,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Input;
 using GameLauncher.Behaviors;
@@ -190,8 +191,8 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
         PumpDispatcher();
 
         var items = menu.Items.OfType<MenuItem>().ToList();
-        var changeCover = items.Single(i => i.Header as string == "Change Cover...");
-        var reset = items.Single(i => i.Header as string == "Reset Cover to Automatic");
+        var changeCover = items.Single(i => i.Header as string == "Change cover...");
+        var reset = items.Single(i => i.Header as string == "Reset cover to automatic");
         return (changeCover, reset);
     }
 
@@ -572,6 +573,113 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
     // ---- Overflow "..." menu (hover icon, same actions as right-click) --------------------------------
 
     [Fact]
+    public void HoverJump_IsSmallAndFinite_ReturnsToRest_AndDoesNotMoveTheHoverRoot()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("hover-jump");
+            vm.SimulateRefreshResult([game]);
+            vm.InstallSizeEstimatorForTest = (_, _) => 0;
+            vm.SelectDriveCommand.Execute("C:");
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var card = FindCardButton(main, game);
+                var presenter = (ContentPresenter)VisualTreeHelper.GetChild(card, 0);
+                var root = Assert.IsType<Border>(presenter.Content);
+                var motion = Assert.IsType<StackPanel>(root.Child);
+                Assert.Equal("CardRoot", root.Name);
+                Assert.Equal("CardMotion", motion.Name);
+                Assert.IsType<TranslateTransform>(motion.RenderTransform);
+                var dict = new ResourceDictionary { Source = new Uri("pack://application:,,,/GameLauncher;component/Resources/GameCardTemplate.xaml") };
+                var template = (DataTemplate)dict["GameCardTemplate"];
+                var trigger = Assert.Single(template.Triggers.OfType<MultiDataTrigger>());
+                Assert.Contains(trigger.Conditions.Cast<Condition>(), c =>
+                    c.Binding is Binding { ElementName: "CardRoot", Path.Path: "IsMouseOver" });
+                Assert.Contains(trigger.Conditions.Cast<Condition>(), c =>
+                    c.Binding is Binding b && Equals(b.Source, SystemParameters.ClientAreaAnimation));
+                Storyboard Start(TriggerActionCollection actions)
+                {
+                    var storyboard = Assert.IsType<BeginStoryboard>(Assert.Single(actions.Cast<TriggerAction>())).Storyboard.Clone();
+                    foreach (var animation in storyboard.Children)
+                    {
+                        Assert.Equal("CardMotion", Storyboard.GetTargetName(animation));
+                        Assert.Equal(new RepeatBehavior(1), animation.RepeatBehavior);
+                        animation.ClearValue(Storyboard.TargetNameProperty);
+                        Storyboard.SetTarget(animation, motion);
+                    }
+                    storyboard.Begin(window, true);
+                    return storyboard;
+                }
+                var rootPosition = root.TranslatePoint(new Point(), window);
+                var enter = Start(trigger.EnterActions);
+                enter.SeekAlignedToLastTick(window, TimeSpan.FromMilliseconds(120), TimeSeekOrigin.BeginTime);
+                Assert.Equal(-6, ((TranslateTransform)motion.RenderTransform).Y, precision: 2);
+                enter.SeekAlignedToLastTick(window, TimeSpan.FromMilliseconds(300), TimeSeekOrigin.BeginTime);
+                Assert.Equal(-4, ((TranslateTransform)motion.RenderTransform).Y, precision: 2);
+                Assert.Equal(rootPosition, root.TranslatePoint(new Point(), window));
+                var exit = Start(trigger.ExitActions);
+                exit.SeekAlignedToLastTick(window, TimeSpan.FromMilliseconds(160), TimeSeekOrigin.BeginTime);
+                Assert.Equal(0, ((TranslateTransform)motion.RenderTransform).Y, precision: 2);
+                Assert.Equal(rootPosition, root.TranslatePoint(new Point(), window));
+                exit.Remove(window);
+                enter.Remove(window);
+            }
+            finally { window.Close(); }
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void FavoriteStar_WithHoverOverlayVisible_IsHitTestable_TogglesWithoutLaunching()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("favorite-hover");
+            vm.SimulateRefreshResult([game]);
+            vm.InstallSizeEstimatorForTest = (_, _) => 0;
+            vm.SelectDriveCommand.Execute("C:"); // Keep the single test game in the grid, not the hero.
+            var (window, _, main, _) = BuildHostWindow(vm);
+            var launchCalls = 0;
+            static IEnumerable<FrameworkElement> Elements(DependencyObject root)
+            {
+                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+                {
+                    var child = VisualTreeHelper.GetChild(root, i);
+                    if (child is FrameworkElement element) yield return element;
+                    foreach (var descendant in Elements(child)) yield return descendant;
+                }
+            }
+            try
+            {
+                foreach (var expected in new[] { true, false })
+                {
+                    window.UpdateLayout();
+                    var card = FindCardButton(main, game);
+                    card.Command = new RelayCommand(() => launchCalls++);
+                    var star = Assert.IsType<Button>(Elements(card).Single(e => e.Name == "FavoriteButton"));
+                    foreach (var element in Elements(card).Where(e => e.Name is "FavoriteButton" or "HoverOverlay" or "HoverPlayButton"))
+                        element.Visibility = Visibility.Visible; // Same visible layers as the hover trigger.
+                    window.UpdateLayout();
+                    var point = star.TranslatePoint(new Point(star.ActualWidth / 2, star.ActualHeight / 2), window);
+                    var hit = Assert.IsAssignableFrom<DependencyObject>(window.InputHitTest(point));
+                    Assert.True(ReferenceEquals(hit, star) || star.IsAncestorOf(hit),
+                        "The hover overlay must not intercept the favorite star's click.");
+                    var peer = new System.Windows.Automation.Peers.ButtonAutomationPeer(star);
+                    ((System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                    PumpDispatcher();
+                    Assert.Equal(expected, game.Favorite);
+                    Assert.Equal(0, launchCalls);
+                }
+            }
+            finally { window.Close(); }
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
     public void OverflowMenuButton_IsCollapsedByDefault_AndWiredToTheSameHoverTriggerAsThePlayOverlay()
     {
         _sta.RunAsync(async () =>
@@ -610,7 +718,7 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
     }
 
     [Fact]
-    public void OverflowMenuButton_OpensTheSameFourActions_TargetingTheClickedGame_AndNeverLaunchesTheGame()
+    public void OverflowMenuButton_OpensTheSameEightActions_TargetingTheClickedGame_AndNeverLaunchesTheGame()
     {
         _sta.RunAsync(async () =>
         {
@@ -642,21 +750,261 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.Same(overflow, menu.PlacementTarget);
 
                 var items = menu.Items.OfType<MenuItem>().ToList();
-                Assert.Equal(5, items.Count); // the 4 actions, plus the name header
+                Assert.Equal(9, items.Count); // the 8 actions, plus the name header
                 Assert.Equal(game.Name, GetMenuHeaderText(menu));
-                var changeCover = items.Single(i => i.Header as string == "Change Cover...");
-                var reset = items.Single(i => i.Header as string == "Reset Cover to Automatic");
-                var identify = items.Single(i => i.Header as string == "Identify Game...");
-                var chooseCatalog = items.Single(i => i.Header as string == "Choose Cover from Catalog...");
+                var play = items.Single(i => i.Header as string == "Play");
+                var openLocation = items.Single(i => i.Header as string == "Open install location");
+                var favorite = items.Single(i => i.Header as string == "Add to favorites"); // game starts un-favorited
+                var hide = items.Single(i => i.Header as string == "Hide from library"); // game starts un-hidden
+                var changeCover = items.Single(i => i.Header as string == "Change cover...");
+                var reset = items.Single(i => i.Header as string == "Reset cover to automatic");
+                var identify = items.Single(i => i.Header as string == "Identify game...");
+                var chooseCatalog = items.Single(i => i.Header as string == "Choose cover from catalog...");
 
+                Assert.Same(game, play.CommandParameter);
+                Assert.Same(game, openLocation.CommandParameter);
+                Assert.Same(game, favorite.CommandParameter);
+                Assert.Same(game, hide.CommandParameter);
                 Assert.Same(game, changeCover.CommandParameter);
                 Assert.Same(game, reset.CommandParameter);
                 Assert.Same(game, identify.CommandParameter);
                 Assert.Same(game, chooseCatalog.CommandParameter);
+                Assert.Same(vm.LaunchCommand, play.Command);
+                Assert.Same(vm.OpenInstallLocationCommand, openLocation.Command);
+                Assert.Same(vm.ToggleFavoriteCommand, favorite.Command);
+                Assert.Same(vm.ToggleHiddenCommand, hide.Command);
                 Assert.Same(vm.ChangeCoverCommand, changeCover.Command);
                 Assert.Same(vm.ResetCoverCommand, reset.Command);
                 Assert.Same(vm.IdentifyGameCommand, identify.Command);
                 Assert.Same(vm.ChooseCatalogCoverCommand, chooseCatalog.Command);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    // ---- Play / Open Install Location (both menus) -----------------------------------------------------
+
+    [Fact]
+    public void RightClickMenu_HasPlayAndOpenInstallLocation_TargetingTheClickedGame()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("game-a");
+            vm.SimulateRefreshResult([game]);
+            vm.Games.Add(game);
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var button = FindCardButton(main, game);
+                var menu = button.ContextMenu!;
+                menu.PlacementTarget = button;
+                menu.IsOpen = true;
+                PumpDispatcher();
+
+                var items = menu.Items.OfType<MenuItem>().ToList();
+                var play = items.Single(i => i.Header as string == "Play");
+                var openLocation = items.Single(i => i.Header as string == "Open install location");
+
+                Assert.Same(vm.LaunchCommand, play.Command);
+                Assert.Same(vm.OpenInstallLocationCommand, openLocation.Command);
+                Assert.Same(game, play.CommandParameter);
+                Assert.Same(game, openLocation.CommandParameter);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void FavoriteAndHiddenMenuText_TracksTheGamesOwnState_NotJustItsInitialValue()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("game-a");
+            vm.SimulateRefreshResult([game]);
+            vm.Games.Add(game);
+
+            var (window, favorites, main, hidden) = BuildHostWindow(vm);
+            try
+            {
+                // ToggleFavorite/ToggleHidden both end by calling ApplyFilter, which Clear()s and
+                // rebuilds Games/FavoriteGames/HiddenGames - a Clear raises Reset, which WPF's
+                // ItemsControl treats as "regenerate every container from scratch", not just the one
+                // that moved. Re-finding the card after each toggle (exactly like
+                // AfterRefreshReplacesEveryGameEntry_... already does for a rescan) is what makes this
+                // safe; holding onto the ORIGINAL button/menu across a toggle is not.
+                (MenuItem Favorite, MenuItem Hide) OpenMenuAndFindActions(ItemsControl host)
+                {
+                    var button = FindCardButton(host, game);
+                    var menu = button.ContextMenu!;
+                    menu.PlacementTarget = button;
+                    menu.IsOpen = true;
+                    PumpDispatcher();
+                    var items = menu.Items.OfType<MenuItem>().ToList();
+                    var favorite = items.Single(i => i.Header as string is "Add to favorites" or "Remove from favorites");
+                    var hideItem = items.Single(i => i.Header as string is "Hide from library" or "Show in library");
+                    return (favorite, hideItem);
+                }
+
+                var (favoriteBefore, hideBefore) = OpenMenuAndFindActions(main);
+                Assert.Equal("Add to favorites", favoriteBefore.Header);
+                Assert.Equal("Hide from library", hideBefore.Header);
+
+                vm.ToggleFavoriteCommand.Execute(game); // moves game: main -> favorites section
+                window.UpdateLayout();
+                PumpDispatcher();
+
+                var (favoriteAfterFav, hideAfterFav) = OpenMenuAndFindActions(favorites);
+                Assert.Equal("Remove from favorites", favoriteAfterFav.Header);
+                Assert.Equal("Hide from library", hideAfterFav.Header);
+
+                vm.ToggleHiddenCommand.Execute(game); // moves game: favorites -> hidden section
+                window.UpdateLayout();
+                PumpDispatcher();
+
+                var (favoriteAfterHide, hideAfterHide) = OpenMenuAndFindActions(hidden);
+                Assert.Equal("Remove from favorites", favoriteAfterHide.Header);
+                Assert.Equal("Show in library", hideAfterHide.Header);
+                Assert.Same(vm.ToggleFavoriteCommand, favoriteAfterHide.Command);
+                Assert.Same(vm.ToggleHiddenCommand, hideAfterHide.Command);
+                Assert.Same(game, favoriteAfterHide.CommandParameter);
+                Assert.Same(game, hideAfterHide.CommandParameter);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void InvokingPlayFromTheMenu_LaunchesTheClickedGame_NotJustWhicheverGameOpenedFirst()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var gameA = MakeGame("game-a", "Game A");
+            var gameB = MakeGame("game-b", "Game B");
+            vm.SimulateRefreshResult([gameA, gameB]);
+            vm.Games.Add(gameA);
+            vm.Games.Add(gameB);
+
+            GameEntry? launched = null;
+            vm.GameLaunched += (g, _) => launched = g;
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var buttonB = FindCardButton(main, gameB);
+                var menuB = buttonB.ContextMenu!;
+                menuB.PlacementTarget = buttonB;
+                menuB.IsOpen = true;
+                PumpDispatcher();
+
+                var play = menuB.Items.OfType<MenuItem>().Single(i => i.Header as string == "Play");
+                play.Command!.Execute(play.CommandParameter);
+
+                // Both unlaunchable (see MakeGame's remarks), so Launch logs/sets StatusText and returns
+                // rather than raising GameLaunched - this proves ROUTING (the right game reached the
+                // command), not that a real process started.
+                Assert.Null(launched);
+                Assert.Contains("Game B", vm.StatusText);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void InvokingOpenInstallLocation_OpensTheClickedGamesOwnFolder()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var realDir = Directory.CreateTempSubdirectory("GameLauncherTests-InstallDir-").FullName;
+            string? openedPath = null;
+            vm.OpenFolderInExplorerForTest = p => openedPath = p;
+
+            var game = new GameEntry
+            {
+                Id = "game-a",
+                Name = "Game A",
+                ExecutablePath = Path.Combine(realDir, "game.exe"),
+                InstallDir = realDir,
+                Source = GameSource.Manual,
+            };
+            vm.SimulateRefreshResult([game]);
+            vm.Games.Add(game);
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var button = FindCardButton(main, game);
+                var menu = button.ContextMenu!;
+                menu.PlacementTarget = button;
+                menu.IsOpen = true;
+                PumpDispatcher();
+
+                var openLocation = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Open install location");
+                openLocation.Command!.Execute(openLocation.CommandParameter);
+
+                Assert.Equal(realDir, openedPath);
+            }
+            finally
+            {
+                window.Close();
+                Directory.Delete(realDir, recursive: true);
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void InvokingOpenInstallLocation_WhenTheFolderIsGone_ExplainsItInsteadOfThrowing()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var opened = false;
+            vm.OpenFolderInExplorerForTest = _ => opened = true;
+            var game = MakeGame("game-a", "Game A"); // InstallDir deliberately doesn't exist
+            vm.SimulateRefreshResult([game]);
+            vm.Games.Add(game);
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var button = FindCardButton(main, game);
+                var menu = button.ContextMenu!;
+                menu.PlacementTarget = button;
+                menu.IsOpen = true;
+                PumpDispatcher();
+
+                var openLocation = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Open install location");
+                openLocation.Command!.Execute(openLocation.CommandParameter);
+
+                Assert.False(opened, "A missing folder must never reach the explorer-opening seam.");
+                Assert.Contains("Game A", vm.StatusText);
+                Assert.Contains("Can't find", vm.StatusText);
             }
             finally
             {

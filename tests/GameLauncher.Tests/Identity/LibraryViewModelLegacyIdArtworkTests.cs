@@ -41,6 +41,78 @@ public class LibraryViewModelLegacyIdArtworkTests : IDisposable
         _h.Igdb.Cover = _ => Cover(sourceHeight);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task LegacyDuplicates_FirstScanAfterRestart_RestoresCoverFromMergedIdentity(bool loserConfirmed, bool cancelRecovery)
+    {
+        IgdbFinds("A");
+        var original = Games.Manual("xbox-family", "Foo");
+        await _h.Add(original);
+        await _h.Scan(original);
+        var loser = _h.Vm.EnsureOverrideForTest("xbox-folder");
+        loser.Favorite = true;
+        if (loserConfirmed)
+            loser.Identity = new GameIdentityRecord { Confirmed = Cat.Confirmed(Cat.Igdb, "B", "Foo") };
+        Assert.True(_h.Vm.SaveNowForTest());
+
+        using var recoveryCancellation = new CancellationTokenSource();
+        var coverCalls = 0;
+        var catalog = new FakeCatalog(Cat.Igdb)
+        {
+            Title = _ => throw new InvalidOperationException("Saved identities must not need title search"),
+            Cover = id =>
+            {
+                if (++coverCalls == 2 && cancelRecovery)
+                    recoveryCancellation.Cancel();
+                return Cover(id == "B" ? 120 : 90, fromCache: true);
+            },
+        };
+        var context = Cat.Ctx([catalog], legacyRoot: _h.CacheDir);
+        var vm = new LibraryViewModel(new SettingsService(_h.DataDir), new PendingUpdateNotesService(_h.DataDir))
+        {
+            ResolutionContextForTest = () => context,
+            IconFallbackForTest = _ => null,
+        };
+        var game = new GameEntry
+        {
+            Id = original.Id, LegacyId = "xbox-folder", Name = "Foo", Source = original.Source,
+            InstallDir = original.InstallDir, ExecutablePath = original.ExecutablePath,
+        };
+        var over = vm.GetOverride(game.Id)!;
+        var generations = vm.SnapshotIdentityGenerations();
+        var unit = GameScannerService.ResolveGameUnit(game, over, over.ArtworkRevision,
+            generations, context, CancellationToken.None);
+        Assert.True(game.IsCoverArt); // The worker found art; publication used to erase it.
+
+        using var owner = vm.SetRefreshOwnershipForTest();
+        using var registration = recoveryCancellation.Token.Register(owner.Cancel);
+        var publication = vm.ApplyScanResultAsync(new ScanResult([game], [], [], [],
+            new Dictionary<string, ArtworkApplyResult> { [game.Id] = unit },
+            LegacyIdRemap: GameScannerService.ComputeLegacyIdRemap([game])),
+            ownershipToken: owner, identityGenerationsAtScanStart: generations);
+
+        if (cancelRecovery)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => publication);
+            Assert.Equal(2, coverCalls); // Actually reached post-merge recovery, not pre-cancelled.
+            Assert.False(game.IsCoverArt);
+            Assert.Equal("B", vm.GetOverride(game.Id)!.Identity!.Confirmed!.Id);
+            return;
+        }
+        Assert.True(await publication);
+
+        Assert.True(game.Favorite);
+        Assert.Null(vm.GetOverride("xbox-folder"));
+        Assert.True(game.IsCoverArt);
+        Assert.Equal(loserConfirmed ? HeightB : HeightA, IdentityHarness.Height(game));
+        Assert.Equal(loserConfirmed ? "B" : "A", vm.GetOverride(game.Id)!.Artwork!.ProviderGameId);
+        Assert.Equal(0, catalog.TitleSearches);
+        if (loserConfirmed)
+            Assert.Equal("B", vm.GetOverride(game.Id)!.Identity!.Confirmed!.Id);
+    }
+
     [Fact]
     public async Task LegacyIdTransition_CarriesForwardTheDisplayedAutomaticCover_ThroughTheRevisionBumpMigrationCauses()
     {

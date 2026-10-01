@@ -1,0 +1,63 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        The design's colour tokens, lifted verbatim from work/previews/game-launcher-claude-preview.html
+        (the `#app` custom-property block). Everything the launcher paints resolves to one of these, so
+        the app's palette is the preview's palette by construction rather than by eye - previously the
+        UI inherited WPF-UI's default greys, which is why it read as washed-out next to the design.
+
+        Keep the hex values in sync with that file; they are the source of truth, not these copies.
+
+        Token      CSS var       Hex       Used for
+        Bg         bg            #0b0d13   window body, the base the content gradient settles to
+        Bg2        bg2           #070910   icon rail, search field, inset panels
+        Surface    surface       #141822   title bar, footer, cards, menus, sort picker
+        Surface2   surface2      #1b2030   hover fills, selected rail items
+        Stroke     stroke        #262c3a   every 1px border and separator
+        Ink        ink           #f1f3f9   primary text
+        Muted      muted         #9099ad   secondary text, idle icons
+        Accent     accent        #ff6b86   Play, active rail marker, rings, focus
+        AccentInk  accent-ink    #2a0d14   text/icon ON the accent fill
+    -->
+
+    <Color x:Key="DesignBgColor">#FF0B0D13</Color>
+    <Color x:Key="DesignBg2Color">#FF070910</Color>
+    <Color x:Key="DesignSurfaceColor">#FF141822</Color>
+    <Color x:Key="DesignSurface2Color">#FF1B2030</Color>
+    <Color x:Key="DesignStrokeColor">#FF262C3A</Color>
+    <Color x:Key="DesignInkColor">#FFF1F3F9</Color>
+    <Color x:Key="DesignMutedColor">#FF9099AD</Color>
+    <Color x:Key="DesignAccentColor">#FFFF6B86</Color>
+    <Color x:Key="DesignAccentInkColor">#FF2A0D14</Color>
+
+    <SolidColorBrush x:Key="DesignBg" Color="{StaticResource DesignBgColor}" />
+    <SolidColorBrush x:Key="DesignBg2" Color="{StaticResource DesignBg2Color}" />
+    <SolidColorBrush x:Key="DesignSurface" Color="{StaticResource DesignSurfaceColor}" />
+    <SolidColorBrush x:Key="DesignSurface2" Color="{StaticResource DesignSurface2Color}" />
+    <SolidColorBrush x:Key="DesignStroke" Color="{StaticResource DesignStrokeColor}" />
+    <SolidColorBrush x:Key="DesignInk" Color="{StaticResource DesignInkColor}" />
+    <SolidColorBrush x:Key="DesignMuted" Color="{StaticResource DesignMutedColor}" />
+    <SolidColorBrush x:Key="DesignAccent" Color="{StaticResource DesignAccentColor}" />
+    <SolidColorBrush x:Key="DesignAccentInk" Color="{StaticResource DesignAccentInkColor}" />
+
+    <!-- Derived values the preview expresses as color-mix(), resolved here once.
+         Hero fill      = surface at 72%            (color-mix(surface 72%, transparent))
+         Hero border    = glow 24% over stroke      -> #5A3B4C
+         Flyout fill    = surface at 92%
+         Ghost button   = ink at 9%
+         Tile bar track = ink at 12%                                                        -->
+    <SolidColorBrush x:Key="DesignHeroFill" Color="#B8141822" />
+    <SolidColorBrush x:Key="DesignHeroStroke" Color="#FF5A3B4C" />
+    <SolidColorBrush x:Key="DesignFlyoutFill" Color="#EB141822" />
+    <SolidColorBrush x:Key="DesignGhostFill" Color="#17F1F3F9" />
+    <SolidColorBrush x:Key="DesignGhostFillHover" Color="#26F1F3F9" />
+    <SolidColorBrush x:Key="DesignTrackFill" Color="#1FF1F3F9" />
+
+    <!-- Card art overlays: fixed in the preview rather than token-derived, since they sit on top of
+         artwork rather than on the app's own surfaces. -->
+    <SolidColorBrush x:Key="DesignArtChipFill" Color="#99000000" />
+    <SolidColorBrush x:Key="DesignArtMoreFill" Color="#26FFFFFF" />
+    <SolidColorBrush x:Key="DesignCloseHover" Color="#FFE81123" />
+
+</ResourceDictionary>

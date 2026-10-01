@@ -1,6 +1,8 @@
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Shell;
 using GameLauncher.Models;
 using GameLauncher.Services;
 using GameLauncher.ViewModels;
@@ -13,39 +15,46 @@ public partial class MainWindow : FluentWindow
     private readonly GameSessionWatcher _sessionWatcher = new();
 
     // Reads DataContext fresh on every call (via WindowExitDiagnosticsEnabled below) rather than
-    // capturing `vm` once, since this field is initialized before DataContext is guaranteed to be set -
-    // WPF assigns it via XAML binding after the constructor runs. The null-coalescing default there only
-    // ever matters for that brief window, never once Loaded has fired.
+    // capturing `vm` once, so replacing the context cannot leave diagnostics using stale settings.
     private readonly GameSessionOrchestrator _sessionOrchestrator;
 
     private CancellationTokenSource? _sessionCts;
     private GameEntry? _watchedGame;
     private int _watchedSessionId;
+    private readonly CancellationTokenSource _externalMonitorCts = new();
+    private bool _runtimeStarted;
 
     private bool WindowExitDiagnosticsEnabled() => (DataContext as LibraryViewModel)?.EnableWindowExitDiagnostics ?? false;
 
-    public MainWindow()
+    public MainWindow() : this(new LibraryViewModel(), startRuntimeServices: true)
+    {
+    }
+
+    // Hosts the actual markup with isolated settings in WPF tests, without scanning the machine,
+    // starting network lookups, or configuring the real tray icon merely to test a sidebar.
+    internal MainWindow(LibraryViewModel viewModel, bool startRuntimeServices)
     {
         InitializeComponent();
+        DataContext = viewModel;
         _sessionOrchestrator = new GameSessionOrchestrator(_sessionWatcher, WindowExitDiagnosticsEnabled);
+        SizeToDisplay();
 
         Loaded += async (_, _) =>
         {
+            if (!startRuntimeServices || _runtimeStarted)
+                return;
+
             if (DataContext is not LibraryViewModel vm)
                 return;
+
+            _runtimeStarted = true;
 
             TrayIcon.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? string.Empty);
 
             vm.GameLaunched += OnGameLaunched;
+            _ = vm.MonitorExternalGamesAsync(_externalMonitorCts.Token);
             vm.VibrantBackgroundChanged += ApplyBackdrop;
             ApplyBackdrop(vm.VibrantBackground);
-
-            // The sidebar's real content (how many source rows, how many drives) isn't known until
-            // the first scan finishes - growing the window here, and again after every rescan, means
-            // a PC with a lot of drives/launchers opens tall enough to show them without the user
-            // ever having to drag the window bigger by hand.
-            vm.LibraryRefreshed += () => FitWindowToSidebar();
-            vm.PropertyChanged += Vm_PropertyChanged;
 
             // Covers both launching a game and minimizing by hand.
             StateChanged += (_, _) =>
@@ -75,6 +84,9 @@ public partial class MainWindow : FluentWindow
 
         Closed += (_, _) =>
         {
+            _externalMonitorCts.Cancel();
+            viewModel.StopPassiveTracking();
+            if (_watchedGame is { } game) viewModel.MarkGameNotRunning(game, _watchedSessionId);
             _sessionCts?.Cancel();
             TrayIcon.Dispose();
         };
@@ -233,6 +245,70 @@ public partial class MainWindow : FluentWindow
         }
     }
 
+    /// <summary>
+    /// Opens at a size proportional to the display rather than a fixed 1180x760, which was cramped on a
+    /// large monitor and close to full-screen on a small laptop. Runs in the constructor, before the
+    /// window is shown, so WindowStartupLocation="CenterScreen" centres the size actually used.
+    ///
+    /// Measured against the WORK AREA, not the full screen, so the taskbar never ends up underneath the
+    /// window. The upper caps matter on ultrawides: a straight percentage there would stretch the
+    /// library into one enormous row of cards, which is worse than simply being wide enough.
+    /// </summary>
+    private void SizeToDisplay()
+    {
+        var work = SystemParameters.WorkArea;
+        if (work.Width <= 0 || work.Height <= 0)
+            return; // no usable work area reported - keep the XAML defaults
+
+        const double widthFraction = 0.80;
+        const double heightFraction = 0.86;
+        const double maxWidth = 1800;
+        const double maxHeight = 1200;
+
+        Width = Math.Clamp(work.Width * widthFraction, MinWidth, Math.Min(maxWidth, work.Width));
+        Height = Math.Clamp(work.Height * heightFraction, MinHeight, Math.Min(maxHeight, work.Height));
+    }
+
+    /// <summary>Forwards the wheel from the horizontal "Recently played" strip up to the page beneath it.
+    /// A nested ScrollViewer marks MouseWheel handled even when it has no room to scroll in that
+    /// direction, so without this the page stops scrolling the moment the pointer is over that row -
+    /// which, since the row is full of cards, reads as "scrolling breaks over a card".</summary>
+    private void HorizontalStrip_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not UIElement strip || e.Handled)
+            return;
+
+        e.Handled = true;
+        var bubbled = new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+        {
+            RoutedEvent = MouseWheelEvent,
+            Source = strip,
+        };
+
+        // Raised on the PARENT, not on the strip: raising it here would come straight back to this
+        // handler and the wheel would go nowhere.
+        (VisualTreeHelper.GetParent(strip) as UIElement)?.RaiseEvent(bubbled);
+    }
+
+    protected override void SetWindowChrome()
+    {
+        base.SetWindowChrome();
+        if (WindowChrome.GetWindowChrome(this) is not { } chrome) return;
+        // Keep FluentWindow's resize border/backdrop settings, but restore a real non-client caption.
+        // DragMove alone cannot provide Windows' maximized-to-restored drag behavior.
+        var captionChrome = (WindowChrome)chrome.Clone();
+        captionChrome.CaptionHeight = 46;
+        WindowChrome.SetWindowChrome(this, captionChrome);
+    }
+
+    // The app still draws the caption buttons; their input is excluded from native caption hit testing.
+    private void CaptionMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void CaptionMaximize_Click(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void CaptionClose_Click(object sender, RoutedEventArgs e) => Close();
+
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         if (DataContext is not LibraryViewModel vm)
@@ -242,51 +318,4 @@ public partial class MainWindow : FluentWindow
         settingsWindow.ShowDialog();
     }
 
-    private void Vm_PropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        // Re-expanding the sidebar can reveal content (source rows, drives) that was hidden while
-        // collapsed and never factored into the window's height - re-check then too, not just after
-        // a scan.
-        if (e.PropertyName == nameof(LibraryViewModel.IsSidebarExpanded)
-            && DataContext is LibraryViewModel { IsSidebarExpanded: true })
-        {
-            FitWindowToSidebar();
-        }
-    }
-
-    /// <summary>
-    /// Grows the window (never shrinks it - never fights a size the user chose on purpose) so the
-    /// sidebar's actual content fits without needing its own scrollbar. The sidebar's inner content
-    /// is measured directly with Measure(..., PositiveInfinity) rather than read off ActualHeight,
-    /// since ActualHeight only reflects whatever space the Border/ScrollViewer were already given -
-    /// exactly the constrained number that hides the "your window is too small" problem this exists
-    /// to fix. MainWindow.xaml's sidebar ScrollViewer is the fallback for whenever this still isn't
-    /// enough (a monitor too short to fit everything even at the work-area cap below).
-    /// </summary>
-    private void FitWindowToSidebar()
-    {
-        if (DataContext is not LibraryViewModel { IsSidebarExpanded: true } || WindowState != WindowState.Normal)
-            return;
-
-        UpdateLayout();
-
-        var probeWidth = SidebarBorder.ActualWidth > 0 ? SidebarBorder.ActualWidth : 200;
-        SidebarChromeTop.Measure(new Size(probeWidth, double.PositiveInfinity));
-        SidebarScrollableContent.Measure(new Size(probeWidth, double.PositiveInfinity));
-
-        const double sidebarTopMargin = 12; // the DockPanel's own Margin="0,12,0,0"
-        const double bottomBreathingRoom = 16;
-        var neededSidebarHeight = sidebarTopMargin + SidebarChromeTop.DesiredSize.Height
-            + SidebarScrollableContent.DesiredSize.Height + bottomBreathingRoom;
-
-        var neededGridHeight = AppTitleBar.ActualHeight + neededSidebarHeight + MainStatusBar.ActualHeight;
-        var windowChrome = ActualHeight - RootGrid.ActualHeight; // non-client chrome, if any (normally ~0)
-        var neededWindowHeight = neededGridHeight + windowChrome;
-
-        var maxHeight = SystemParameters.WorkArea.Height - 40;
-        neededWindowHeight = Math.Min(neededWindowHeight, maxHeight);
-
-        if (neededWindowHeight > Height)
-            Height = neededWindowHeight;
-    }
 }

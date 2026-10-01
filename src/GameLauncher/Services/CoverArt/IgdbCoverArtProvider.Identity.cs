@@ -14,7 +14,7 @@ namespace GameLauncher.Services.CoverArt;
 public sealed partial class IgdbCoverArtProvider
 {
     /// <summary>The id-keyed cache version. Bump when what makes a cached image trustworthy for its id changes.</summary>
-    internal const int IdCacheVersion = 2;
+    internal const int IdCacheVersion = 3; // Higher-resolution source art. Valid v2 covers remain an offline fallback.
 
     private static readonly string IdCacheDir = Path.Combine(AppPaths.DataDir, "CoverArtCache", "Igdb");
 
@@ -315,12 +315,15 @@ public sealed partial class IgdbCoverArtProvider
         if (!int.TryParse(id, out var gameId) || gameId <= 0)
             return null;
 
-        return IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(cacheDirOverride ?? IdCacheDir, id, IdCacheVersion), id, "IGDB");
+        var root = cacheDirOverride ?? IdCacheDir;
+        return IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(root, id, IdCacheVersion), id, "IGDB")
+            ?? IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(root, id, 2), id, "IGDB");
     }
 
     /// <summary>The cover for `id`, by id, through the identity-bound cache: a hit needs no network and no title search.</summary>
     internal CatalogCoverResult FetchCoverForId(string id, string title, string? cacheDirOverride, CancellationToken ct)
     {
+        BitmapImage? previousQuality = null;
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -332,11 +335,15 @@ public sealed partial class IgdbCoverArtProvider
             if (IdKeyedCoverCache.TryRead(path, id, "IGDB") is { } cached)
                 return new CatalogCoverResult(CoverLookupStatus.Resolved, cached, true);
 
+            previousQuality = IdKeyedCoverCache.TryRead(IdKeyedCoverCache.PathFor(cacheDir, id, 2), id, "IGDB");
+
             var imageUrl = GetCoverImageUrl(gameId, ct);
             var bytes = imageUrl is null ? null : FetchBoundedImageBytes(imageUrl, ct);
             var decoded = bytes is null ? null : ValidateBytes(bytes, title);
             if (bytes is null || decoded is null)
-                return new CatalogCoverResult(CoverLookupStatus.IdentifiedWithoutUsableArt, null, false);
+                return previousQuality is not null
+                    ? new CatalogCoverResult(CoverLookupStatus.Resolved, previousQuality, true)
+                    : new CatalogCoverResult(CoverLookupStatus.IdentifiedWithoutUsableArt, null, false);
 
             ct.ThrowIfCancellationRequested(); // a cancelled lookup caches nothing
             IdKeyedCoverCache.Write(path, id, title, bytes);
@@ -349,7 +356,9 @@ public sealed partial class IgdbCoverArtProvider
         catch (Exception ex)
         {
             Logger.Warn($"IGDB: cover fetch for game {id} failed - unavailable.", ex);
-            return new CatalogCoverResult(CoverLookupStatus.Unavailable, null, false);
+            return previousQuality is not null
+                ? new CatalogCoverResult(CoverLookupStatus.Resolved, previousQuality, true)
+                : new CatalogCoverResult(CoverLookupStatus.Unavailable, null, false);
         }
     }
 
@@ -491,7 +500,7 @@ public sealed partial class IgdbCoverArtProvider
             if (entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("image_id", out var imageId)
                 && imageId.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(imageId.GetString()))
             {
-                var url = $"https://images.igdb.com/igdb/image/upload/t_cover_big/{imageId.GetString()}.jpg";
+                var url = $"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/{imageId.GetString()}.jpg";
                 choices.Add(new CoverChoice(imageId.GetString()!, url, url));
             }
         }

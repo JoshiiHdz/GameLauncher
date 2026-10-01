@@ -175,7 +175,7 @@ public class ChangeCoverWindowTests
         });
     }
 
-    // ---- Portrait, square, and wide previews all letterbox in the card's own box, never crop ------------
+    // ---- Every preview reproduces the compact card's frame and centred fill ---------------------------
 
     [Theory]
     [InlineData(100, 300)] // portrait
@@ -189,18 +189,21 @@ public class ChangeCoverWindowTests
             var (window, _) = BuildDialog(image);
             try
             {
-                // 190x247 - the same ratio (200x260) the library card itself uses (GameCardTemplate.xaml's GameCardWidth/
-                // GameCardArtHeight). Fixed regardless of the source image's own aspect ratio - the FRAME never changes shape.
+                // 190x247 - the same ratio (200x260) the library card itself uses (GameCardTemplate.xaml's
+                // GameCardWidth/GameCardArtHeight). Fixed regardless of the source image's own aspect ratio - the FRAME
+                // never changes shape.
                 Assert.Equal(190, window.PreviewBorder.ActualWidth, precision: 0);
                 Assert.Equal(247, window.PreviewBorder.ActualHeight, precision: 0);
                 Assert.Equal(190.0 / 247.0, 200.0 / 260.0, precision: 3);
                 Assert.True(window.PreviewBorder.ClipToBounds);
 
-                // The dimension/ratio asserts above pin the FRAME, not the image inside it - a frame of the right shape holding a
-                // Stretch="UniformToFill" (cropped) image would satisfy every assertion above while showing exactly the wrong thing:
-                // real cover art the card itself would show in full. This is the assertion that actually pins the no-crop behavior,
-                // matching GameCardTemplate.xaml's GameArtImageStyle (IsCoverArt trigger: Stretch="Uniform").
-                Assert.Equal(Stretch.Uniform, window.PreviewImageElement.Stretch);
+                // The dimension/ratio asserts above pin the FRAME, not the artwork inside it - a frame of the right shape filled the
+                // wrong way would satisfy every assertion above while showing a different crop from the one Apply actually produces.
+                // Pin the actual brush, not just the frame: the preview crops exactly as the card does.
+                var previewBrush = Assert.IsType<ImageBrush>(window.PreviewImageElement.Background);
+                Assert.Equal(Stretch.UniformToFill, previewBrush.Stretch);
+                Assert.Equal(AlignmentX.Center, previewBrush.AlignmentX);
+                Assert.Equal(AlignmentY.Center, previewBrush.AlignmentY);
             }
             finally
             {

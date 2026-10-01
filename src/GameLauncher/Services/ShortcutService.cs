@@ -29,7 +29,7 @@ public static class ShortcutService
                 shortcut.TargetPath = exePath;
                 shortcut.WorkingDirectory = Path.GetDirectoryName(exePath);
                 shortcut.IconLocation = exePath;
-                shortcut.Description = "Game Launcher";
+                shortcut.Description = "Axis Game Launcher";
                 shortcut.Save();
             }
             finally
@@ -46,6 +46,6 @@ public static class ShortcutService
     private static string GetShortcutPath()
     {
         var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        return Path.Combine(desktop, "Game Launcher.lnk");
+        return Path.Combine(desktop, "Axis Game Launcher.lnk");
     }
 }

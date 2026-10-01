@@ -532,6 +532,146 @@ public class XboxScannerTests : IDisposable
 
     // ---- Full Scan(): what gets filtered before ever reaching BuildCandidateEntry ---------------------
 
+    [Theory]
+    [InlineData("38985CA0.BO7DLC56GamePassPack03")]
+    [InlineData("38985CA0.BO7DLC17StandardLaunchTracker")]
+    [InlineData("38985CA0.BO7DLC01GameStub01")]
+    [InlineData("38985CA0.BO7DLC19GamePassLaunchTracker")]
+    [InlineData("AnotherPublisher.NewGame42DLC02")]
+    [InlineData("AnotherPublisher.ArcadeLaunchTracker01")]
+    [InlineData("AnotherPublisher.ArcadeGameStub01")]
+    public void Scan_CompactedAddonPackageNames_FromGamingPcLog_AreNotGames(string packageName)
+    {
+        var installRoot = Path.Combine(_root, "WindowsApps", packageName + "_0.0.9.0_x64__publisher");
+        Directory.CreateDirectory(installRoot);
+        File.WriteAllText(Path.Combine(installRoot, "MicrosoftGame.config"),
+            """<Game><ExecutableList><Executable Name="Stub.exe" Id="Game" /></ExecutableList></Game>""");
+        File.WriteAllBytes(Path.Combine(installRoot, "Stub.exe"), new byte[1000]);
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [new(packageName + "_publisher", installRoot, packageName)];
+        StartAppsResolver.PackagedAppsOverrideForTest = () => [];
+
+        Assert.Empty(XboxScanner.Scan([_root]));
+    }
+
+    [Theory]
+    [InlineData("Publisher.WorldCup27")]
+    [InlineData("Publisher.DLCQuest")]
+    public void Scan_OrdinaryCompactGameNames_AreNotMistakenForAddonMarkers(string name)
+    {
+        var location = Path.Combine(_root, name);
+        Directory.CreateDirectory(location);
+        File.WriteAllText(Path.Combine(location, "MicrosoftGame.config"),
+            """<Game><ExecutableList><Executable Name="Game.exe" Id="Game" /></ExecutableList></Game>""");
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [new(name + "_pub", location, name)];
+        StartAppsResolver.PackagedAppsOverrideForTest = () => [];
+        Assert.Single(XboxScanner.Scan([_root]));
+    }
+
+    [Theory]
+    [InlineData("<TargetDeviceFamilyForDLC>PC</TargetDeviceFamilyForDLC>")]
+    [InlineData("<AllowedProducts><AllowedProduct>StoreBaseGame</AllowedProduct></AllowedProducts>")]
+    [InlineData("<RelatedProducts><RelatedProduct>StoreBaseGame</RelatedProduct></RelatedProducts>")]
+    public void Scan_ContentOnlyDlcMetadata_BlocksBothDiscoveryPaths_EvenWithUndeclaredExeAndAumid(string metadata)
+    {
+        var content = Path.Combine(_root, "XboxGames", "OrdinaryLookingProduct", "Content");
+        Directory.CreateDirectory(content);
+        File.WriteAllText(Path.Combine(content, "MicrosoftGame.config"),
+            $"<Game>{metadata}</Game>");
+        File.WriteAllText(Path.Combine(content, "AppxManifest.xml"),
+            """<Package><Applications><Application Id="Game" Executable="Payload.exe" /></Applications></Package>""");
+        File.WriteAllBytes(Path.Combine(content, "Payload.exe"), new byte[1000]);
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [new("Product_publisher", content, "Product")];
+        StartAppsResolver.PackagedAppsOverrideForTest = () => [("OrdinaryLookingProduct", "Product_publisher!Game")];
+
+        Assert.Empty(XboxScanner.Scan([_root]));
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [];
+        Assert.Empty(XboxScanner.Scan([_root])); // Folder-only discovery must respect the same metadata.
+    }
+
+    [Theory]
+    [InlineData("<TargetDeviceFamilyForDLC>PC</TargetDeviceFamilyForDLC>")]
+    [InlineData("<AllowedProducts><AllowedProduct>StoreBaseGame</AllowedProduct></AllowedProducts>")]
+    [InlineData("<RelatedProducts><RelatedProduct>StoreBaseGame</RelatedProduct></RelatedProducts>")]
+    public void Scan_LaunchableGameWithProductRelationships_IsNotMistakenForContentOnlyDlc(string metadata)
+    {
+        var content = Path.Combine(_root, "XboxGames", "Launchable Game", "Content");
+        Directory.CreateDirectory(content);
+        File.WriteAllText(Path.Combine(content, "MicrosoftGame.config"),
+            $"<Game>{metadata}<ExecutableList><Executable Name=\"Game.exe\" Id=\"Game\" /></ExecutableList></Game>");
+        File.WriteAllBytes(Path.Combine(content, "Game.exe"), new byte[1000]);
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [new("Product_publisher", content, "Product")];
+        StartAppsResolver.PackagedAppsOverrideForTest = () => [("Launchable Game", "Product_publisher!Game")];
+        Assert.Equal(Path.Combine(content, "Game.exe"), Assert.Single(XboxScanner.Scan([_root])).ExecutablePath);
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [];
+        Assert.Equal(Path.Combine(content, "Game.exe"), Assert.Single(XboxScanner.Scan([_root])).ExecutablePath);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Scan_WindowsAppsRegistrationAndXboxGamesContent_ProduceOneGame_WithStableIdAndLegacyMigration(bool hasIdentity)
+    {
+        var registration = Path.Combine(_root, "WindowsApps", "Publisher.TestGame_1.2.0_x64__abc");
+        var folder = Path.Combine(_root, "XboxGames", "Test Game");
+        var content = Path.Combine(folder, "Content");
+        Directory.CreateDirectory(registration);
+        Directory.CreateDirectory(content);
+        var identity = hasIdentity ? "<Identity Name=\"Publisher.TestGame\" Publisher=\"CN=Publisher\" />" : "";
+        var config = $"<Game>{identity}<ExecutableList><Executable Name=\"Game.exe\" Id=\"Game\" /></ExecutableList></Game>";
+        File.WriteAllText(Path.Combine(registration, "MicrosoftGame.config"), config);
+        File.WriteAllText(Path.Combine(content, "MicrosoftGame.config"), config);
+        File.WriteAllBytes(Path.Combine(registration, "Game.exe"), new byte[1000]);
+        File.WriteAllBytes(Path.Combine(content, "Game.exe"), new byte[1000]);
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [new("Publisher.TestGame_abc", registration, "Publisher.TestGame")];
+        StartAppsResolver.PackagedAppsOverrideForTest = () => [("Test Game", "Publisher.TestGame_abc!Game")];
+        var oldFolderEntry = XboxScanner.BuildCandidateEntry(folder, "Test Game", null,
+            [("Test Game", "Publisher.TestGame_abc!Game")], CancellationToken.None, out _)!;
+        var registeredEntry = XboxScanner.BuildCandidateEntry(registration, "Test Game", "Publisher.TestGame_abc",
+            [("Test Game", "Publisher.TestGame_abc!Game")], CancellationToken.None, out _)!;
+
+        var game = Assert.Single(XboxScanner.Scan([_root]));
+
+        Assert.Equal(registeredEntry.Id, game.Id);
+        Assert.Equal(oldFolderEntry.Id, game.LegacyId);
+        Assert.Equal(content, game.InstallDir);
+        Assert.Equal(Path.Combine(content, "Game.exe"), game.ExecutablePath);
+        Assert.Equal("shell:appsFolder\\Publisher.TestGame_abc!Game", game.LaunchUri);
+        Assert.Equal(game.Id, GameScannerService.ComputeLegacyIdRemap([game])[oldFolderEntry.Id]);
+        Assert.Equal(game.Id, Assert.Single(XboxScanner.Scan([_root])).Id);
+    }
+
+    [Fact]
+    public void Scan_ContentFolderWithoutManifest_DoesNotHideExecutableOutsideIt()
+    {
+        var folder = Path.Combine(_root, "XboxGames", "Ordinary Game");
+        Directory.CreateDirectory(Path.Combine(folder, "Content"));
+        File.WriteAllBytes(Path.Combine(folder, "Game.exe"), new byte[1000]);
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [];
+        StartAppsResolver.PackagedAppsOverrideForTest = () => [];
+        var game = Assert.Single(XboxScanner.Scan([_root]));
+        Assert.Equal(Path.Combine(folder, "Game.exe"), game.ExecutablePath);
+    }
+
+    [Fact]
+    public void Scan_SameDisplayTitleButDistinctPackageIdentities_AreNotMerged()
+    {
+        var registration = Path.Combine(_root, "WindowsApps", "First");
+        var content = Path.Combine(_root, "XboxGames", "Same Title", "Content");
+        Directory.CreateDirectory(registration);
+        Directory.CreateDirectory(content);
+        File.WriteAllText(Path.Combine(registration, "MicrosoftGame.config"),
+            """<Game><Identity Name="First" /><ExecutableList><Executable Name="Game.exe" Id="Game" /></ExecutableList></Game>""");
+        File.WriteAllText(Path.Combine(content, "MicrosoftGame.config"),
+            """<Game><Identity Name="Second" /><ExecutableList><Executable Name="Game.exe" Id="Game" /></ExecutableList></Game>""");
+        XboxPackageDiscovery.PackagesOverrideForTest = () => [new("First_pub", registration, "First"), new("Second_pub", content, "Second")];
+        StartAppsResolver.PackagedAppsOverrideForTest = () => [("Same Title", "First_pub!Game"), ("Same Title", "Second_pub!Game")];
+
+        var games = XboxScanner.Scan([_root]);
+        Assert.Equal(2, games.Count);
+        Assert.Equal(2, games.Select(g => g.Id).Distinct().Count());
+        Assert.Equal(2, games.Select(g => g.LaunchUri).Distinct().Count());
+    }
+
     [Fact]
     public void Scan_APackageWithNoGamingEvidenceAtAll_IsNeverAdded_NotEveryRegisteredApp()
     {

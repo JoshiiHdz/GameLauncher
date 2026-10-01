@@ -17,6 +17,15 @@ public sealed class GameOverride
     public bool Favorite { get; set; }
     public DateTime? DateAdded { get; set; }
 
+    /// <summary>Total tracked running time, accumulated for launched sessions and observed external
+    /// sessions while this app is running. Deliberately NOT a
+    /// "lifetime played" figure: this app cannot know what someone played before the game was added
+    /// here, so the UI labels it "tracked by Axis Game Launcher" rather than implying it's complete.</summary>
+    public long TotalPlaySeconds { get; set; }
+
+    /// <summary>Most recent tracked session end or external-session checkpoint, UTC.</summary>
+    public DateTime? LastPlayedUtc { get; set; }
+
     public ArtworkSelection? Artwork { get; set; }
 
     /// <summary>Deliberately independent of Artwork being null - living ON Artwork would mean Reset

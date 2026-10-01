@@ -27,7 +27,7 @@ public sealed record XboxLaunchTarget(string ExeRelativePath, string? Applicatio
 /// declaration that no PC build exists, which a folder search must never second-guess: if it did, and one
 /// of those console-only executables happens to physically sit in the folder, a search-based fallback
 /// would launch it anyway, exactly undoing what the compatibility declaration was for.</summary>
-public enum XboxManifestOutcome { None, Single, Ambiguous, IncompatibleTarget }
+public enum XboxManifestOutcome { None, Single, Ambiguous, IncompatibleTarget, NonPlayableContent }
 
 public readonly record struct XboxManifestReadResult(
     XboxManifestOutcome Outcome, XboxLaunchTarget? Target, IReadOnlyList<XboxLaunchTarget>? Candidates = null)
@@ -64,6 +64,38 @@ public static class XboxGameManifest
 {
     private const string GameConfigFileName = "MicrosoftGame.config";
     private static readonly string[] AppxManifestFileNames = { "AppxManifest.xml", "appxmanifest.xml" };
+
+    // XboxGames uses a content directory while Get-AppxPackage can expose a separate WindowsApps
+    // registration path. The manifest's identity links those views without matching display names.
+    internal static string FindMetadataRoot(string installRoot)
+    {
+        static bool HasManifest(string directory) => File.Exists(Path.Combine(directory, GameConfigFileName))
+            || File.Exists(Path.Combine(directory, "AppxManifest.xml"));
+        if (HasManifest(installRoot)) return installRoot;
+        var content = Path.Combine(installRoot, "Content");
+        // A directory named Content alone is not evidence: retain the whole-root executable fallback.
+        return HasManifest(content) ? content : installRoot;
+    }
+
+    internal static string? ReadIdentityName(string installRoot)
+    {
+        foreach (var fileName in new[] { GameConfigFileName, "AppxManifest.xml" })
+        {
+            var path = Path.Combine(installRoot, fileName);
+            if (!File.Exists(path)) continue;
+            try
+            {
+                var name = XDocument.Load(path).Root?.Elements()
+                    .FirstOrDefault(e => e.Name.LocalName == "Identity")?.Attribute("Name")?.Value;
+                if (!string.IsNullOrWhiteSpace(name)) return name;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+            {
+                Logger.Warn($"Xbox: couldn't read package identity from '{path}'.", ex);
+            }
+        }
+        return null;
+    }
 
     /// <summary>Tries MicrosoftGame.config first (GDK titles declare their launch target there
     /// explicitly, including which build is the PC one), then AppxManifest.xml (every packaged app has
@@ -106,10 +138,18 @@ public static class XboxGameManifest
             return XboxManifestReadResult.NoInfo;
         }
 
+        // Product relationships alone do not prove this is non-playable content: a base game can
+        // declare them too. Respect its own launch declarations; exclude content-only manifests
+        // before Appx/folder fallback can turn an undeclared payload into a game.
+        var executables = doc.Descendants().Where(e => e.Name.LocalName == "Executable").ToList();
+        if (executables.Count == 0 && doc.Root?.Elements().Any(e =>
+                e.Name.LocalName == "TargetDeviceFamilyForDLC"
+                || (e.Name.LocalName is "AllowedProducts" or "RelatedProducts" && e.Elements().Any())) == true)
+            return new XboxManifestReadResult(XboxManifestOutcome.NonPlayableContent, null);
+
         // LocalName-based, not a hardcoded namespace URI: MicrosoftGame.config's schema has carried a
         // couple of different configVersion/namespace values across GDK releases, and every field this
         // reads is unambiguous by local name alone within the file.
-        var executables = doc.Descendants().Where(e => e.Name.LocalName == "Executable").ToList();
         if (executables.Count == 0)
             return XboxManifestReadResult.NoInfo;
 

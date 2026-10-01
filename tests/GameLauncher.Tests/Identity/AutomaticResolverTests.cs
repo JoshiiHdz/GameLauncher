@@ -38,6 +38,34 @@ public class AutomaticResolverTests : IDisposable
 
     // ---- The title path --------------------------------------------------------------------------------------------
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LandscapePrimaryCover_PrefersVerifiedFallbackPortrait_WithoutChangingConfirmedIdentity(bool confirmed)
+    {
+        _igdb.Title = _ => Found("7", "Foo");
+        _sgdb.Title = _ => Found("9", "Foo");
+        _igdb.Cover = _ => new(CoverLookupStatus.Resolved, TestBitmaps.Cover(160, 90), true);
+        _sgdb.Cover = _ => new(CoverLookupStatus.Resolved, TestBitmaps.Cover(60, 90), false);
+        var prior = confirmed ? new GameIdentityRecord { Confirmed = Cat.Confirmed(Cat.Igdb, "7", "Foo") } : null;
+        var output = Run(Foo(), Ctx(_igdb, _sgdb), prior);
+        Assert.Equal(new IdentityKey(Cat.Sgdb, "9"), output.Artwork.Selection!.DerivedFrom);
+        Assert.True(output.Artwork.Image!.PixelHeight > output.Artwork.Image.PixelWidth);
+        Assert.Equal("7", IdentitySelection.SelectActive(output.NewRecord, IdentityQuery.From(Foo())).Primary!.Id);
+        if (confirmed) Assert.Equal("7", output.NewRecord!.Confirmed!.Id);
+    }
+
+    [Fact]
+    public void LandscapePrimaryCover_FallbackUnavailable_KeepsUsableImage()
+    {
+        _igdb.Title = _ => Found("7", "Foo");
+        _igdb.Cover = _ => new(CoverLookupStatus.Resolved, TestBitmaps.Cover(160, 90), true);
+        _sgdb.Title = _ => CatalogSearchResult.Unavailable("offline");
+        var output = Run(Foo(), Ctx(_igdb, _sgdb));
+        Assert.Equal(new IdentityKey(Cat.Igdb, "7"), output.Artwork.Selection!.DerivedFrom);
+        Assert.NotNull(output.Artwork.Image);
+    }
+
     [Fact]
     public void AUniqueExactTitle_IsResolved_AndItsCoverIsFetchedById()
     {

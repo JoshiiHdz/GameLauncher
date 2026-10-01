@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -149,11 +150,59 @@ public partial class LibraryViewModel : ObservableObject
     private bool _hasNoGames;
 
     [ObservableProperty]
-    private string _libraryHeaderText = "My Library";
+    private string _emptyStateTitle = "No games found yet";
+
+    [ObservableProperty]
+    private string _emptyStateDescription = "Games are auto-detected from Steam, Epic, GOG and more, or add a folder to scan.";
+
+    [ObservableProperty]
+    private bool _showEmptyDiscoveryActions = true;
+
+    [ObservableProperty]
+    private string _libraryHeaderText = "All games";
+
+    /// <summary>The count line under the grid heading ("6 games").</summary>
+    [ObservableProperty]
+    private string _librarySubheaderText = "";
+
+    /// <summary>Status-bar left side ("6 of 6 games shown").</summary>
+    [ObservableProperty]
+    private string _footerCountText = "";
+
+    /// <summary>The horizontal "Recently played" strip above the grid - only games with real tracked
+    /// sessions, newest first. See ApplyFilter.</summary>
+    public ObservableCollection<GameEntry> RecentlyPlayedGames { get; } = new();
+
+    [ObservableProperty]
+    private bool _hasRecentlyPlayed;
 
     /// <summary>Drives the Favorites section and its separator - both vanish when nothing is starred.</summary>
     [ObservableProperty]
     private bool _hasFavorites;
+
+    /// <summary>The "Jump back in" hero's subject: whichever visible game was added to the library most
+    /// recently. DateAdded is real, persisted data (unlike playtime, which this app has no way to know
+    /// for a game that was already installed before being added here) - "recently added" is therefore
+    /// the one honest "which game matters right now" signal available, not a stand-in for "most
+    /// played." Null only when the library is genuinely empty (recomputed every ApplyFilter pass, so
+    /// it already respects the source toggles, drive filter, and search text the rest of the grid
+    /// does).</summary>
+    [ObservableProperty]
+    private GameEntry? _featuredGame;
+
+    /// <summary>FeaturedGame != null, as a plain bool - XAML Visibility needs BoolToVisibilityConverter
+    /// for the "visible when true" polarity the hero wants, which NullToVisibilityConverter (used
+    /// elsewhere for the opposite "visible when null" case, e.g. the fallback icon glyph) doesn't give.</summary>
+    [ObservableProperty]
+    private bool _hasFeaturedGame;
+
+    /// <summary>A soft accent colour sampled from FeaturedGame's own cover art, for the hero's ambient
+    /// background tint - see DominantColorExtractor. Falls back to the app's own accent colour (never
+    /// null) when there's no cover yet to sample (a fallback exe icon, or still loading).</summary>
+    private static readonly Color DefaultHeroAccentColor = (Color)ColorConverter.ConvertFromString("#FF6B86")!;
+
+    [ObservableProperty]
+    private Color _heroAccentColor = DefaultHeroAccentColor;
 
     /// <summary>User's toggle for whether the Hidden section is expanded - deliberately not
     /// persisted, so a fresh launch never opens straight onto a wall of games the user hid.</summary>
@@ -179,8 +228,85 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _minimizeToTrayWhileGaming = true;
 
+    /// <summary>True while the sidebar rail's Sources flyout is open - session-only UI state, never
+    /// persisted (unlike the detect-toggles themselves).</summary>
+    [ObservableProperty]
+    private bool _isSourcesFlyoutOpen;
+
+    [RelayCommand]
+    private void ToggleSourcesFlyout() => IsSourcesFlyoutOpen = !IsSourcesFlyoutOpen;
+
+    /// <summary>Expanded sidebar (labels, launcher switches) vs. the collapsed icon rail. Persisted.</summary>
     [ObservableProperty]
     private bool _isSidebarExpanded = true;
+
+    [RelayCommand]
+    private void ToggleSidebar() => IsSidebarExpanded = !IsSidebarExpanded;
+
+    partial void OnIsSidebarExpandedChanged(bool value)
+    {
+        _settings.SidebarExpanded = value;
+        _settingsService.Save(_settings);
+    }
+
+    /// <summary>The launchers found on this PC, as one list for both sidebar layouts. Built in the
+    /// constructor (it closes over the Detect properties); entries show only once a scan finds games.</summary>
+    public IReadOnlyList<SourceToggleItem> SourceItems { get; private set; } = Array.Empty<SourceToggleItem>();
+
+    private IReadOnlyList<SourceToggleItem> BuildSourceItems() => new[]
+    {
+        new SourceToggleItem(GameSource.Steam, "Steam", "S", () => DetectSteam, v => DetectSteam = v),
+        new SourceToggleItem(GameSource.Epic, "Epic Games", "E", () => DetectEpic, v => DetectEpic = v),
+        new SourceToggleItem(GameSource.Gog, "GOG", "G", () => DetectGog, v => DetectGog = v),
+        new SourceToggleItem(GameSource.Xbox, "Xbox", "X", () => DetectXbox, v => DetectXbox = v),
+        new SourceToggleItem(GameSource.Ea, "EA app", "EA", () => DetectEa, v => DetectEa = v),
+        new SourceToggleItem(GameSource.Ubisoft, "Ubisoft Connect", "U", () => DetectUbisoft, v => DetectUbisoft = v),
+        new SourceToggleItem(GameSource.BattleNet, "Battle.net", "B", () => DetectBattleNet, v => DetectBattleNet = v),
+        new SourceToggleItem(GameSource.Rockstar, "Rockstar Games", "R", () => DetectRockstar, v => DetectRockstar = v),
+        new SourceToggleItem(GameSource.AmazonGames, "Amazon Games", "A", () => DetectAmazonGames, v => DetectAmazonGames = v),
+    };
+
+    /// <summary>Which rail view is active. Selecting one always clears any drive filter - they're two
+    /// ways of scoping the same grid, and leaving a drive filter silently applied underneath a freshly
+    /// clicked view would show an unexplained subset of it.</summary>
+    [ObservableProperty]
+    private LibraryView _selectedView = LibraryView.All;
+
+    [ObservableProperty]
+    private bool _isAllViewSelected = true;
+
+    [ObservableProperty]
+    private bool _isFavoritesViewSelected;
+
+    [ObservableProperty]
+    private bool _isRecentViewSelected;
+
+    partial void OnSelectedViewChanged(LibraryView value)
+    {
+        IsAllViewSelected = value == LibraryView.All;
+        IsFavoritesViewSelected = value == LibraryView.Favorites;
+        IsRecentViewSelected = value == LibraryView.Recent;
+        ApplyFilter();
+    }
+
+    [RelayCommand]
+    private void SelectView(string? view)
+    {
+        var parsed = view switch
+        {
+            "favorites" => LibraryView.Favorites,
+            "recent" => LibraryView.Recent,
+            _ => LibraryView.All,
+        };
+
+        // Order matters: clearing the drive re-runs ApplyFilter on its own, so setting the view second
+        // means the pass that actually paints the grid is the one that already sees both changes.
+        SelectedDriveLetter = null;
+        if (SelectedView == parsed)
+            ApplyFilter(); // same view re-clicked: still honour the drive clear above
+        else
+            SelectedView = parsed;
+    }
 
     [ObservableProperty]
     private bool _detectSteam = true;
@@ -307,14 +433,16 @@ public partial class LibraryViewModel : ObservableObject
 
     public List<SortOptionItem> SortOptions { get; } =
     [
-        new("Name (A-Z)", GameSortOption.NameAsc),
-        new("Name (Z-A)", GameSortOption.NameDesc),
+        new("Name A-Z", GameSortOption.NameAsc),
+        new("Name Z-A", GameSortOption.NameDesc),
+        new("Largest installed", GameSortOption.LargestInstalled),
+        new("Most played", GameSortOption.MostPlayed),
+        new("Recently added", GameSortOption.RecentlyAdded),
         new("Source", GameSortOption.Source),
-        new("Favorites First", GameSortOption.FavoritesFirst),
-        new("Recently Added", GameSortOption.RecentlyAdded),
+        new("Favorites first", GameSortOption.FavoritesFirst),
     ];
 
-    public LibraryViewModel() : this(new SettingsService(), new PendingUpdateNotesService())
+    public LibraryViewModel() : this(new SettingsService(), new PendingUpdateNotesService(), WindowsStartupRegistration.ForCurrentUser())
     {
     }
 
@@ -326,8 +454,10 @@ public partial class LibraryViewModel : ObservableObject
     /// this suite ended up able to delete a real user's pending marker (see
     /// LibraryViewModelRunningGameTests, which doesn't care about update notes at all but still must
     /// not touch real %AppData%).</summary>
-    internal LibraryViewModel(SettingsService settingsService, PendingUpdateNotesService pendingUpdateNotesService)
+    internal LibraryViewModel(SettingsService settingsService, PendingUpdateNotesService pendingUpdateNotesService,
+        IStartupRegistration? startupRegistration = null)
     {
+        _startupRegistration = startupRegistration;
         _settingsService = settingsService;
         _pendingUpdateNotesService = pendingUpdateNotesService;
         // Derived from the SettingsService's own directory, never defaulted independently - the same
@@ -336,6 +466,7 @@ public partial class LibraryViewModel : ObservableObject
         _credentialStore = new IgdbCredentialStore(settingsService.DataDir);
         _scannerService = new GameScannerService(_credentialStore);
         _settings = _settingsService.Load();
+        _startWithWindows = startupRegistration?.IsEnabled ?? false;
         foreach (var folder in _settings.WatchedFolders)
             WatchedFolders.Add(folder);
         _steamGridDbApiKey = _settings.SteamGridDbApiKey ?? string.Empty;
@@ -343,7 +474,7 @@ public partial class LibraryViewModel : ObservableObject
         _igdbSecretSaved = _credentialStore.HasSecret();
         _vibrantBackground = _settings.VibrantBackground;
         _minimizeToTrayWhileGaming = _settings.MinimizeToTrayWhileGaming;
-        _isSidebarExpanded = _settings.SidebarExpanded;
+        _trackExternalGames = _settings.TrackExternalGames;
         _detectSteam = _settings.DetectSteam;
         _detectEpic = _settings.DetectEpic;
         _detectGog = _settings.DetectGog;
@@ -354,6 +485,8 @@ public partial class LibraryViewModel : ObservableObject
         _detectRockstar = _settings.DetectRockstar;
         _detectAmazonGames = _settings.DetectAmazonGames;
         _checkForUpdates = _settings.CheckForUpdates;
+        _isSidebarExpanded = _settings.SidebarExpanded;
+        SourceItems = BuildSourceItems();
 
         EnableWindowExitDiagnostics = _settings.EnableWindowExitDiagnostics;
 
@@ -418,12 +551,64 @@ public partial class LibraryViewModel : ObservableObject
     /// _runningSessionId's remarks for why that matters.</summary>
     public int MarkGameRunning(GameEntry game)
     {
+        ++_sessionActivityGeneration;
+        StopPassiveTrackingForGame(game.Id);
         var sessionId = ++_sessionCounter;
         _runningGameId = game.Id;
         _runningSessionId = sessionId;
         _sessionGameIds[sessionId] = game.Id;
+        _sessionStartedUtc[sessionId] = SessionClock();
         game.IsRunning = true;
         return sessionId;
+    }
+
+    /// <summary>Test seam: the clock play-time accumulation is measured against. Real time by default;
+    /// a test can advance it deliberately instead of sleeping.</summary>
+    internal Func<DateTime> SessionClock { get; set; } = () => DateTime.UtcNow;
+
+    // Start timestamp per session id, so a session that gets superseded (or whose game is merged into
+    // a different entry mid-play) still accumulates against the right id - same reasoning as
+    // _sessionGameIds, which this mirrors entry-for-entry.
+    private readonly Dictionary<int, DateTime> _sessionStartedUtc = new();
+
+    /// <summary>Adds this session's elapsed time to the game's persisted total and stamps LastPlayed.
+    /// Keyed by the session's CURRENT tracked id (not game.Id), so a mid-session rescan that merged
+    /// this install into a different entry credits the surviving one - the same hazard
+    /// MarkGameNotRunning's own remarks describe for the badge.</summary>
+    private void RecordPlayTime(int sessionId, string trackedId)
+    {
+        if (!_sessionStartedUtc.Remove(sessionId, out var startedUtc))
+            return;
+
+        var elapsed = SessionClock() - startedUtc;
+
+        // A negative span (clock change) or an implausibly short one isn't play time worth recording -
+        // a failed launch that exits instantly would otherwise accumulate noise onto a real total.
+        if (elapsed < TimeSpan.FromSeconds(10))
+            return;
+
+        AddTrackedPlayTime(trackedId, (long)elapsed.TotalSeconds, SessionClock());
+    }
+
+    private void AddTrackedPlayTime(string trackedId, long seconds, DateTime lastPlayedUtc)
+    {
+        if (!_settings.Overrides.TryGetValue(trackedId, out var over))
+        {
+            over = new GameOverride();
+            _settings.Overrides[trackedId] = over;
+        }
+
+        over.TotalPlaySeconds += seconds;
+        over.LastPlayedUtc = lastPlayedUtc;
+        _settingsService.Save(_settings);
+
+        if (_allGames.FirstOrDefault(g => g.Id == trackedId) is { } entry)
+        {
+            entry.TotalPlaySeconds = over.TotalPlaySeconds;
+            entry.LastPlayedUtc = over.LastPlayedUtc;
+        }
+
+        ApplyFilter(); // the hero and the Recently played row are both ordered by what just changed
     }
 
     /// <summary>Clears tracking for the session identified by sessionId once GameSessionWatcher
@@ -451,7 +636,9 @@ public partial class LibraryViewModel : ObservableObject
     /// now-gone id) would find nothing in the current library, leaving B's badge stuck on forever.</summary>
     public void MarkGameNotRunning(GameEntry game, int sessionId)
     {
+        ++_sessionActivityGeneration;
         var trackedId = _sessionGameIds.Remove(sessionId, out var id) ? id : game.Id;
+        RecordPlayTime(sessionId, trackedId);
 
         if (sessionId == _runningSessionId)
         {
@@ -470,11 +657,12 @@ public partial class LibraryViewModel : ObservableObject
     /// session's CURRENT tracked id, which is not always game.Id).</summary>
     private void ClearBadge(GameEntry game, string? idToClear)
     {
-        game.IsRunning = false;
+        var stillObserved = _passiveSessions.Keys.Any(t => _sessionGameIds.GetValueOrDefault(t) == idToClear);
+        game.IsRunning = stillObserved;
 
         var current = _allGames.FirstOrDefault(g => g.Id == idToClear);
         if (current is not null && !ReferenceEquals(current, game))
-            current.IsRunning = false;
+            current.IsRunning = stillObserved;
     }
 
     /// <summary>Reapplies the running badge to whichever entry in _allGames matches the tracked
@@ -484,12 +672,9 @@ public partial class LibraryViewModel : ObservableObject
     /// particular GameEntry instance.</summary>
     private void ReapplyRunningBadge()
     {
-        if (_runningGameId is not { } runningId)
-            return;
-
-        var running = _allGames.FirstOrDefault(g => g.Id == runningId);
-        if (running is not null)
-            running.IsRunning = true;
+        var active = _passiveSessions.Keys.Select(t => _sessionGameIds.GetValueOrDefault(t)).ToHashSet();
+        if (_runningGameId is { } id) active.Add(id);
+        foreach (var game in _allGames) game.IsRunning = active.Contains(game.Id);
     }
 
     /// <summary>The one place _allGames is ever replaced wholesale - RefreshAsync (a real scan) and
@@ -582,6 +767,15 @@ public partial class LibraryViewModel : ObservableObject
             winnerOverride.Hidden = winnerOverride.Hidden || loserOverride.Hidden;
             winnerOverride.CustomName ??= loserOverride.CustomName;
             winnerOverride.DateAdded ??= loserOverride.DateAdded;
+
+            // Both sides are the SAME install, so their tracked time is time spent on one game - summed,
+            // not "whichever side had more". Last-played takes the later of the two for the same reason.
+            winnerOverride.TotalPlaySeconds += loserOverride.TotalPlaySeconds;
+            if (loserOverride.LastPlayedUtc is { } loserLastPlayed
+                && (winnerOverride.LastPlayedUtc is not { } winnerLastPlayed || loserLastPlayed > winnerLastPlayed))
+            {
+                winnerOverride.LastPlayedUtc = loserLastPlayed;
+            }
 
             // Identity merges independently of artwork: its own counters, its own conflicts (design 8.2).
             MigrateMergedIdentity(loserId, winnerId, loserOverride, winnerOverride);
@@ -724,9 +918,9 @@ public partial class LibraryViewModel : ObservableObject
     /// path rather than a parallel copy of it that could silently drift from what RefreshAsync really
     /// does.
     ///
-    /// Two strictly separated phases, not interleaved: PREPARE (this method's only await) decodes every
+    /// Two strictly separated publication phases: PREPARE decodes every
     /// live user-selected cover off the UI thread, touching NO live state at all - not _allGames, not
-    /// _settings, not Games/FavoriteGames/HiddenGames. PUBLISH is everything after that await: fully
+    /// _settings, not Games/FavoriteGames/HiddenGames. PUBLISH runs through ApplyFilter: fully
     /// synchronous, no yield point anywhere in it, so WPF's single UI-thread dispatcher alone guarantees
     /// no user action (ToggleFavorite/ToggleHidden, another refresh, a Change Cover commit) can ever run
     /// while it's partway through. A real, confirmed bug in an earlier version split _allGames/override
@@ -735,11 +929,14 @@ public partial class LibraryViewModel : ObservableObject
     /// mutate the old instance and settings, then see ApplyFilter immediately afterward repopulate the
     /// grid from the NEW instances (already reconciled before the click, so untouched by it), making the
     /// click appear to silently revert. Folding ApplyFilter into this same synchronous block closes that
-    /// gap entirely.
+    /// gap entirely. After that block, a two-sided LegacyId migration that discarded a worker cover
+    /// can run a fresh, cancellable automatic lookup against the merged state. It never replays the
+    /// stale pre-merge identity and never separates publication of the library collections.
     ///
     /// `ownershipToken`, when given (RefreshAsync's own `cts`), is re-checked immediately before PUBLISH
     /// starts - as close to the mutation as the code structure allows - so a refresh superseded while
-    /// PREPARE was decoding never publishes its now-stale result. Returns whether PUBLISH actually ran;
+    /// PREPARE was decoding never publishes its now-stale result. Returns false if superseded before
+    /// publication or during subsequent cover recovery;
     /// RefreshAsync uses this instead of re-checking ownership itself afterward, which would already be
     /// too late (the check needs to gate entry to PUBLISH, not run after it). Null (the default, used by
     /// every test that isn't exercising RefreshAsync's own cancel-and-replace machinery) means "always
@@ -775,7 +972,7 @@ public partial class LibraryViewModel : ObservableObject
         if (DuringCoverDecodeForTest is not null)
             await DuringCoverDecodeForTest();
 
-        // ---- PUBLISH: fully synchronous from here on - see this method's own remarks ----
+        // ---- PUBLISH: synchronous through ApplyFilter; optional recovery follows afterward ----
         if (ownershipToken is not null && !ReferenceEquals(_refreshCts, ownershipToken))
             return false; // superseded while PREPARE was decoding - the newer refresh owns publication now
 
@@ -855,6 +1052,15 @@ public partial class LibraryViewModel : ObservableObject
         var oldByNewId = result.LegacyIdRemap is { Count: > 0 } legacyRemap
             ? legacyRemap.ToDictionary(kv => kv.Value, kv => kv.Key)
             : new Dictionary<string, string>();
+
+        // Previously duplicated Xbox entries can BOTH have persisted overrides. Their merge must
+        // invalidate the worker's pre-merge result, but on restart there are no displayed pixels to
+        // carry forward. Resolve afresh against the merged state after publication, never re-stamp
+        // that stale result. Only actual two-sided migrations need this recovery.
+        var mergedLegacyIds = oldByNewId.Where(pair =>
+                _settings.Overrides.ContainsKey(pair.Key) && _settings.Overrides.ContainsKey(pair.Value))
+            .Select(pair => pair.Key).ToHashSet();
+        var coversToRecover = new List<string>();
 
         // The old override's OWN identity/artwork revision, read RIGHT NOW - before migration consumes it
         // (MigrateMergedOverrides below removes it outright) - so it can be compared, per game, against
@@ -936,6 +1142,8 @@ public partial class LibraryViewModel : ObservableObject
             game.Favorite = over?.Favorite ?? false;
             if (over?.DateAdded is { } dateAdded)
                 game.DateAdded = dateAdded;
+            game.TotalPlaySeconds = over?.TotalPlaySeconds ?? 0;
+            game.LastPlayedUtc = over?.LastPlayedUtc;
 
             var scanned = result.ArtworkResultsByGameId.GetValueOrDefault(game.Id);
 
@@ -980,6 +1188,9 @@ public partial class LibraryViewModel : ObservableObject
             {
                 // The identity pipeline's automatic unit: identity half first, then the artwork half through the gates.
                 CommitAutomaticUnit(game, scanned, unit, previousGamesById.GetValueOrDefault(game.Id), decodedById, inPlace: false);
+                if (mergedLegacyIds.Contains(game.Id) && !game.IsCoverArt
+                    && over?.Artwork is not { IsUserSelected: true })
+                    coversToRecover.Add(game.Id);
             }
             else
             {
@@ -991,6 +1202,20 @@ public partial class LibraryViewModel : ObservableObject
         // synchronous block as everything above, not left for a caller to run after its own later await
         // (see this method's own remarks for why that split was the actual bug).
         ApplyFilter();
+
+        // The library collections are already published together. Recovery is an ordinary guarded
+        // automatic lookup against LIVE post-merge identity/revisions, with refresh cancellation
+        // carried through the worker and final commit. Explicit choices still take precedence.
+        foreach (var gameId in coversToRecover)
+        {
+            if (ownershipToken is not null && !ReferenceEquals(_refreshCts, ownershipToken))
+                return false;
+            Logger.Info($"Artwork: resolving '{gameId}' against its merged identity after Xbox legacy-id reconciliation.");
+            await RunAutomaticUnitAsync(gameId, "Legacy merge", force: false,
+                ownershipToken?.Token ?? CancellationToken.None);
+        }
+        if (ownershipToken is not null && !ReferenceEquals(_refreshCts, ownershipToken))
+            return false;
 
         return true;
     }
@@ -1217,7 +1442,7 @@ public partial class LibraryViewModel : ObservableObject
         // Never restart the app out from under an active play session - _runningGameId is set/cleared
         // by MarkGameRunning/MarkGameNotRunning, the same calls that drive the "Running" badge, and
         // unlike scanning _allGames it survives a rescan replacing every GameEntry mid-session.
-        if (_runningGameId is not null)
+        if (_runningGameId is not null || _passiveSessions.Count > 0)
         {
             StatusText = "Can't update while a game is running - try again after it closes.";
             return;
@@ -1274,15 +1499,6 @@ public partial class LibraryViewModel : ObservableObject
         _settings.MinimizeToTrayWhileGaming = value;
         _settingsService.Save(_settings);
     }
-
-    partial void OnIsSidebarExpandedChanged(bool value)
-    {
-        _settings.SidebarExpanded = value;
-        _settingsService.Save(_settings);
-    }
-
-    [RelayCommand]
-    private void ToggleSidebar() => IsSidebarExpanded = !IsSidebarExpanded;
 
     [RelayCommand]
     private void ToggleShowHidden() => ShowHiddenGames = !ShowHiddenGames;
@@ -1361,10 +1577,17 @@ public partial class LibraryViewModel : ObservableObject
             _settingsService.Save(_settings); // persists the DateAdded/watched-folder changes merged above
             RefreshDrives();
 
-            // Count from the filtered collections, not _allGames directly - scanning now always
-            // covers every source (see GameScannerService), so _allGames includes games from
-            // sources the user has toggled off. Games/FavoriteGames already reflect that filter.
-            var shown = Games.Count + FavoriteGames.Count;
+            // Sizes support the "Largest installed" sort library-wide, even though their visual rows
+            // are shown only in the selected-drive view. Fire-and-forget: a background refinement
+            // of already-usable results, and it cancels itself if another pass supersedes it.
+            _ = EstimateInstallSizesAsync();
+
+            // Count from the filtered collection, not _allGames directly - scanning now always covers
+            // every source (see GameScannerService), so _allGames includes games from sources the user
+            // has toggled off. Games alone is the whole on-screen grid: favourites are a VIEW of it
+            // now, not a separate section lifted out of it, so adding FavoriteGames here double-counted
+            // every starred game ("9 of 6 games shown").
+            var shown = Games.Count;
             var totalFound = _allGames.Count(g => !g.Hidden);
             var shownWord = shown == 1 ? "game" : "games";
             StatusText = shown == totalFound
@@ -2082,6 +2305,37 @@ public partial class LibraryViewModel : ObservableObject
         }
     }
 
+    /// <summary>Test seam: stands in for the real explorer.exe launch - actually shelling out would be
+    /// slow, visible, and untestable for which path was requested.</summary>
+    internal Action<string>? OpenFolderInExplorerForTest { get; set; }
+
+    [RelayCommand]
+    private void OpenInstallLocation(GameEntry? game)
+    {
+        if (game is null)
+            return;
+
+        if (!Directory.Exists(game.InstallDir))
+        {
+            StatusText = $"Can't find {game.Name}'s install folder anymore - it may have been moved or removed.";
+            Logger.Warn($"Open install location: '{game.InstallDir}' no longer exists for '{game.Name}'.");
+            return;
+        }
+
+        try
+        {
+            if (OpenFolderInExplorerForTest is { } forTest)
+                forTest(game.InstallDir);
+            else
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{game.InstallDir}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        {
+            Logger.Error($"Failed to open install location for '{game.Name}'.", ex);
+            StatusText = $"Couldn't open {game.Name}'s install folder: {ex.Message}";
+        }
+    }
+
     /// <summary>Rebuilds the Drives list from the drive letters games actually live on. Re-run after
     /// every scan, not just once, since free space changes from other activity even when the set of
     /// drives games live on doesn't.</summary>
@@ -2118,7 +2372,124 @@ public partial class LibraryViewModel : ObservableObject
         }
 
         HasDrives = Drives.Count > 0;
+
+        // A rescan replaces every DriveSpaceInfo instance wholesale, which would otherwise silently
+        // drop the previous selection's highlight. If the selected drive no longer has any games on it
+        // at all, clear the filter instead of leaving it pointed at a letter nothing can ever match.
+        if (SelectedDriveLetter is { } letter && Drives.All(d => !string.Equals(d.Letter, letter, StringComparison.OrdinalIgnoreCase)))
+        {
+            SelectedDriveLetter = null; // re-enters via OnSelectedDriveLetterChanged, which re-syncs IsSelected/ApplyFilter
+            return;
+        }
+
+        foreach (var drive in Drives)
+            drive.IsSelected = string.Equals(drive.Letter, SelectedDriveLetter, StringComparison.OrdinalIgnoreCase);
     }
+
+    [ObservableProperty]
+    private string? _selectedDriveLetter;
+
+    [ObservableProperty]
+    private bool _hasSelectedDriveFilter;
+
+    partial void OnSelectedDriveLetterChanged(string? value)
+    {
+        HasSelectedDriveFilter = value is not null;
+
+        foreach (var drive in Drives)
+            drive.IsSelected = string.Equals(drive.Letter, value, StringComparison.OrdinalIgnoreCase);
+
+        ApplyFilter();
+        _ = EstimateInstallSizesAsync();
+    }
+
+    /// <summary>Clicking a drive filters the library down to games on it; clicking the ALREADY-selected
+    /// drive again clears the filter - the same toggle shape as a sidebar source switch, just driven by
+    /// a click instead of a checkbox.</summary>
+    [RelayCommand]
+    private void SelectDrive(string? letter) =>
+        SelectedDriveLetter = string.Equals(SelectedDriveLetter, letter, StringComparison.OrdinalIgnoreCase) ? null : letter;
+
+    private static string? DriveLetterOf(string installDir)
+    {
+        try
+        {
+            return Path.GetPathRoot(installDir)?.TrimEnd('\\');
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private CancellationTokenSource? _sizeEstimationCts;
+
+    /// <summary>Test seam: a synchronous, deterministic stand-in for InstallSizeEstimator.Estimate -
+    /// tests must never depend on real disk I/O or its timing.</summary>
+    internal Func<string, CancellationToken, long?>? InstallSizeEstimatorForTest { get; set; }
+
+    /// <summary>Measures every game's install size in the background, one at a time so sizes populate
+    /// as they're found rather than the UI freezing until the whole library finishes. Whichever drive is
+    /// selected goes FIRST, so the thing being looked at fills in before the rest - the sizes are needed
+    /// library-wide regardless (the hero shows one with no drive selected, and "Largest installed" sorts
+    /// on them), so scoping the work to one drive would just mean most of them never arrive. Each walk
+    /// is itself bounded and cancellable (see InstallSizeEstimator). Already-known sizes are skipped, so
+    /// re-running this after a view change costs nothing. Cancel-and-replace (the same shape as
+    /// RefreshAsync's _refreshCts) means a slower, now-stale pass can never overwrite a newer one.</summary>
+    private async Task EstimateInstallSizesAsync()
+    {
+        _sizeEstimationCts?.Cancel();
+
+        var cts = new CancellationTokenSource();
+        _sizeEstimationCts = cts;
+        var token = cts.Token;
+
+        var letter = SelectedDriveLetter;
+        var targets = _allGames
+            .Where(g => g.InstallSizeBytes is null && !_sizeEstimationInFlight.Contains(g.Id))
+            .OrderByDescending(g => letter is not null
+                && string.Equals(DriveLetterOf(g.InstallDir), letter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var game in targets)
+        {
+            if (token.IsCancellationRequested)
+                return;
+
+            // Claimed before the walk starts and released after it: a pass that begins while this one
+            // is mid-walk skips what's already being measured instead of queuing it a second time.
+            // Without this, a selection change raised from INSIDE a walk re-queues the very game still
+            // being measured (its size isn't assigned yet, so it still looks unmeasured) and recurses
+            // until the stack gives out - a real, confirmed crash, not a theoretical one.
+            if (!_sizeEstimationInFlight.Add(game.Id))
+                continue;
+
+            long? bytes;
+            try
+            {
+                bytes = InstallSizeEstimatorForTest is { } forTest
+                    ? forTest(game.InstallDir, token)
+                    : await Task.Run(() => InstallSizeEstimator.Estimate(game.InstallDir, token).Bytes, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            finally
+            {
+                _sizeEstimationInFlight.Remove(game.Id);
+            }
+
+            if (!ReferenceEquals(_sizeEstimationCts, cts))
+                return; // superseded by a newer selection while this game's walk was running
+
+            game.InstallSizeBytes = bytes;
+        }
+    }
+
+    // Game ids currently being measured, so overlapping passes never walk the same folder twice (and
+    // can never recurse into each other) - see EstimateInstallSizesAsync.
+    private readonly HashSet<string> _sizeEstimationInFlight = new();
 
     private bool IsSourceEnabled(GameSource source) => source switch
     {
@@ -2150,7 +2521,16 @@ public partial class LibraryViewModel : ObservableObject
         HasAnySourceGames = HasSteamGames || HasEpicGames || HasGogGames || HasXboxGames || HasEaGames
             || HasUbisoftGames || HasBattleNetGames || HasRockstarGames || HasAmazonGames;
 
+        foreach (var item in SourceItems)
+            item.Refresh(_allGames.Any(g => g.Source == item.Source));
+
         IEnumerable<GameEntry> filtered = _allGames.Where(g => !g.Hidden && IsSourceEnabled(g.Source));
+
+        if (SelectedDriveLetter is { } selectedDrive)
+        {
+            filtered = filtered.Where(g =>
+                string.Equals(DriveLetterOf(g.InstallDir), selectedDrive, StringComparison.OrdinalIgnoreCase));
+        }
 
         if (!string.IsNullOrWhiteSpace(SearchText))
         {
@@ -2166,18 +2546,65 @@ public partial class LibraryViewModel : ObservableObject
             GameSortOption.FavoritesFirst => filtered.OrderByDescending(g => g.Favorite)
                 .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
             GameSortOption.RecentlyAdded => filtered.OrderByDescending(g => g.DateAdded),
+            // Unknown sizes sort last rather than as zero, so a library still being measured doesn't
+            // shuffle unmeasured games to the bottom and then re-shuffle them as results land.
+            GameSortOption.LargestInstalled => filtered
+                .OrderByDescending(g => g.InstallSizeBytes ?? -1)
+                .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
+            GameSortOption.MostPlayed => filtered
+                .OrderByDescending(g => g.TotalPlaySeconds)
+                .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
             _ => filtered.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
         };
 
-        // Favourites are pulled into their own section, so they aren't repeated in the main grid.
+        // The rail's view narrows what the grid shows; Favorites is a VIEW here, not a separate
+        // always-on section above the grid, so a favourited game appears in All too (with its star
+        // badge) rather than being lifted out of it.
+        filtered = SelectedView switch
+        {
+            LibraryView.Favorites => filtered.Where(g => g.Favorite),
+            LibraryView.Recent => filtered.Where(g => g.HasPlayTime).OrderByDescending(g => g.LastPlayedUtc),
+            _ => filtered,
+        };
+
         var ordered = filtered.ToList();
+
+        // The hero only shows on the unfiltered All view - searching, filtering to a drive, or
+        // switching views hides it rather than pinning a game the grid no longer shows. "Jump back in"
+        // means most recently PLAYED; until anything has been played, the newest addition stands in,
+        // since that's the only real signal available then.
+        var isHomeView = SelectedView == LibraryView.All
+            && SelectedDriveLetter is null
+            && string.IsNullOrWhiteSpace(SearchText);
+
+        FeaturedGame = isHomeView
+            ? ordered.Where(g => g.HasPlayTime).OrderByDescending(g => g.LastPlayedUtc).FirstOrDefault()
+                ?? ordered.OrderByDescending(g => g.DateAdded).FirstOrDefault()
+            : null;
+        HasFeaturedGame = FeaturedGame is not null;
+        HeroAccentColor = (FeaturedGame?.IsCoverArt == true ? DominantColorExtractor.Extract(FeaturedGame.Icon) : null)
+            ?? DefaultHeroAccentColor;
+
+        // "Recently played": only games with real tracked sessions, newest first, capped so the strip
+        // stays a strip. Empty (and hidden) until something has actually been played through the app.
+        RecentlyPlayedGames.Clear();
+        if (isHomeView)
+        {
+            foreach (var game in ordered.Where(g => g.HasPlayTime)
+                         .OrderByDescending(g => g.LastPlayedUtc)
+                         .Take(10))
+            {
+                RecentlyPlayedGames.Add(game);
+            }
+        }
+        HasRecentlyPlayed = RecentlyPlayedGames.Count > 0;
 
         FavoriteGames.Clear();
         foreach (var game in ordered.Where(g => g.Favorite))
             FavoriteGames.Add(game);
 
         Games.Clear();
-        foreach (var game in ordered.Where(g => !g.Favorite))
+        foreach (var game in ordered)
             Games.Add(game);
 
         HasFavorites = FavoriteGames.Count > 0;
@@ -2186,6 +2613,11 @@ public partial class LibraryViewModel : ObservableObject
         // g.Hidden directly rather than the `filtered` sequence above, since that sequence already
         // excludes them by design (they must never leak into Games/FavoriteGames).
         IEnumerable<GameEntry> hidden = _allGames.Where(g => g.Hidden && IsSourceEnabled(g.Source));
+        if (SelectedDriveLetter is { } hiddenSelectedDrive)
+        {
+            hidden = hidden.Where(g =>
+                string.Equals(DriveLetterOf(g.InstallDir), hiddenSelectedDrive, StringComparison.OrdinalIgnoreCase));
+        }
         if (!string.IsNullOrWhiteSpace(SearchText))
             hidden = hidden.Where(g => g.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
 
@@ -2196,13 +2628,45 @@ public partial class LibraryViewModel : ObservableObject
         HasHiddenGames = HiddenGames.Count > 0;
         ShowHiddenSection = ShowHiddenGames && HasHiddenGames;
 
-        // Driven by what's actually on screen (Games + FavoriteGames), not the raw scan count -
-        // toggling off every source leaves _allGames non-empty but nothing visible, and the empty
-        // state (with its "Scan Now" / "Add Folder" actions) should show exactly when the grid is
-        // genuinely blank, whatever the reason. HiddenGames counts too: a library that's entirely
-        // hidden games shouldn't tell the user to go scan or add a folder - it should just show the
-        // (reachable via the header toggle) Hidden section instead.
-        HasNoGames = Games.Count == 0 && FavoriteGames.Count == 0 && HiddenGames.Count == 0;
-        LibraryHeaderText = $"My Library ({Games.Count} {(Games.Count == 1 ? "Game" : "Games")})";
+        // An empty view is not an empty install library. Discovery actions belong only to the latter.
+        HasNoGames = Games.Count == 0 && !ShowHiddenSection;
+        ShowEmptyDiscoveryActions = SelectedView == LibraryView.All && _allGames.Count == 0
+            && string.IsNullOrWhiteSpace(SearchText) && SelectedDriveLetter is null;
+        var hasViewEntries = _allGames.Any(g => !g.Hidden && (SelectedView switch
+        {
+            LibraryView.Favorites => g.Favorite,
+            LibraryView.Recent => g.HasPlayTime,
+            _ => true,
+        }));
+        (EmptyStateTitle, EmptyStateDescription) = SelectedView switch
+        {
+            LibraryView.Favorites when !hasViewEntries => ("No favorites yet",
+                "Click the star on any game in All games to keep it here."),
+            LibraryView.Recent when !hasViewEntries => ("Nothing played yet",
+                "Play a game while Axis Game Launcher is running and it will appear here. Earlier play history isn't tracked."),
+            LibraryView.Favorites => ("No favorites match your filters",
+                "Try another search, drive, or launcher filter to see your favorites."),
+            LibraryView.Recent => ("No recently played games match your filters",
+                "Try another search, drive, or launcher filter to see your recently played games."),
+            _ when ShowEmptyDiscoveryActions => ("No games found yet",
+                "Games are auto-detected from Steam, Epic, GOG and more, or add a folder to scan."),
+            _ => ("No games match this view",
+                "Try another search, drive, or launcher filter, or check your hidden games."),
+        };
+
+        LibraryHeaderText = SelectedDriveLetter is { } headerDrive
+            ? $"Games on {headerDrive}"
+            : SelectedView switch
+            {
+                LibraryView.Favorites => "Favorites",
+                LibraryView.Recent => "Recently played",
+                _ => "All games",
+            };
+        LibrarySubheaderText = $"{Games.Count} {(Games.Count == 1 ? "game" : "games")}";
+
+        // Footer counts what's on screen against the whole library, so "6 of 6" vs "2 of 6" is itself
+        // the signal that something (a view, a drive, a search, a disabled source) is narrowing it.
+        var totalGames = _allGames.Count;
+        FooterCountText = $"{Games.Count} of {totalGames} {(totalGames == 1 ? "game" : "games")} shown";
     }
 }

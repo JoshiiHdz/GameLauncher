@@ -82,4 +82,92 @@ public sealed partial class GameEntry : ObservableObject
     /// exited (or gives up ever finding it running). Drives the "Running" badge on its card.</summary>
     [ObservableProperty]
     private bool _isRunning;
+
+    /// <summary>Null until LibraryViewModel's background size estimation walks this game's folder.
+    /// Used for sorting library-wide, displayed only in the drive-filtered view.
+    /// Reset to null on every rescan (a fresh GameEntry
+    /// is always a new instance) since files on disk may have changed since the last estimate.</summary>
+    [ObservableProperty]
+    private long? _installSizeBytes;
+
+    [ObservableProperty]
+    private bool _hasInstallSize;
+
+    [ObservableProperty]
+    private string _installSizeDisplay = "";
+
+    partial void OnInstallSizeBytesChanged(long? value)
+    {
+        HasInstallSize = value is not null;
+        InstallSizeDisplay = value switch
+        {
+            null => "",
+            >= 1L << 40 => $"≈ {value.Value / (double)(1L << 40):0.#} TB",
+            >= 1L << 30 => $"≈ {value.Value / (double)(1L << 30):0.#} GB",
+            >= 1L << 20 => $"≈ {value.Value / (double)(1L << 20):0.#} MB",
+            >= 1024 => $"≈ {value.Value / 1024d:0.#} KB",
+            _ => $"{value.Value} B",
+        };
+    }
+
+    /// <summary>Play time this app has actually tracked, in seconds - see GameOverride.TotalPlaySeconds
+    /// for why this is explicitly not a lifetime total.</summary>
+    [ObservableProperty]
+    private long _totalPlaySeconds;
+
+    [ObservableProperty]
+    private DateTime? _lastPlayedUtc;
+
+    /// <summary>"38.2 h tracked" / "45 min tracked" - empty until there's something to show.</summary>
+    [ObservableProperty]
+    private string _playTimeDisplay = "";
+
+    /// <summary>"Yesterday", "2 days ago", ... - empty until this game has been played once.</summary>
+    [ObservableProperty]
+    private string _lastPlayedDisplay = "";
+
+    /// <summary>True once a session has been tracked, so the UI can hide the whole play-time line
+    /// rather than showing a meaningless "0 h" for a game that was never launched from here.</summary>
+    [ObservableProperty]
+    private bool _hasPlayTime;
+
+    partial void OnTotalPlaySecondsChanged(long value) => RefreshPlayTimeDisplay();
+
+    partial void OnLastPlayedUtcChanged(DateTime? value) => RefreshPlayTimeDisplay();
+
+    private void RefreshPlayTimeDisplay()
+    {
+        HasPlayTime = TotalPlaySeconds > 0;
+        PlayTimeDisplay = FormatTracked(TotalPlaySeconds);
+        LastPlayedDisplay = LastPlayedUtc is { } last ? FormatRelative(last) : "";
+    }
+
+    private static string FormatTracked(long seconds)
+    {
+        if (seconds <= 0)
+            return "";
+
+        // Minutes below an hour: "38.2 h tracked" is meaningless detail for a 12-minute session, and
+        // "0.2 h" reads like a bug.
+        if (seconds < 3600)
+            return $"{Math.Max(1, seconds / 60)} min tracked";
+
+        return $"{seconds / 3600d:0.#} h tracked";
+    }
+
+    private static string FormatRelative(DateTime utc)
+    {
+        var days = (int)(DateTime.UtcNow.Date - utc.ToLocalTime().Date).TotalDays;
+        return days switch
+        {
+            <= 0 => "Today",
+            1 => "Yesterday",
+            < 7 => $"{days} days ago",
+            < 14 => "Last week",
+            < 31 => $"{days / 7} weeks ago",
+            < 62 => "A month ago",
+            < 365 => $"{days / 30} months ago",
+            _ => "Over a year ago",
+        };
+    }
 }

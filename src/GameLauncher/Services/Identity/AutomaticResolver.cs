@@ -135,6 +135,7 @@ public static class AutomaticResolver
 
         // ---- B. CATALOG IDENTITY + ART ----
         ArtworkHalf? published = null;
+        ArtworkHalf? nonPortraitFallback = null;
         var sawUnavailable = false;
         var sawDefiniteNegative = false;
         var ambiguousSeen = false;
@@ -240,14 +241,29 @@ public static class AutomaticResolver
                 ctx.Breaker.Note(provider.Namespace, cover.Status == CoverLookupStatus.Unavailable);
                 if (cover.Image is not null)
                 {
-                    published = new ArtworkHalf(ArtworkHalfKind.Set, BuildSelection(provider, entry, cover.FromCache, record), cover.Image);
-                    break;
+                    var candidateArt = new ArtworkHalf(ArtworkHalfKind.Set, BuildSelection(provider, entry, cover.FromCache, record), cover.Image);
+                    if (cover.Image.PixelHeight > cover.Image.PixelWidth)
+                    {
+                        published = candidateArt;
+                        break;
+                    }
+
+                    // A valid catalog identity need not supply poster-shaped art. Keep its image as
+                    // a fallback, but let the next catalog offer a verified portrait before stopping.
+                    // Explicit user-selected covers bypass this loop unchanged.
+                    nonPortraitFallback ??= candidateArt;
+                    continue;
                 }
 
                 if (cover.Status == CoverLookupStatus.Unavailable) sawUnavailable = true;
                 else sawDefiniteNegative = true;
             }
         }
+
+        // Re-check authorization: consulting another catalog may have changed the active identity.
+        if (published is null && nonPortraitFallback is { Selection: { } fallbackSelection }
+            && ArtworkAuthorization.IsAuthorized(fallbackSelection, IdentitySelection.SelectActive(record, query), query, record))
+            published = nonPortraitFallback;
 
         // ---- C. LAUNCHER-DERIVED ART (Steam CDN): keyed by the launcher's own id, and only where authorized (D7) ----
         if (published is null && !input.ArtworkPinned && !PreservesCurrent(IdentifierNamespace.SteamApp))

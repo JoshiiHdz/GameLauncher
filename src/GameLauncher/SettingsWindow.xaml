@@ -56,7 +56,7 @@
                 <Separator Margin="0,20" />
 
                 <TextBlock Text="Library Management" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
-                <TextBlock Text="Re-scan after installing new games, or add a shortcut to launch Game Launcher from your desktop."
+                <TextBlock Text="Re-scan after installing new games, or add a shortcut to launch Axis Game Launcher from your desktop."
                            FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,12" />
 
                 <ui:Button Content="Re-scan Library" Appearance="Primary"
@@ -87,6 +87,16 @@
 
                 <Separator Margin="0,20" />
 
+                <TextBlock Text="Startup and playtime" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
+                <ui:ToggleSwitch Content="Start with Windows" IsChecked="{Binding StartWithWindows}" />
+                <TextBlock Text="Open Axis Game Launcher when you sign in. Keep a portable copy in a permanent location before enabling this."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,5,0,14" />
+                <ui:ToggleSwitch Content="Track games opened outside the launcher" IsChecked="{Binding TrackExternalGames}" />
+                <TextBlock Text="While Axis Game Launcher is running, detect known game executables and track their running time. No earlier play history is imported. Protected games without a readable executable path may not be detected. This does not hide or restore the launcher."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,5,0,0" />
+
+                <Separator Margin="0,20" />
+
                 <TextBlock Text="Cover Art" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,4" />
                 <TextBlock Text="Real box art is fetched automatically for every source - Steam through its own store, everything else through IGDB (SteamGridDB as a fallback). Nothing to set up, no account needed."
                            FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,4" />
@@ -95,7 +105,7 @@
 
                 <TextBlock Text="About" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,8" />
                 <TextBlock FontSize="12" Opacity="0.7" Margin="0,0,0,12">
-                    <Run Text="Game Launcher &#8226; Version " /><Run Text="{x:Static services:AppInfo.Version}" />
+                    <Run Text="Axis Game Launcher &#8226; Version " /><Run Text="{x:Static services:AppInfo.Version}" />
                 </TextBlock>
 
                 <ui:ToggleSwitch Content="Check for updates on startup"

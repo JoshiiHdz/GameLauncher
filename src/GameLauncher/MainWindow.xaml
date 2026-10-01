@@ -4,20 +4,17 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:GameLauncher"
-        xmlns:vm="clr-namespace:GameLauncher.ViewModels"
         xmlns:conv="clr-namespace:GameLauncher.Converters"
+        xmlns:beh="clr-namespace:GameLauncher.Behaviors"
         xmlns:services="clr-namespace:GameLauncher.Services"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:tb="http://www.hardcodet.net/taskbar"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         mc:Ignorable="d"
-        Title="Game Launcher" Height="760" Width="1180" MinHeight="480" MinWidth="760"
+        Title="Axis Game Launcher" Height="760" Width="1180" MinHeight="480" MinWidth="760"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Acrylic"
         WindowStartupLocation="CenterScreen">
-
-    <Window.DataContext>
-        <vm:LibraryViewModel />
-    </Window.DataContext>
 
     <Window.Resources>
         <ResourceDictionary>
@@ -26,19 +23,9 @@
                      all live here now, not inline - see the file's own header comment for why (shared,
                      byte-for-byte, with the WPF test fixture that verifies the card's context-menu
                      wiring). -->
+                <ResourceDictionary Source="Resources/DesignTokens.xaml" />
                 <ResourceDictionary Source="Resources/GameCardTemplate.xaml" />
             </ResourceDictionary.MergedDictionaries>
-
-        <!-- Collapses to a slim icon-only rail; DataTrigger keeps the width swap purely declarative,
-             no converter or code-behind needed. -->
-        <Style x:Key="SidebarStyle" TargetType="Border">
-            <Setter Property="Width" Value="200" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsSidebarExpanded}" Value="False">
-                    <Setter Property="Width" Value="52" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
 
         <!-- Pill row for each source toggle - a soft hover highlight ties it to the same rounded,
              card-driven language as the game grid instead of a bare list of switches. -->
@@ -69,10 +56,231 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Windows-style caption buttons, drawn by the app rather than by WPF-UI's TitleBar (which
+             renders none in this build). Close gets the standard red hover; the other two the usual
+             subtle wash. Sized 46x48 to match the system's own caption metrics. -->
+        <Style x:Key="CaptionButtonStyle" TargetType="Button">
+            <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="46" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root" Background="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
+                                <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                    <Condition Property="Tag" Value="Close" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignCloseHover}" />
+                                <Setter Property="Foreground" Value="White" />
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- The hero's secondary "More" button: a soft filled pill rather than an outlined one, so the
+             accent Play button beside it stays the obvious primary action. -->
+        <Style x:Key="HeroGhostButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="16,9" />
+            <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root" CornerRadius="8" Background="{StaticResource DesignGhostFill}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignGhostFillHover}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Rail view buttons. RadioButton (not ToggleButton) so the three are mutually exclusive by
+             construction; IsChecked is bound OneWay off the view model's own view state, and the click
+             goes through SelectViewCommand, so the selection can never diverge from what the grid is
+             actually showing. The accent bar on the left edge is the active marker. -->
+        <Style x:Key="RailNavButtonStyle" TargetType="RadioButton">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid>
+                            <Border x:Name="Indicator" Width="3" Height="18" CornerRadius="2"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Margin="-8,0,0,0" Background="Transparent" />
+                            <Border x:Name="Root" CornerRadius="11" Background="Transparent">
+                                <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" />
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
+                                <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
+                                <Setter TargetName="Indicator" Property="Background"
+                                        Value="{StaticResource DesignAccent}" />
+                                <Setter Property="Foreground"
+                                        Value="{StaticResource DesignAccent}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Width" Value="NaN" />
+                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Plain round rail button (drives, Add folder) - no checked state, same hover language. -->
+        <Style x:Key="RailPlainButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root" CornerRadius="10" Background="Transparent">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
+                                <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Width" Value="NaN" />
+                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Shared visibility switches for the sidebar: text that only exists when it is expanded, and
+             the icon-only counterparts that only exist when it is collapsed. Keyed off the window VM
+             through the Window ancestor so they work inside data templates too. -->
+        <Style x:Key="ExpandedOnlyStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="CollapsedOnlyStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="RailLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource ExpandedOnlyStyle}">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style x:Key="RailSectionHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource ExpandedOnlyStyle}">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+            <Setter Property="Margin" Value="12,6,0,8" />
+        </Style>
+
+        <!-- Icon rail buttons (the Sources filter toggle, today just the one) - round, bare-template
+             for the same reason as every other bare button in this app: a plain ui:Button paints its
+             own square hover chrome that would show through the round shape. -->
+        <Style x:Key="RailIconButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#B3FFFFFF" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Root" CornerRadius="10" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#1FFFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#29FFFFFF" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- One drive, shown as a small ring in the rail: the letter in a circular badge, a thin usage
+             bar beneath it standing in for the preview's conic-gradient ring (WPF has no native arc-
+             percentage primitive, and a hand-rolled one isn't worth the risk this pass), selection shown
+             as an accent ring around the badge. Reuses the exact same UsedFraction/IsSelected/
+             SummaryText bindings the drive-click filtering feature already proved out. -->
+        <Style x:Key="RailDriveButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <ContentPresenter />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid x:Name="RootGrid">
+    <!-- Opaque, in the design's own base colour: the acrylic backdrop let the desktop through and
+         washed every surface toward grey, which is why the app never matched the preview's palette. -->
+    <Grid x:Name="RootGrid" Background="{StaticResource DesignBg}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -84,378 +292,357 @@
         </Grid.ColumnDefinitions>
 
         <tb:TaskbarIcon x:Name="TrayIcon" Visibility="Collapsed"
-                        ToolTipText="Game Launcher"
+                        ToolTipText="Axis Game Launcher"
                         TrayMouseDoubleClick="TrayIcon_Restore">
             <tb:TaskbarIcon.ContextMenu>
                 <ContextMenu>
-                    <MenuItem Header="Show Game Launcher" Click="TrayIcon_Restore" />
+                    <MenuItem Header="Show Axis Game Launcher" Click="TrayIcon_Restore" />
                     <Separator />
                     <MenuItem Header="Exit" Click="TrayExit_Click" />
                 </ContextMenu>
             </tb:TaskbarIcon.ContextMenu>
         </tb:TaskbarIcon>
 
-        <ui:TitleBar x:Name="AppTitleBar" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Title="Game Launcher" />
+        <!-- Native caption region: Windows owns dragging, restore-drag, snapping and double-click. -->
+        <Border x:Name="WindowDragBar" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Height="46"
+                Background="{StaticResource DesignSurface}"
+                BorderThickness="0,0,0,1" BorderBrush="{StaticResource DesignStroke}">
+            <Grid>
 
-        <!-- Left sidebar: source toggles moved out of Settings since they're reached for far more
-             often than the rest of that dialog - collapses to a bare rail to give the library room. -->
-        <Border x:Name="SidebarBorder" Grid.Row="1" Grid.Column="0" Style="{StaticResource SidebarStyle}"
-                HorizontalAlignment="Left" Background="#14000000"
-                BorderThickness="0,0,1,0" BorderBrush="#14FFFFFF">
-            <!-- LastChildFill so the ScrollViewer below takes all remaining height - everything above
-                 it (collapse button, logo header, divider) is fixed chrome; everything inside it
-                 (source rows, drives) scrolls instead of being silently clipped when it doesn't fit
-                 the window - a real problem on a PC with enough drives/launchers detected that the
-                 old fixed-height sidebar ran past the bottom of the window with no way to reach the
-                 rest short of manually resizing. MainWindow.xaml.cs also proactively grows the window
-                 to fit this content on load/rescan so scrolling is the fallback, not the norm. -->
-            <DockPanel LastChildFill="True" Margin="0,12,0,0">
-                <StackPanel x:Name="SidebarChromeTop" DockPanel.Dock="Top">
-                    <ui:Button HorizontalAlignment="Right" Margin="0,0,10,10"
-                               Appearance="Transparent" BorderThickness="0"
-                               ToolTip="Collapse sidebar"
-                               Command="{Binding ToggleSidebarCommand}">
-                        <Grid Width="20" Height="20">
-                            <ui:SymbolIcon Symbol="ChevronLeft24"
-                                           Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                            <ui:SymbolIcon Symbol="ChevronRight24"
-                                           Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
-                        </Grid>
-                    </ui:Button>
+            <!-- DockPanel, not a 3-column Grid: with star columns the right-hand cluster collapsed to a
+                 few pixels and shoved the search box off centre. Docking is unambiguous - the edges
+                 claim exactly what they need and the search takes the rest. -->
+            <DockPanel x:Name="TitleBarDock" Margin="14,0,0,0" LastChildFill="True" Panel.ZIndex="10">
+                <!-- Dock=Right children claim the right edge in declaration order, so these read
+                     left-to-right as: hidden-toggle, rescan, settings, then the caption buttons. -->
+                <!-- Literal stroke colours rather than binding to the button's Foreground: that binding
+                     resolved to null here, leaving the glyphs invisible while the buttons themselves
+                     still laid out and took space - a silent failure that looked like "no buttons". -->
+                <Button DockPanel.Dock="Right" Style="{StaticResource CaptionButtonStyle}"
+                        Click="CaptionClose_Click" ToolTip="Close" Tag="Close">
+                    <Path Data="M0,0 L10,10 M10,0 L0,10" Stroke="#FFD5DAE6"
+                          StrokeThickness="1.2" Width="10" Height="10" />
+                </Button>
+                <Button x:Name="CaptionMaximizeButton" DockPanel.Dock="Right" Click="CaptionMaximize_Click">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
+                            <Setter Property="ToolTip" Value="Maximize" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                                    <Setter Property="ToolTip" Value="Restore Down" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                    <Path x:Name="CaptionMaximizeGlyph" Stroke="#E8FFFFFF" StrokeThickness="1.2"
+                          Width="12" Height="12">
+                        <Path.Style>
+                            <Style TargetType="Path">
+                                <Setter Property="Data" Value="M1,1 L11,1 11,11 1,11 Z" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                                        <Setter Property="Data" Value="M3,3 L3,1 11,1 11,9 9,9 M1,3 L9,3 9,11 1,11 Z" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                    </Path>
+                </Button>
+                <Button DockPanel.Dock="Right" Style="{StaticResource CaptionButtonStyle}"
+                        Click="CaptionMinimize_Click" ToolTip="Minimize">
+                    <Path Data="M0,0 L10,0" Stroke="#E8FFFFFF"
+                          StrokeThickness="1.2" Width="10" Height="1" />
+                </Button>
 
-                    <!-- Big brand header while expanded - the sidebar's top slot, not a footer afterthought -->
-                    <StackPanel HorizontalAlignment="Center" Margin="0,0,0,18"
-                                Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Image Source="/Assets/AppIcon.png" Width="96" Height="96"
-                               RenderOptions.BitmapScalingMode="HighQuality" HorizontalAlignment="Center" />
-                        <TextBlock Text="Game Launcher" FontSize="15" FontWeight="SemiBold" Margin="0,12,0,0"
-                                   HorizontalAlignment="Center" />
-                        <TextBlock FontSize="10" Opacity="0.45" HorizontalAlignment="Center" Margin="0,2,0,0">
-                            <Run Text="v" /><Run Text="{x:Static services:AppInfo.Version}" />
-                        </TextBlock>
-                    </StackPanel>
+                <ui:Button DockPanel.Dock="Right" x:Name="SettingsButton" Appearance="Transparent"
+                           shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                           BorderThickness="0" Margin="0,0,6,0" VerticalAlignment="Center"
+                           Icon="{ui:SymbolIcon Settings24}"
+                           ToolTip="Settings"
+                           Click="SettingsButton_Click" />
 
-                    <!-- Edge-to-edge, unlike the indented rows below - a true full-bleed divider -->
-                    <Border Height="1" Background="#14FFFFFF" Margin="0,0,0,16"
-                            Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                <ui:Button DockPanel.Dock="Right" Appearance="Transparent" BorderThickness="0"
+                           shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                           Margin="0,0,2,0" VerticalAlignment="Center"
+                           Icon="{ui:SymbolIcon ArrowSync24}"
+                           ToolTip="Rescan library"
+                           Command="{Binding RefreshCommand}"
+                           IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
+
+                <!-- Only shows up once something is actually hidden - nothing to reveal otherwise. Not
+                     in the design's own title bar, which has no hidden games to reach; without it there
+                     is no way back for anything the user hides. -->
+                <ui:Button DockPanel.Dock="Right" Appearance="Transparent" BorderThickness="0"
+                           shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                           Margin="0,0,2,0" VerticalAlignment="Center"
+                           ToolTip="Show/hide the Hidden Games section"
+                           Command="{Binding ToggleShowHiddenCommand}"
+                           Visibility="{Binding HasHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <Grid Width="18" Height="18">
+                        <ui:SymbolIcon Symbol="EyeOff24" FontSize="16"
+                                       Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                        <ui:SymbolIcon Symbol="Eye24" FontSize="16"
+                                       Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                    </Grid>
+                </ui:Button>
+
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Image Source="/Assets/AppIcon.png" Width="24" Height="24"
+                           RenderOptions.BitmapScalingMode="HighQuality" />
+                    <TextBlock Text="Axis Game Launcher" FontSize="12.5" FontWeight="SemiBold"
+                               Foreground="{StaticResource DesignInk}"
+                               VerticalAlignment="Center" Margin="9,0,0,0" />
                 </StackPanel>
+
+                <!-- Fills whatever is left between brand and buttons, centred within it. -->
+                <ui:TextBox Width="380" Height="32" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                            PlaceholderText="Search your library..."
+                            Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                            Icon="{ui:SymbolIcon Search24}"
+                            FontSize="12.5"
+                            Foreground="{StaticResource DesignInk}"
+                            Background="{StaticResource DesignBg2}"
+                            BorderThickness="1" BorderBrush="{StaticResource DesignStroke}" />
+            </DockPanel>
+            </Grid>
+        </Border>
+
+        <!-- Left sidebar: expanded (labels, drive names, per-launcher switches - the old sidebar's
+             layout) or collapsed to a 58px icon rail, toggled from its top button and remembered.
+             Collapsed, each launcher is just its icon: full colour when its games are shown, a grey
+             copy when switched off, so the rail itself says which are on. Width animates; the labels
+             and rows that only exist when expanded are switched by ExpandedOnlyStyle/CollapsedOnlyStyle. -->
+        <Border x:Name="SidebarPanel" Grid.Row="1" Grid.Column="0" HorizontalAlignment="Left" ClipToBounds="True"
+                Background="{StaticResource DesignBg2}"
+                BorderThickness="0,0,1,0" BorderBrush="{StaticResource DesignStroke}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Width" Value="58" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSidebarExpanded}" Value="True">
+                            <Setter Property="Width" Value="232" />
+                            <DataTrigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="58" To="232" Duration="0:0:0.16">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.EnterActions>
+                            <DataTrigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="232" To="58" Duration="0:0:0.16">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.ExitActions>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <DockPanel LastChildFill="True" Margin="9,12,9,10">
+                <StackPanel DockPanel.Dock="Top">
+                    <Button x:Name="SidebarToggleButton" Style="{StaticResource RailPlainButtonStyle}" Margin="0,0,0,10"
+                            ToolTip="Expand or collapse the sidebar" Command="{Binding ToggleSidebarCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Navigation24" FontSize="17" Width="40" />
+                            <TextBlock Text="Collapse" Style="{StaticResource RailLabelStyle}" />
+                        </StackPanel>
+                    </Button>
+
+                    <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="All games"
+                                 IsChecked="{Binding IsAllViewSelected, Mode=OneWay}"
+                                 Command="{Binding SelectViewCommand}" CommandParameter="all">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Grid24" FontSize="17" Width="40" />
+                            <TextBlock Text="All games" Style="{StaticResource RailLabelStyle}" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Favorites"
+                                 IsChecked="{Binding IsFavoritesViewSelected, Mode=OneWay}"
+                                 Command="{Binding SelectViewCommand}" CommandParameter="favorites">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Star24" FontSize="17" Width="40" />
+                            <TextBlock Text="Favorites" Style="{StaticResource RailLabelStyle}" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Recently played"
+                                 IsChecked="{Binding IsRecentViewSelected, Mode=OneWay}"
+                                 Command="{Binding SelectViewCommand}" CommandParameter="recent">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Clock24" FontSize="17" Width="40" />
+                            <TextBlock Text="Recently played" Style="{StaticResource RailLabelStyle}" />
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+
+                <Button DockPanel.Dock="Bottom" Style="{StaticResource RailPlainButtonStyle}"
+                        ToolTip="Add a folder to watch" Command="{Binding AddFolderCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Add24" FontSize="17" Width="40" />
+                        <TextBlock Text="Add folder" Style="{StaticResource RailLabelStyle}" />
+                    </StackPanel>
+                </Button>
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel x:Name="SidebarScrollableContent">
-                <StackPanel Margin="10,0,10,0"
-                            Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                    <TextBlock Text="SOURCES" FontWeight="SemiBold" FontSize="11" Opacity="0.5"
-                               Margin="8,0,0,10"
-                               Visibility="{Binding HasAnySourceGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                    <StackPanel>
+                        <Border Height="1" Background="{StaticResource DesignStroke}" Margin="6,7,6,7"
+                                Visibility="{Binding HasAnySourceGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
 
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasSteamGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <Grid>
-                                    <TextBlock Text="S" FontSize="11" FontWeight="Bold" Opacity="0.85"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding SteamIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                    <Image Source="{Binding SteamIcon}" Width="16" Height="16"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="Steam" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectSteam}" />
-                        </Grid>
-                    </Border>
-
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasEpicGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <Grid>
-                                    <TextBlock Text="E" FontSize="11" FontWeight="Bold" Opacity="0.85"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding EpicIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                    <Image Source="{Binding EpicIcon}" Width="16" Height="16"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="Epic Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectEpic}" />
-                        </Grid>
-                    </Border>
-
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasGogGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <Grid>
-                                    <TextBlock Text="G" FontSize="11" FontWeight="Bold" Opacity="0.85"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding GogIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                    <Image Source="{Binding GogIcon}" Width="16" Height="16"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="GOG" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectGog}" />
-                        </Grid>
-                    </Border>
-
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasXboxGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <!-- The Xbox app's icon lives inside an ACL-locked MSIX package and can
-                                     never be extracted by path, on any PC - so unlike the other sources
-                                     this one skips the live-extraction attempt entirely and always shows
-                                     the real Xbox logo, hardcoded as Assets\XboxLogo.png. -->
-                                <Image Source="/Assets/XboxLogo.png" Width="16" Height="16"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="Xbox" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectXbox}" />
-                        </Grid>
-                    </Border>
-
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasEaGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <Grid>
-                                    <TextBlock Text="EA" FontSize="9" FontWeight="Bold" Opacity="0.85"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding EaIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                    <Image Source="{Binding EaIcon}" Width="16" Height="16"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="EA app" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectEa}" />
-                        </Grid>
-                    </Border>
-
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasUbisoftGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <Grid>
-                                    <TextBlock Text="U" FontSize="11" FontWeight="Bold" Opacity="0.85"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding UbisoftIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                    <Image Source="{Binding UbisoftIcon}" Width="16" Height="16"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="Ubisoft Connect" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectUbisoft}" />
-                        </Grid>
-                    </Border>
-
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasBattleNetGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <Grid>
-                                    <TextBlock Text="B" FontSize="11" FontWeight="Bold" Opacity="0.85"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding BattleNetIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                    <Image Source="{Binding BattleNetIcon}" Width="16" Height="16"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="Battle.net" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectBattleNet}" />
-                        </Grid>
-                    </Border>
-
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasRockstarGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <Grid>
-                                    <TextBlock Text="R" FontSize="11" FontWeight="Bold" Opacity="0.85"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding RockstarIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                    <Image Source="{Binding RockstarIcon}" Width="16" Height="16"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="Rockstar Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectRockstar}" />
-                        </Grid>
-                    </Border>
-
-                    <Border Style="{StaticResource SidebarRowStyle}"
-                            Visibility="{Binding HasAmazonGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
-                                <Grid>
-                                    <TextBlock Text="A" FontSize="11" FontWeight="Bold" Opacity="0.85"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding AmazonGamesIcon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                    <Image Source="{Binding AmazonGamesIcon}" Width="16" Height="16"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                </Grid>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="Amazon Games" FontSize="13" VerticalAlignment="Center" Margin="10,0,0,0"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
-                                              IsChecked="{Binding DetectAmazonGames}" />
-                        </Grid>
-                    </Border>
-                </StackPanel>
-
-                <!-- Drives: only the ones games actually live on, re-checked after every scan -->
-                <StackPanel Margin="10,20,10,0"
-                            Visibility="{Binding IsSidebarExpanded, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                    <TextBlock Text="DRIVES" FontWeight="SemiBold" FontSize="11" Opacity="0.5"
-                               Margin="8,0,0,10"
-                               Visibility="{Binding HasDrives, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-
-                    <ItemsControl ItemsSource="{Binding Drives}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#14FFFFFF" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <Grid Margin="0,0,0,7">
+                        <!-- LAUNCHERS, expanded: the old sidebar's pill rows (badge, name, switch). A row
+                             exists only once a scan has found games for that launcher. -->
+                        <Border Style="{StaticResource ExpandedOnlyStyle}">
+                            <TextBlock Text="LAUNCHERS" Style="{StaticResource RailSectionHeaderStyle}"
+                                       Visibility="{Binding HasAnySourceGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        </Border>
+                        <ItemsControl x:Name="ExpandedLaunchers" ItemsSource="{Binding SourceItems}" Style="{StaticResource ExpandedOnlyStyle}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border x:Name="Row" Style="{StaticResource SidebarRowStyle}" Visibility="Collapsed">
+                                        <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding Letter}" FontWeight="SemiBold" FontSize="12" />
-                                            <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="12" Opacity="0.6"
-                                                       Margin="6,0,0,0" TextTrimming="CharacterEllipsis" />
-                                        </Grid>
-
-                                        <Border Height="5" CornerRadius="3" Background="#1FFFFFFF" ClipToBounds="True">
-                                            <Border HorizontalAlignment="Stretch" CornerRadius="3"
-                                                    Background="{DynamicResource AccentFillColorDefaultBrush}"
-                                                    RenderTransformOrigin="0,0">
-                                                <Border.RenderTransform>
-                                                    <ScaleTransform ScaleX="{Binding UsedFraction}" ScaleY="1" />
-                                                </Border.RenderTransform>
+                                            <Border Grid.Column="0" Style="{StaticResource SidebarBadgeStyle}">
+                                                <Grid>
+                                                    <TextBlock Text="{Binding Letter}" FontSize="11" FontWeight="Bold" Opacity="0.85"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               Visibility="{Binding HasIcon, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                                                    <Image Source="{Binding DisplayIcon}" Width="16" Height="16"
+                                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                                </Grid>
                                             </Border>
-                                        </Border>
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="13" VerticalAlignment="Center"
+                                                       Margin="10,0,0,0" TextTrimming="CharacterEllipsis" />
+                                            <ui:ToggleSwitch Grid.Column="2" Style="{StaticResource SidebarToggleStyle}"
+                                                             IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding HasGames}" Value="True">
+                                            <Setter TargetName="Row" Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
 
-                                        <TextBlock Text="{Binding SummaryText}" FontSize="10" Opacity="0.55" Margin="0,5,0,0"
-                                                   TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-                </StackPanel>
+                        <!-- LAUNCHERS, collapsed: icon only. Pressed = shown (full colour); not pressed =
+                             hidden (grey icon). Click flips it, same as the switch above. -->
+                        <ItemsControl x:Name="CollapsedLaunchers" ItemsSource="{Binding SourceItems}" Style="{StaticResource CollapsedOnlyStyle}"
+                                      HorizontalAlignment="Center">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <ToggleButton x:Name="IconButton" Style="{StaticResource RailIconButtonStyle}"
+                                                  Width="40" Height="40" Margin="0,0,0,4" Visibility="Collapsed"
+                                                  ToolTip="{Binding ToolTip}"
+                                                  IsChecked="{Binding IsEnabled, Mode=TwoWay}">
+                                        <Grid>
+                                            <TextBlock Text="{Binding Letter}" FontSize="11" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Visibility="{Binding HasIcon, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                                            <Image Source="{Binding DisplayIcon}" Width="20" Height="20"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Grid>
+                                    </ToggleButton>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding HasGames}" Value="True">
+                                            <Setter TargetName="IconButton" Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border Height="1" Background="{StaticResource DesignStroke}" Margin="6,7,6,7"
+                                Visibility="{Binding HasDrives, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        <Border Style="{StaticResource ExpandedOnlyStyle}">
+                            <TextBlock Text="DRIVES" Style="{StaticResource RailSectionHeaderStyle}"
+                                       Visibility="{Binding HasDrives, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        </Border>
+
+                        <!-- Drives: only the ones games actually live on, re-checked after every scan -->
+                        <ItemsControl ItemsSource="{Binding Drives}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button x:Name="DriveButton" Style="{StaticResource RailPlainButtonStyle}"
+                                            Height="Auto" MinHeight="40" Margin="0,0,0,6"
+                                            HorizontalContentAlignment="Stretch"
+                                            Command="{Binding DataContext.SelectDriveCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding Letter}"
+                                            ToolTip="{Binding SummaryText}">
+                                        <StackPanel>
+                                          <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="40" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid Width="40" Height="36">
+                                                <!-- Track ring, then the used-space arc over it: a real arc, so a
+                                                     73%-full drive reads as 73% at a glance the way the design's
+                                                     ring does. See UsedFractionToArcConverter for the geometry. -->
+                                                <Ellipse Width="32" Height="32" Stroke="{StaticResource DesignTrackFill}" StrokeThickness="2.5" />
+                                                <Path Stroke="{StaticResource DesignAccent}"
+                                                      StrokeThickness="2.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Data="{Binding UsedFraction, Converter={x:Static conv:UsedFractionToArcConverter.Instance}}" />
+                                                <TextBlock x:Name="DriveLetter" Text="{Binding Letter, Converter={x:Static conv:DriveLetterGlyphConverter.Instance}}"
+                                                           FontSize="11" FontWeight="SemiBold" Opacity="0.8"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Grid>
+                                            <TextBlock Grid.Column="1" Style="{StaticResource RailLabelStyle}">
+                                                <Run Text="{Binding Label, Mode=OneWay}" /><Run Text=" (" /><Run Text="{Binding Letter, Mode=OneWay}" /><Run Text=")" />
+                                            </TextBlock>
+                                          </Grid>
+                                          <StackPanel x:Name="DriveSpaceDetails" Style="{StaticResource ExpandedOnlyStyle}" Margin="8,4,8,8">
+                                              <ProgressBar x:Name="DriveUsageBar" Height="5" Minimum="0" Maximum="1"
+                                                           Value="{Binding UsedFraction, Mode=OneWay}" IsIndeterminate="False"
+                                                           Foreground="{StaticResource DesignAccent}" Background="{StaticResource DesignTrackFill}"
+                                                           IsHitTestVisible="False" />
+                                              <TextBlock x:Name="DriveSpaceSummary" Text="{Binding SummaryText}" TextWrapping="Wrap"
+                                                         FontSize="10" Foreground="{StaticResource DesignMuted}" Margin="0,6,0,0" />
+                                          </StackPanel>
+                                        </StackPanel>
+                                    </Button>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter TargetName="DriveLetter" Property="Opacity" Value="1" />
+                                            <Setter TargetName="DriveLetter" Property="Foreground"
+                                                    Value="{StaticResource DesignAccent}" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </ScrollViewer>
             </DockPanel>
         </Border>
 
-        <DockPanel Grid.Row="1" Grid.Column="1" Margin="20,4,20,12">
-            <!-- Header row: library title on the left, controls on the right. Kept out of the title
-                 bar so the control cluster can't overflow the caption buttons on a narrow window. -->
-            <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MinWidth="60" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+        <Grid Grid.Row="1" Grid.Column="1">
+            <Grid.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Offset="0" Color="{StaticResource DesignBg2Color}" />
+                    <GradientStop Offset="0.42" Color="{StaticResource DesignBgColor}" />
+                </LinearGradientBrush>
+            </Grid.Background>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <ui:TextBox Width="200" PlaceholderText="Search games..."
-                                Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                                Icon="{ui:SymbolIcon Search24}"
-                                Background="#14FFFFFF" BorderThickness="0" />
+            <!-- The design's radial accent glow behind the hero, bled in from the top. -->
+            <Border VerticalAlignment="Top" Height="440" IsHitTestVisible="False">
+                <Border.Background>
+                    <RadialGradientBrush GradientOrigin="0.62,0" Center="0.62,0" RadiusX="0.62" RadiusY="1.0">
+                        <GradientStop Offset="0" Color="#42FF6B86" />
+                        <GradientStop Offset="0.7" Color="#00FF6B86" />
+                    </RadialGradientBrush>
+                </Border.Background>
+            </Border>
 
-                    <ComboBox Margin="10,0,0,0" MinWidth="130"
-                              Background="Transparent" BorderThickness="0"
-                              ItemsSource="{Binding SortOptions}"
-                              DisplayMemberPath="Label" SelectedValuePath="Value"
-                              SelectedValue="{Binding SortOption}" />
-
-                    <!-- Only shows up once something is actually hidden - nothing to toggle otherwise. -->
-                    <ui:Button Margin="6,0,0,0" Appearance="Transparent" BorderThickness="0"
-                               ToolTip="Show/hide the Hidden Games section"
-                               Command="{Binding ToggleShowHiddenCommand}"
-                               Visibility="{Binding HasHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid Width="20" Height="20">
-                            <ui:SymbolIcon Symbol="EyeOff24"
-                                           Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
-                            <ui:SymbolIcon Symbol="Eye24"
-                                           Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                        </Grid>
-                    </ui:Button>
-
-                    <ui:Button Margin="6,0,0,0" Appearance="Transparent" BorderThickness="0"
-                               Icon="{ui:SymbolIcon ArrowSync24}"
-                               ToolTip="Re-scan library"
-                               Command="{Binding RefreshCommand}"
-                               IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
-
-                    <ui:Button x:Name="SettingsButton" Margin="2,0,0,0" Appearance="Transparent" BorderThickness="0"
-                               Icon="{ui:SymbolIcon Settings24}"
-                               ToolTip="Settings"
-                               Click="SettingsButton_Click" />
-                </StackPanel>
-            </Grid>
-
+        <DockPanel Margin="26,22,26,26">
             <!-- Scan progress: a real bar (the launcher pass, then games identified so far) and what it is doing now. Only while scanning. -->
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14"
                         Visibility="{Binding IsLoading, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
@@ -499,15 +686,30 @@
                 </Grid>
             </Border>
 
-            <!-- Empty state: only when the library is genuinely empty, not when a search filters it out -->
-            <Grid DockPanel.Dock="Top" Visibility="{Binding HasNoGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+            <!-- Empty views explain their own purpose; only an empty library offers discovery actions. -->
+            <Grid x:Name="LibraryEmptyState" DockPanel.Dock="Top" Visibility="{Binding HasNoGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,80,0,0" MaxWidth="360">
-                    <ui:SymbolIcon Symbol="Games24" FontSize="56" HorizontalAlignment="Center" Opacity="0.5" />
-                    <TextBlock Text="No games found yet" FontSize="18" FontWeight="SemiBold"
-                               HorizontalAlignment="Center" Margin="0,16,0,4" />
-                    <TextBlock Text="Games are auto-detected from Steam, Epic, GOG and more, or add a folder to scan."
+                    <ui:SymbolIcon x:Name="EmptyStateIcon" FontSize="56" HorizontalAlignment="Center" Opacity="0.5">
+                        <ui:SymbolIcon.Style>
+                            <Style TargetType="ui:SymbolIcon">
+                                <Setter Property="Symbol" Value="Games24" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsFavoritesViewSelected}" Value="True">
+                                        <Setter Property="Symbol" Value="Star24" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsRecentViewSelected}" Value="True">
+                                        <Setter Property="Symbol" Value="Clock24" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ui:SymbolIcon.Style>
+                    </ui:SymbolIcon>
+                    <TextBlock x:Name="EmptyStateHeading" Text="{Binding EmptyStateTitle}" FontSize="18" FontWeight="SemiBold"
+                               TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" Margin="0,16,0,4" />
+                    <TextBlock Text="{Binding EmptyStateDescription}"
                                FontSize="12" Opacity="0.6" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <StackPanel x:Name="EmptyDiscoveryActions" Orientation="Horizontal" HorizontalAlignment="Center"
+                                Visibility="{Binding ShowEmptyDiscoveryActions, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                         <ui:Button Content="Scan Now" Icon="{ui:SymbolIcon ArrowSync24}"
                                    Command="{Binding RefreshCommand}" Margin="0,0,8,0"
                                    IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
@@ -517,27 +719,205 @@
                 </StackPanel>
             </Grid>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto"
+            <!-- The scrollbar is an OVERLAY in this theme - it paints on top of the content rather than
+                 taking layout space of its own, so without a gutter it sat across the hero's right edge
+                 and the last column of cards. The padding is that gutter. -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,14,0"
                           Visibility="{Binding HasNoGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}">
                 <StackPanel>
-                    <!-- Favorites section - it and its divider disappear entirely when nothing is starred -->
-                    <StackPanel Visibility="{Binding HasFavorites, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <TextBlock Text="Favorites" FontSize="17" FontWeight="SemiBold" Margin="2,0,0,12" />
+                <!-- "Jump back in" hero: the one visible game with the newest DateAdded, shown only on the
+                     true unfiltered home view (LibraryViewModel.FeaturedGame hides it under search/a drive
+                     filter - see its own remarks on why "recently added" rather than "most played": this
+                     app has no way to know a game's playtime before it was added here, so that's the one
+                     honest "which game matters right now" signal available). The background tint is a
+                     colour sampled from the game's own cover art (DominantColorExtractor) - real box art,
+                     not a per-game placeholder, is what makes that worth doing here. -->
+                <Border Margin="0,0,0,28" CornerRadius="14" ClipToBounds="True"
+                        Background="{StaticResource DesignHeroFill}"
+                        BorderThickness="1" BorderBrush="{StaticResource DesignHeroStroke}"
+                        Visibility="{Binding HasFeaturedGame, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <Grid>
+                        <!-- The cover's colour as a WASH over a dark panel, not as the panel itself: at
+                             full strength the tint swamped the hero and the white text on it stopped
+                             reading. Low opacity keeps it as the ambient hint the design uses. -->
+                        <Border Opacity="0.30">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0.6">
+                                    <GradientStop Offset="0" Color="{Binding HeroAccentColor}" />
+                                    <GradientStop Offset="1" Color="Transparent" />
+                                </LinearGradientBrush>
+                            </Border.Background>
+                        </Border>
 
-                        <ItemsControl ItemsSource="{Binding FavoriteGames}"
-                                      ItemTemplate="{StaticResource GameCardTemplate}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
+                    <Grid Margin="26">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                        <Separator Margin="0,4,0,20" Opacity="0.4" />
+                        <!-- 132x198 is the design's 132px column at its 2:3 ratio. -->
+                        <Border Grid.Column="0" Width="132" Height="198" CornerRadius="10" Margin="0,0,22,0"
+                                Background="{StaticResource DesignBg2}" ClipToBounds="True">
+                            <Grid>
+                                <ui:SymbolIcon Symbol="Games24" FontSize="26" Opacity="0.35"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding FeaturedGame.Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                <!-- DataContext retargeted to the GameEntry itself (not the window's VM) so
+                                     GameArtImageStyle's IsCoverArt trigger - which expects to be ON a
+                                     GameEntry, same as every card - resolves correctly here too. -->
+                                <!-- Real cover art fills the whole tile, same brush mechanism as the cards
+                                     (centred UniformToFill crop); only a fallback exe icon stays small. -->
+                                <Border x:Name="HeroCoverFill" DataContext="{Binding FeaturedGame}"
+                                        Visibility="{Binding IsCoverArt, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                    <Border.Background>
+                                        <ImageBrush ImageSource="{Binding Icon}"
+                                                    Stretch="UniformToFill"
+                                                    AlignmentX="Center" AlignmentY="Center"
+                                                    RenderOptions.BitmapScalingMode="HighQuality" />
+                                    </Border.Background>
+                                </Border>
+                                <Image DataContext="{Binding FeaturedGame}" Source="{Binding Icon}"
+                                       Style="{StaticResource GameArtImageStyle}"
+                                       Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Grid>
+                        </Border>
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <ui:SymbolIcon Symbol="Clock24" FontSize="15" Opacity="0.7" VerticalAlignment="Center" />
+                                <TextBlock Text="JUMP BACK IN" FontSize="10" FontWeight="SemiBold" Opacity="0.7"
+                                           VerticalAlignment="Center" Margin="7,0,0,0" />
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding FeaturedGame.Name}" FontSize="30" FontWeight="Bold"
+                                       Margin="0,0,0,10" TextTrimming="CharacterEllipsis" />
+
+                            <!-- Meta line: platform, drive + size, tracked time + when. Each piece hides on
+                                 its own when there's nothing real behind it, so a never-played game shows
+                                 platform and drive without an empty "0 h" sitting next to them. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,18">
+                                <Grid x:Name="HeroPlatformBadge" DataContext="{Binding FeaturedGame}"
+                                      Width="18" Height="18" VerticalAlignment="Center">
+                                    <Image x:Name="HeroPlatformIcon" Source="{Binding PlatformIcon}"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <Image x:Name="HeroXboxLogo" Source="pack://application:,,,/GameLauncher;component/Assets/XboxLogo.png"
+                                           RenderOptions.BitmapScalingMode="HighQuality">
+                                        <Image.Visibility>
+                                            <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForXboxLogo}">
+                                                <Binding Path="Source" />
+                                                <Binding Path="PlatformIcon" />
+                                            </MultiBinding>
+                                        </Image.Visibility>
+                                    </Image>
+                                    <ui:SymbolIcon x:Name="HeroPlatformFallback"
+                                                   Symbol="{Binding Source, Converter={x:Static conv:GameSourceToFallbackSymbolConverter.Instance}}"
+                                                   FontSize="15" Opacity="0.65">
+                                        <ui:SymbolIcon.Visibility>
+                                            <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForFallbackSymbol}">
+                                                <Binding Path="Source" />
+                                                <Binding Path="PlatformIcon" />
+                                            </MultiBinding>
+                                        </ui:SymbolIcon.Visibility>
+                                    </ui:SymbolIcon>
+                                </Grid>
+                                <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="7,0,0,0"
+                                           Text="{Binding FeaturedGame.Source, Converter={x:Static conv:GameSourceDisplayConverter.Instance}}" />
+
+                                <ui:SymbolIcon Symbol="HardDrive24" FontSize="15" Opacity="0.65"
+                                               VerticalAlignment="Center" Margin="18,0,0,0" />
+                                <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="7,0,0,0"
+                                           Text="{Binding FeaturedGame.InstallDir, Converter={x:Static conv:InstallDirToDriveConverter.Instance}}" />
+
+                                <StackPanel Orientation="Horizontal" Margin="18,0,0,0"
+                                            Visibility="{Binding FeaturedGame.HasPlayTime, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                    <ui:SymbolIcon Symbol="Clock24" FontSize="15" Opacity="0.65" VerticalAlignment="Center" />
+                                    <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="7,0,0,0">
+                                        <Run Text="{Binding FeaturedGame.PlayTimeDisplay, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding FeaturedGame.LastPlayedDisplay, Mode=OneWay}" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button Content="Play" Icon="{ui:SymbolIcon Play24}" Appearance="Primary"
+                                           Padding="20,9" FontWeight="SemiBold"
+                                           Command="{Binding LaunchCommand}" CommandParameter="{Binding FeaturedGame}" />
+                                <Button Margin="10,0,0,0" Style="{StaticResource HeroGhostButtonStyle}"
+                                        Tag="{Binding}"
+                                        beh:ContextMenuButtonBehavior.OpensContextMenuOnClick="True">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ui:SymbolIcon Symbol="MoreHorizontal24" FontSize="15" VerticalAlignment="Center" />
+                                        <TextBlock Text="More" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="13.5" />
+                                    </StackPanel>
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Play"
+                                                      Command="{Binding PlacementTarget.Tag.LaunchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <MenuItem Header="Open install location"
+                                                      Command="{Binding PlacementTarget.Tag.OpenInstallLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                    </Grid>
+                </Border>
+
+                    <!-- Recently played: a horizontal strip of what has actually been launched from
+                         here, newest first. Hidden entirely until something has been played, rather
+                         than showing an empty rail that implies missing data. -->
+                    <StackPanel Margin="0,0,0,26"
+                                Visibility="{Binding HasRecentlyPlayed, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Grid Margin="2,0,2,12">
+                            <TextBlock Text="Recently played" FontSize="15" FontWeight="SemiBold"
+                                       HorizontalAlignment="Left" VerticalAlignment="Center" />
+                            <TextBlock Text="Tracked by Axis Game Launcher" FontSize="11.5" Opacity="0.5"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center" />
+                        </Grid>
+
+                        <!-- A nested ScrollViewer marks the wheel handled even when it cannot scroll in
+                             that direction, so hovering this row froze the page. The handler passes the
+                             wheel up to the page instead. -->
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                      PreviewMouseWheel="HorizontalStrip_PreviewMouseWheel">
+                            <ItemsControl ItemsSource="{Binding RecentlyPlayedGames}"
+                                          ItemTemplate="{StaticResource GameCardTemplate}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </StackPanel>
 
-                    <TextBlock Text="{Binding LibraryHeaderText}" FontSize="17" FontWeight="SemiBold"
-                               Margin="2,0,0,12" />
+                    <!-- Grid heading: view (or drive) name, its count, and the sort picker. -->
+                    <Grid Margin="2,0,2,14">
+                        <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding LibraryHeaderText}" FontSize="15" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                                <ui:Button Margin="10,0,0,0" Padding="8,3" Appearance="Transparent" BorderThickness="0"
+                                           FontSize="11" Content="Clear drive filter" VerticalAlignment="Center"
+                                           Command="{Binding SelectDriveCommand}"
+                                           Visibility="{Binding HasSelectedDriveFilter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding LibrarySubheaderText}" FontSize="11.5" Opacity="0.5"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+
+                        <ComboBox HorizontalAlignment="Right" VerticalAlignment="Center" MinWidth="150"
+                                  FontSize="11.5" Padding="8,5"
+                                  Background="{StaticResource DesignSurface}"
+                                  Foreground="{StaticResource DesignMuted}"
+                                  BorderThickness="1" BorderBrush="{StaticResource DesignStroke}"
+                                  ItemsSource="{Binding SortOptions}"
+                                  DisplayMemberPath="Label" SelectedValuePath="Value"
+                                  SelectedValue="{Binding SortOption}" />
+                    </Grid>
 
                     <ItemsControl ItemsSource="{Binding Games}"
                                   ItemTemplate="{StaticResource GameCardTemplate}">
@@ -569,11 +949,21 @@
                 </StackPanel>
             </ScrollViewer>
         </DockPanel>
+        </Grid>
 
-        <StatusBar x:Name="MainStatusBar" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Background="Transparent">
-            <StatusBarItem>
-                <TextBlock Text="{Binding StatusText}" Margin="16,0" FontSize="12" Opacity="0.7" />
-            </StatusBarItem>
-        </StatusBar>
+        <!-- Footer: how much of the library is on screen (left) and whatever the app last did (right).
+             The count is the honest signal that a view, drive, search or disabled source is narrowing
+             things - "2 of 47 games shown" explains an unexpectedly short grid by itself. -->
+        <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                Background="{StaticResource DesignSurface}"
+                BorderThickness="0,1,0,0" BorderBrush="{StaticResource DesignStroke}" Padding="18,9">
+            <Grid>
+                <TextBlock Text="{Binding FooterCountText}" FontSize="11" Foreground="{StaticResource DesignMuted}"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{StaticResource DesignMuted}"
+                           HorizontalAlignment="Right" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </Border>
     </Grid>
 </ui:FluentWindow>

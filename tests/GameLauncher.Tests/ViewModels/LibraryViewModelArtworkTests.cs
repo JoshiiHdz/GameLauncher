@@ -400,8 +400,11 @@ public class LibraryViewModelArtworkTests : IDisposable
         // meaningful, not just "some entry with this id is somewhere in the list".
         Assert.True(freshGame.Favorite);
         Assert.Contains(freshGame, (IEnumerable<GameEntry>)_sut.FavoriteGames);
-        Assert.DoesNotContain(freshGame, (IEnumerable<GameEntry>)_sut.Games);
+        // Favorites is a rail VIEW now, not a section lifted out of the grid, so a starred game appears
+        // in the All grid too (with its star badge) instead of being removed from it.
+        Assert.Contains(freshGame, (IEnumerable<GameEntry>)_sut.Games);
         Assert.DoesNotContain(game, (IEnumerable<GameEntry>)_sut.FavoriteGames); // the stale OLD instance isn't left behind either
+        Assert.DoesNotContain(game, (IEnumerable<GameEntry>)_sut.Games);
     }
 
     // ---- ApplyLocalCoverImageAsync ---------------------------------------------------------------------

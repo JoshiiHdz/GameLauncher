@@ -6,12 +6,10 @@ using System.Text.Json;
 namespace GameLauncher.Services;
 
 /// <summary>One installed Windows package, as Get-AppxPackage itself reports it - InstallLocation is
-/// the REAL content folder Windows resolves for this package, which for a "Win32 packaged"/Desktop
-/// Bridge title (the shape most current Xbox/Game Pass PC games actually use) is the game's own,
-/// ordinary, non-locked folder on whichever drive the user chose - not necessarily anywhere under
-/// "XboxGames", and not necessarily WindowsApps either. For a pure UWP title it IS the ACL-locked
-/// WindowsApps folder; XboxScanner still won't read files out of that one, but can use PackageFamilyName
-/// to build an AUMID and launch it via shell:appsFolder regardless.</summary>
+/// the registered package location, which may be a WindowsApps path even when the same game's content
+/// is also exposed under XboxGames. These paths need not be textual ancestors of each other.
+/// XboxScanner reconciles the two views by package/activation identity rather than assuming the
+/// registration is the only physical content path.</summary>
 public sealed record XboxPackageInfo(string PackageFamilyName, string InstallLocation, string Name);
 
 /// <summary>

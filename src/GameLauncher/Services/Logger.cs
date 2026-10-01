@@ -29,7 +29,7 @@ public static class Logger
         {
         }
 
-        Info($"Game Launcher {AppInfo.Version} starting up.");
+        Info($"Axis Game Launcher {AppInfo.Version} starting up.");
     }
 
     public static void Info(string message) => Write("INFO", message, null);
@@ -63,8 +63,7 @@ public static class Logger
                  + $"SteamGridDB key={(!string.IsNullOrWhiteSpace(settings.SteamGridDbApiKey) ? "set (user)" : DefaultApiKey.SteamGridDb is not null ? "set (built-in)" : "none")}; "
                  + $"IGDB: built-in relay={(DefaultIgdbRelay.Current is not null ? "present" : "absent")}, "
                  + $"user Client ID={(!string.IsNullOrWhiteSpace(settings.IgdbClientId) ? "set" : "unset")}; "
-                 + $"vibrant={settings.VibrantBackground}; tray while gaming={settings.MinimizeToTrayWhileGaming}; "
-                 + $"sidebar expanded={settings.SidebarExpanded}");
+                 + $"vibrant={settings.VibrantBackground}; tray while gaming={settings.MinimizeToTrayWhileGaming}");
 
             foreach (var folder in settings.WatchedFolders)
                 Info($"  watched folder: {folder.Path} (exists={Directory.Exists(folder.Path)})");

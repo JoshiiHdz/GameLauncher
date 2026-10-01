@@ -551,7 +551,7 @@ public sealed partial class IgdbCoverArtProvider : ICoverArtProvider
             throw new InvalidDataException("IGDB cover response: the first cover has no usable \"image_id\" string.");
         }
 
-        return $"https://images.igdb.com/igdb/image/upload/t_cover_big/{imageIdProp.GetString()}.jpg";
+        return $"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/{imageIdProp.GetString()}.jpg";
     }
 
     /// <summary>Sends one apicalypse request, throttled to IGDB's documented rate limit and cancellable at
