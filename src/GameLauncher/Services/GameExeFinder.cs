@@ -48,9 +48,7 @@ public static class GameExeFinder
     // case.
     public static string? FindLargestExe(string installDir, int maxDepth = 5, IEnumerable<string>? extraExcludePatterns = null)
     {
-        var exclude = extraExcludePatterns is null
-            ? DefaultExcludePatterns
-            : DefaultExcludePatterns.Concat(extraExcludePatterns).ToArray();
+        var exclude = ResolveExcludePatterns(extraExcludePatterns);
 
         FileInfo? best = null;
         Collect(installDir, 0);
@@ -65,8 +63,7 @@ public static class GameExeFinder
             {
                 foreach (var exe in Directory.EnumerateFiles(dir, "*.exe"))
                 {
-                    var fileName = Path.GetFileNameWithoutExtension(exe).ToLowerInvariant();
-                    if (exclude.Any(fileName.Contains))
+                    if (IsExcludedExeName(exe, exclude))
                         continue;
 
                     var info = new FileInfo(exe);
@@ -82,4 +79,18 @@ public static class GameExeFinder
             }
         }
     }
+
+    /// <summary>The same "is this real game exe noise" check FindLargestExe uses internally, exposed so
+    /// a caller that has to walk directories itself for reasons FindLargestExe doesn't support (Xbox's
+    /// budget/cancellation-bound fallback walk, which cannot use a fixed maxDepth at all) still filters
+    /// exactly the same installer/trial/anticheat/etc. names, from one shared list, not a second copy of
+    /// it.</summary>
+    internal static bool IsExcludedExeName(string exePath, IEnumerable<string>? extraExcludePatterns = null)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(exePath).ToLowerInvariant();
+        return ResolveExcludePatterns(extraExcludePatterns).Any(fileName.Contains);
+    }
+
+    private static IEnumerable<string> ResolveExcludePatterns(IEnumerable<string>? extraExcludePatterns) =>
+        extraExcludePatterns is null ? DefaultExcludePatterns : DefaultExcludePatterns.Concat(extraExcludePatterns);
 }

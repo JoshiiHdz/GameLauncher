@@ -15,12 +15,22 @@ namespace GameLauncher.Services;
 /// into during de-duplication (see GameScannerService.DeduplicateByInstallLocation) - the caller uses
 /// this to migrate the loser's Favorite/Hidden/CustomName/DateAdded override onto the winner rather
 /// than letting it become orphaned.</summary>
+/// <summary>LegacyIdRemap maps an old id a game USED to be found under to the id it's found under now
+/// (see GameEntry.LegacyId) - a cross-scan rename rather than a within-this-scan merge, but the same
+/// "this id's saved state now lives under that other id" transition, so LibraryViewModel.
+/// ApplyScanResultAsync feeds it through the exact same migration machinery as MergedGameIds (running-
+/// game tracking, in-flight identity dialogs, and persisted overrides all need to move for either kind
+/// of transition the same way). Only ever contains an old id that exactly one entry in THIS scan
+/// claimed as its LegacyId - see the ambiguity handling in ScanAllAsync below for why a LegacyId two
+/// entries both claim is deliberately left out of this map entirely, rather than guessed onto either
+/// one.</summary>
 public sealed record ScanResult(
     List<GameEntry> Games,
     Dictionary<string, DateTime> NewDateAddedByGameId,
     List<HealedWatchedFolder> HealedWatchedFolders,
     Dictionary<string, string> MergedGameIds,
-    Dictionary<string, ArtworkApplyResult> ArtworkResultsByGameId);
+    Dictionary<string, ArtworkApplyResult> ArtworkResultsByGameId,
+    Dictionary<string, string>? LegacyIdRemap = null);
 
 /// <summary>One game's artwork outcome from a single scan - AsOfRevision is the live GameOverride.
 /// ArtworkRevision this scan captured (via its private Overrides snapshot) BEFORE doing any of its own
@@ -171,7 +181,7 @@ public sealed class GameScannerService
                 ("Steam", SteamScanner.Scan),
                 ("Epic", EpicScanner.Scan),
                 ("GOG", GogScanner.Scan),
-                ("Xbox", XboxScanner.Scan),
+                ("Xbox", () => XboxScanner.Scan(ct)),
                 ("EA", EaScanner.Scan),
                 ("Ubisoft Connect", UbisoftScanner.Scan),
                 ("Battle.net", BattleNetScanner.Scan),
@@ -187,6 +197,7 @@ public sealed class GameScannerService
 
             var newDateAdded = new Dictionary<string, DateTime>();
             var artworkResults = new Dictionary<string, ArtworkApplyResult>();
+            var legacyIdRemap = ComputeLegacyIdRemap(deduped);
 
             var identified = 0;
             foreach (var game in deduped)
@@ -199,6 +210,18 @@ public sealed class GameScannerService
                 ct.ThrowIfCancellationRequested();
 
                 overridesSnapshot.TryGetValue(game.Id, out var over);
+                // A scanner's own detection method can change what Id the SAME real install computes to
+                // (Xbox's package-registration redesign is the first case of this) - LegacyId lets that
+                // install's existing favorites/hidden-state/artwork survive the transition instead of
+                // silently starting over under the new Id, without this method needing to know anything
+                // about WHY the Id changed for whichever scanner set it. legacyIdRemap already excludes
+                // any LegacyId this scan can't safely attribute to a single game (see
+                // ComputeLegacyIdRemap), so checking membership in it here is enough to know the fallback
+                // below is safe - this read is purely so THIS scan's own identity/artwork resolution sees
+                // the right prior state; the persisted settings.Overrides entry itself is migrated
+                // separately, on the UI thread, via legacyIdRemap - see ScanResult.LegacyIdRemap's remarks.
+                if (over is null && game.LegacyId is not null && legacyIdRemap.ContainsKey(game.LegacyId))
+                    overridesSnapshot.TryGetValue(game.LegacyId, out over);
                 var dateAdded = over?.DateAdded;
                 if (dateAdded is null)
                 {
@@ -244,7 +267,7 @@ public sealed class GameScannerService
             }
 
             // Final ordering doesn't matter here - LibraryViewModel re-sorts per the user's chosen SortOption.
-            return new ScanResult(deduped, newDateAdded, healedFolders, mergedGameIds, artworkResults);
+            return new ScanResult(deduped, newDateAdded, healedFolders, mergedGameIds, artworkResults, legacyIdRemap);
         }, ct);
     }
 
@@ -308,6 +331,42 @@ public sealed class GameScannerService
         }
 
         return new ArtworkApplyResult(asOfRevision, output.Artwork.Selection, new AutomaticUnitResult(output, query, identityRevision, generation, showedArt));
+    }
+
+    /// <summary>Computes ScanResult.LegacyIdRemap: which old id (GameEntry.LegacyId) this scan can safely
+    /// attribute to exactly one of its own games. Extracted as its own pure function (mirrors
+    /// DeduplicateByInstallLocation just below) so the ambiguity handling is directly unit-testable
+    /// without running a real scan across every launcher source.
+    ///
+    /// Two entries in `deduped` claiming the SAME LegacyId is a real, expected case - not a bug to work
+    /// around - e.g. two packages that used to share one canonical install folder before a registration
+    /// change split them into their own separate installs, both still pointing back at that one old,
+    /// shared id. Neither is reported as that old id's heir here: copying its saved Favorite/Hidden/
+    /// artwork/identity into either one, or arbitrarily picking one, would risk handing one game's saved
+    /// state to a completely different install.
+    ///
+    /// Deliberately independent of whether a saved override exists under the old id: this map also
+    /// drives running-game/identity-dialog reconciliation in LibraryViewModel.ApplyScanResultAsync, which
+    /// needs the transition even for a game nobody ever favorited/hid, and checking the override snapshot
+    /// here would also miss one saved AFTER this scan's snapshot was taken but BEFORE publication - a real
+    /// gap, since the snapshot is read at the START of a scan that can take a while. Reporting a
+    /// transition that happens to have nothing to migrate is a safe no-op: MigrateMergedOverrides already
+    /// handles an absent override on either side correctly (see LoserWithNoOverride_MigratesNothing).</summary>
+    internal static Dictionary<string, string> ComputeLegacyIdRemap(IReadOnlyList<GameEntry> deduped)
+    {
+        var claimCounts = deduped
+            .Where(g => g.LegacyId is not null)
+            .GroupBy(g => g.LegacyId!)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var remap = new Dictionary<string, string>();
+        foreach (var game in deduped)
+        {
+            if (game.LegacyId is not { } legacyId || claimCounts[legacyId] != 1)
+                continue;
+            remap[legacyId] = game.Id;
+        }
+        return remap;
     }
 
     /// <summary>

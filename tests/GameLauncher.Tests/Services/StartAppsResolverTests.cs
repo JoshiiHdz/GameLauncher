@@ -55,4 +55,48 @@ public class StartAppsResolverTests
             $"RunAndReadStdout took {stopwatch.Elapsed.TotalSeconds:0.0}s - should have returned shortly after its own timeout, not hung on the child's still-open stdout.");
         Assert.True(process.HasExited, "The hung child process should have been killed on timeout, not left running.");
     }
+
+    // ---- Cancellation is a genuinely different exit than the internal timeout -------------------------
+
+    [Fact]
+    public void CallersOwnCancellation_ThrowsOperationCanceled_DistinctFromAMereTimeout()
+    {
+        // A scan being cancelled from outside (e.g. a superseded rescan) must PROPAGATE as a real
+        // cancellation the caller's own SafeScan already lets through uncaught - not be silently
+        // swallowed into the same "returned null" shape RunAndReadStdout's OWN internal timeout produces.
+        // A generous 10s internal timeout here proves the external token, not the internal one, is what
+        // actually stops this call.
+        using var process = MakeProcess(
+            "-NoProfile -NonInteractive -Command \"Write-Output 'partial'; Start-Sleep -Seconds 60\"");
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(200));
+
+        var stopwatch = Stopwatch.StartNew();
+        var ex = Record.Exception(() => StartAppsResolver.RunAndReadStdout(process, TimeSpan.FromSeconds(10), cts.Token));
+        stopwatch.Stop();
+
+        Assert.IsType<OperationCanceledException>(ex);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+            $"Took {stopwatch.Elapsed.TotalSeconds:0.0}s - the external token should have stopped this well before the 10s internal timeout.");
+        Assert.True(process.HasExited, "The process should have been killed when the caller's token fired, not left running.");
+    }
+
+    [Fact]
+    public void APreCancelledToken_ThrowsImmediately_RatherThanWaitingOutTheInternalTimeout()
+    {
+        // Start() itself still happens unconditionally (a process handle exists either way) - what
+        // matters is that a token that's ALREADY cancelled before this call even begins waiting throws
+        // right away, rather than sitting through however much of the internal timeout it takes for the
+        // child to naturally finish or be killed.
+        using var process = MakeProcess("-NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 60\"");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var stopwatch = Stopwatch.StartNew();
+        var ex = Record.Exception(() => StartAppsResolver.RunAndReadStdout(process, TimeSpan.FromSeconds(10), cts.Token));
+        stopwatch.Stop();
+
+        Assert.IsType<OperationCanceledException>(ex);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"Took {stopwatch.Elapsed.TotalSeconds:0.0}s - a pre-cancelled token should stop this almost immediately.");
+    }
 }

@@ -29,6 +29,13 @@ public sealed partial class GameEntry : ObservableObject
 
     public string? LaunchUri { get; init; }
 
+    /// <summary>An id this SAME install was once found under, if a scanner's detection method changed in
+    /// a way that changes Id going forward but shouldn't silently disconnect a game already in someone's
+    /// library. Null for every ordinary entry. GameScannerService falls back to looking up an override by
+    /// LegacyId when none exists under Id yet - a narrow, explicit reconciliation step, not a general
+    /// migration framework: a scanner sets this only for the specific transition it's making, once.</summary>
+    public string? LegacyId { get; init; }
+
     /// <summary>Verified real catalog title, for AUTOMATIC cover-art matching only - null unless a
     /// scanner has explicit, hand-verified evidence that Name (the raw detected name - still used for
     /// display, dedup, and session tracking, and never overwritten by this) is an abbreviation of a

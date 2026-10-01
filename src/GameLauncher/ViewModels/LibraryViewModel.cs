@@ -535,7 +535,10 @@ public partial class LibraryViewModel : ObservableObject
     /// see GameScannerService.DeduplicateByInstallLocation (e.g. a Manual entry reconciled into a
     /// launcher-detected one for the same install, a real confirmed case for EA's "A Way Out"). Extracted
     /// as its own method (called from ApplyScanResult) so it can be exercised directly against a
-    /// scripted id mapping in tests, without needing a real scan.
+    /// scripted id mapping in tests, without needing a real scan. ApplyScanResultAsync also feeds this
+    /// the very same map for a ScanResult.LegacyIdRemap transition (a scanner's own detection-method
+    /// change giving the SAME install a new id, not a within-scan merge) - the "old id's state moves onto
+    /// the new id" logic below is identical either way.
     ///
     /// FIELD-LEVEL merge, not "loser wins outright" or "winner wins outright": a real, confirmed gap in
     /// an earlier version of this method removed the loser's override unconditionally, then only
@@ -740,8 +743,18 @@ public partial class LibraryViewModel : ObservableObject
     /// RefreshAsync uses this instead of re-checking ownership itself afterward, which would already be
     /// too late (the check needs to gate entry to PUBLISH, not run after it). Null (the default, used by
     /// every test that isn't exercising RefreshAsync's own cancel-and-replace machinery) means "always
-    /// publish" - there is no competing refresh to be superseded by.</summary>
-    internal async Task<bool> ApplyScanResultAsync(ScanResult result, CancellationTokenSource? ownershipToken = null)
+    /// publish" - there is no competing refresh to be superseded by.
+    ///
+    /// `identityGenerationsAtScanStart`, when given (RefreshAsync's own SnapshotIdentityGenerations(), taken
+    /// before the scan it's now publishing even started), is what lets a verified LegacyId transition's
+    /// same-publish unit be trusted DESPITE the markers migration changes - see the re-stamping block below
+    /// for why matching the unit's own IdentityRevision/AsOfRevision against the old override's CURRENT
+    /// state is not enough by itself: a decision that doesn't move the active identity (rejecting a
+    /// non-active candidate, say) advances DecisionRevision and the old id's own identity GENERATION without
+    /// touching either revision the unit already checks. Null (every caller that isn't RefreshAsync's real
+    /// scan path) means that proof is unavailable, so re-stamping never fires - fails closed, not open.</summary>
+    internal async Task<bool> ApplyScanResultAsync(ScanResult result, CancellationTokenSource? ownershipToken = null,
+        IReadOnlyDictionary<string, long>? identityGenerationsAtScanStart = null)
     {
         // ---- PREPARE: off the UI thread, read-only against live state ----
         // Snapshot of which games currently have a live user-selected cover, and exactly which asset/
@@ -766,12 +779,26 @@ public partial class LibraryViewModel : ObservableObject
         if (ownershipToken is not null && !ReferenceEquals(_refreshCts, ownershipToken))
             return false; // superseded while PREPARE was decoding - the newer refresh owns publication now
 
+        // LegacyIdRemap (a scanner's own detection-method change giving the SAME install a new id - see
+        // GameEntry.LegacyId) is folded into the very same "this id's state now lives under that other
+        // id" map MergedGameIds already represents for a within-scan dedup merge, so it gets migrated
+        // through the exact same machinery below rather than a parallel copy of it - running-game
+        // tracking, in-flight identity dialogs, and persisted overrides all need to move for either kind
+        // of transition, identically.
+        var idTransitions = result.MergedGameIds;
+        if (result.LegacyIdRemap is { Count: > 0 } legacyIdRemap)
+        {
+            idTransitions = new Dictionary<string, string>(result.MergedGameIds);
+            foreach (var (oldId, newId) in legacyIdRemap)
+                idTransitions[oldId] = newId;
+        }
+
         // Before ReplaceAllGames (which reapplies the running badge against the new _allGames) - a
         // stale _runningGameId at that point would find nothing and silently lose the badge.
-        ReconcileRunningGameId(result.MergedGameIds);
+        ReconcileRunningGameId(idTransitions);
 
         // loser -> winner, so an identity dialog (or in-flight unit) still holding a merged-away id can find its game (6.4).
-        foreach (var (mergedLoserId, mergedWinnerId) in result.MergedGameIds)
+        foreach (var (mergedLoserId, mergedWinnerId) in idTransitions)
             _mergeAliases[mergedLoserId] = mergedWinnerId;
 
         // Captured BEFORE ReplaceAllGames discards these instances - ReconcileArtwork's stale/missing
@@ -782,12 +809,84 @@ public partial class LibraryViewModel : ObservableObject
         foreach (var g in _allGames)
             previousGamesById[g.Id] = g; // ids are unique by construction; last-wins is only a defensive fallback
 
+        // A merge/LegacyId transition means the game ReconcileArtwork/CommitAutomaticUnit are about to
+        // look up by its NEW id was, until this exact publish, still filed above under its OLD one - so
+        // the GetValueOrDefault(game.Id) lookup below would find nothing for it. Without this, a
+        // currently-displayed automatic cover can't be carried forward through the very same
+        // ArtworkRevision bump MigrateMergedOverrides is about to apply to invalidate the pre-migration
+        // worker result (see both methods' own "carried-forward pixels" remarks) - it would incorrectly
+        // drop to the exe icon for one refresh even though nothing about the actual artwork changed.
+        //
+        // Only ever FILLS IN a missing entry - never overwrites one that's already there. The real,
+        // confirmed bug this guards against: an ordinary dedup merge's winner is very often NOT brand
+        // new - it can already be an existing, previously-displayed game with its own correct cover,
+        // merging a loser that ALSO happens to already have its own (different) previously-displayed
+        // cover from an earlier scan, before the merge relationship was recognized. Overwriting
+        // previousGamesById[newId] unconditionally would clobber the winner's own, more authoritative
+        // entry with the loser's - and since MigrateMergedOverrides/MigrateMergedArtwork correctly KEEP
+        // the winner's own metadata active in exactly that case, publication would end up authorizing the
+        // winner's metadata while displaying the loser's pixels. A transition target with no prior entry
+        // at all (the ordinary LegacyId case: the new id has never been displayed before) still gets
+        // filled in from the old id, exactly as before.
+        foreach (var (oldId, newId) in idTransitions)
+        {
+            if (previousGamesById.ContainsKey(newId))
+                continue;
+            if (previousGamesById.TryGetValue(oldId, out var previous))
+                previousGamesById[newId] = previous;
+        }
+
+        // Captured BEFORE migration, using the exact same condition MigrateMergedOverrides itself branches
+        // on ("the winner has no override at all" -> ADOPT the loser's whole override unchanged, vs. both
+        // sides having one -> MERGE their data together). Used below to let a same-publish unit for one of
+        // these ids validate correctly despite the revision/generation bump adoption still (correctly,
+        // unchanged) applies - see that loop's own remarks for why this is safe ONLY for a pure adoption,
+        // never for a merge that actually combines two sides' identity/artwork data.
+        var adoptedWithNoPriorOverride = new HashSet<string>(idTransitions.Values.Where(id => !_settings.Overrides.ContainsKey(id)));
+
+        // Specifically a LegacyId transition (never an ordinary MergedGameIds dedup) whose worker-produced
+        // unit can be PROVEN to have actually been computed against the exact old override now being
+        // adopted - an ordinary dedup winner has no such tie: its own unit (if any) was resolved from the
+        // WINNER's own prior state, which has nothing to do with whatever a merging loser happens to carry,
+        // so "the winner lacks an override" alone is never enough to trust re-stamping it (a loser with its
+        // own CONFIRMED identity must still beat the winner's unrelated automatic one, exactly as an
+        // ordinary merge already requires). oldByNewId is 1:1 - ComputeLegacyIdRemap only ever reports an
+        // old id unambiguously claimed by exactly one new id, in either direction, within one scan.
+        var oldByNewId = result.LegacyIdRemap is { Count: > 0 } legacyRemap
+            ? legacyRemap.ToDictionary(kv => kv.Value, kv => kv.Key)
+            : new Dictionary<string, string>();
+
+        // The old override's OWN identity/artwork revision, read RIGHT NOW - before migration consumes it
+        // (MigrateMergedOverrides below removes it outright) - so it can be compared, per game, against
+        // exactly what that game's own unit captured from it. A live edit landing on the OLD entry AFTER
+        // the worker computed its unit but BEFORE this publish runs (a user confirming a different identity
+        // via a dialog while this scan was still finishing, say) bumps these on the OLD override - and
+        // nothing else does, since the scan's own snapshot never touches the live dictionary. A mismatch
+        // here means the worker's result no longer reflects what's actually about to be adopted, and must
+        // never be re-stamped into looking current regardless.
+        //
+        // Revision alone is not enough, though: a decision that doesn't move the ACTIVE identity (rejecting
+        // a candidate that wasn't the active one, say) advances DecisionRevision and the old id's own
+        // identity GENERATION without touching IdentityRevision at all (see CommitIdentityHalf/
+        // CommitIdentityChange - BumpIdentityGeneration runs on ANY change to the record, keyChanged or
+        // not). ResolveGameUnit's own IdentityGeneration is captured relative to the NEW id (always 0 for a
+        // transition target that's never existed before), so it says nothing about whether the OLD id moved
+        // - that's exactly what identityGenerationsAtScanStart's own value for the old id, compared against
+        // the old id's CURRENT generation here, closes: if they still match, nothing touched the old entry's
+        // identity record - confirmed, rejected, or otherwise - for the whole scan window.
+        var preMigrationOldState = new Dictionary<string, (long IdentityRevision, long ArtworkRevision, long Generation)>();
+        foreach (var oldId in oldByNewId.Values)
+        {
+            var o = _settings.Overrides.GetValueOrDefault(oldId);
+            preMigrationOldState[oldId] = (o?.IdentityRevision ?? 0, o?.ArtworkRevision ?? 0, IdentityGenerationOf(oldId));
+        }
+
         ReplaceAllGames(result.Games);
 
         // Before the NewDateAddedByGameId loop below, so its "??=" sees the real, migrated DateAdded
         // already in place rather than treating the surviving id as brand-new and stamping today's date
         // over the game's actual add date.
-        MigrateMergedOverrides(result.MergedGameIds);
+        MigrateMergedOverrides(idTransitions);
 
         // Merged here, on the UI thread, rather than written straight into _settings.Overrides from the
         // background scan thread - see GameScannerService.ScanAllAsync's remarks on why that's a real
@@ -839,6 +938,44 @@ public partial class LibraryViewModel : ObservableObject
                 game.DateAdded = dateAdded;
 
             var scanned = result.ArtworkResultsByGameId.GetValueOrDefault(game.Id);
+
+            // Re-stamping a same-publish unit's own captured markers to the LIVE, post-migration values is
+            // trustworthy ONLY when ALL of these hold together:
+            //  1. This is a verified LegacyId transition (oldByNewId), never an ordinary dedup merge - a
+            //     dedup winner's own unit (if any) was resolved from the WINNER's own prior state, which has
+            //     no connection to whatever a merging loser happens to carry; "the winner lacks an override"
+            //     alone proves nothing about what the submitted unit was actually computed against (a real,
+            //     confirmed gap: a loser's own confirmed identity must still beat the winner's unrelated
+            //     automatic one here, exactly as an ordinary merge already requires elsewhere).
+            //  2. It's still a pure ADOPTION (adoptedWithNoPriorOverride) - the same existing requirement.
+            //  3. The OLD override's identity/artwork revision, read JUST NOW before migration consumed it
+            //     (preMigrationOldState), still EXACTLY matches what this unit captured when the worker
+            //     computed it.
+            //  4. The OLD id's own identity GENERATION, read the SAME way, still matches what it was at
+            //     SCAN START (identityGenerationsAtScanStart) - revision equality alone (point 3) misses a
+            //     decision that never moves the active identity (rejecting a non-active candidate, say):
+            //     DecisionRevision and the generation both advance, IdentityRevision does not. Without this
+            //     check, that rejection would be silently erased by the worker's older, pre-rejection record.
+            // A live edit to the old entry AFTER the worker ran but BEFORE this publish (a user confirming or
+            // rejecting a candidate via a dialog while the scan was still finishing, say) breaks point 3, 4,
+            // or both - the unit no longer reflects what's actually about to be adopted, and must be left to
+            // fail its own ordinary, unmodified validation rather than being trusted. Only when all four hold
+            // is the unit PROVABLY computed from exactly the override migration is about to adopt, with
+            // nothing else having touched it since - safe to translate the markers migration itself changed,
+            // without weakening the defensive bump for any other caller.
+            if (scanned?.Unit is { } rawUnit
+                && adoptedWithNoPriorOverride.Contains(game.Id)
+                && oldByNewId.TryGetValue(game.Id, out var sourceOldId)
+                && preMigrationOldState.TryGetValue(sourceOldId, out var sourceState)
+                && rawUnit.IdentityRevision == sourceState.IdentityRevision
+                && scanned.AsOfRevision == sourceState.ArtworkRevision
+                && identityGenerationsAtScanStart is not null
+                && identityGenerationsAtScanStart.GetValueOrDefault(sourceOldId) == sourceState.Generation)
+            {
+                var adjustedUnit = rawUnit with { IdentityGeneration = IdentityGenerationOf(game.Id), IdentityRevision = over?.IdentityRevision ?? 0 };
+                scanned = scanned with { AsOfRevision = over?.ArtworkRevision ?? 0, Unit = adjustedUnit };
+            }
+
             if (scanned?.Unit is { } unit)
             {
                 // The identity pipeline's automatic unit: identity half first, then the artwork half through the gates.
@@ -1199,7 +1336,12 @@ public partial class LibraryViewModel : ObservableObject
         var scanProgress = new Progress<ScanProgress>(p => ApplyScanProgress(p, cts)); // created here, on the UI thread: reports arrive here too
         try
         {
-            var result = await _scannerService.ScanAllAsync(_settings, token, SnapshotIdentityGenerations(), ResolutionContextForTest?.Invoke(), SnapshotDisplayedCovers(), scanProgress);
+            // Captured once and reused for both calls below - ApplyScanResultAsync needs the EXACT same
+            // scan-start snapshot ScanAllAsync's own units were resolved against, to prove (not merely
+            // assume) a LegacyId transition's same-publish unit still reflects the old entry's identity
+            // untouched - see its own remarks on identityGenerationsAtScanStart.
+            var identityGenerationsAtScanStart = SnapshotIdentityGenerations();
+            var result = await _scannerService.ScanAllAsync(_settings, token, identityGenerationsAtScanStart, ResolutionContextForTest?.Invoke(), SnapshotDisplayedCovers(), scanProgress);
 
             // GameScannerService checks the token internally too, but only cooperatively - a
             // cancelled scan can still be mid-flight on a background thread pool thread when this
@@ -1212,7 +1354,7 @@ public partial class LibraryViewModel : ObservableObject
             if (!ReferenceEquals(_refreshCts, cts))
                 return;
 
-            var published = await ApplyScanResultAsync(result, cts);
+            var published = await ApplyScanResultAsync(result, cts, identityGenerationsAtScanStart);
             if (!published)
                 return; // superseded while decoding - the newer refresh already owns everything below
 

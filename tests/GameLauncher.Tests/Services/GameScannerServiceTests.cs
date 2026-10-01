@@ -13,9 +13,10 @@ namespace GameLauncher.Tests.Services;
 /// </summary>
 public class GameScannerServiceTests
 {
-    private static GameEntry MakeGame(string id, string installDir, GameSource source, string name = "Game", string? executablePath = null) => new()
+    private static GameEntry MakeGame(string id, string installDir, GameSource source, string name = "Game", string? executablePath = null, string? legacyId = null) => new()
     {
         Id = id,
+        LegacyId = legacyId,
         Name = name,
         ExecutablePath = executablePath ?? installDir + @"\game.exe",
         InstallDir = installDir,
@@ -454,5 +455,78 @@ public class GameScannerServiceTests
 
         Assert.Null(exception);
         Assert.Same(fallbackIcon, game.Icon);
+    }
+
+    // ---- ComputeLegacyIdRemap: cross-scan id renames, migrated the same way a within-scan merge is ----
+
+    [Fact]
+    public void OneGameClaimsALegacyId_IsIncludedInTheRemap()
+    {
+        var game = MakeGame("xbox-family", @"C:\XboxGames\Foo", GameSource.Xbox, legacyId: "xbox-oldfolder");
+
+        var remap = GameScannerService.ComputeLegacyIdRemap([game]);
+
+        var single = Assert.Single(remap);
+        Assert.Equal("xbox-oldfolder", single.Key);
+        Assert.Equal("xbox-family", single.Value);
+    }
+
+    [Fact]
+    public void LegacyIdWithNoSavedOverrideAnywhere_IsStillIncluded_RunningGameAndDialogReconciliationDontNeedOne()
+    {
+        // The real, confirmed gap this covers: an earlier version only reported a transition when
+        // overridesSnapshot (taken at the START of this scan) already had an entry under the old id - but
+        // LibraryViewModel.ApplyScanResultAsync also needs this map for running-game/identity-dialog
+        // reconciliation, which has nothing to do with whether anyone ever favorited/hid the game, AND an
+        // override saved AFTER the snapshot was taken but BEFORE publication would have been missed
+        // entirely. Reporting the transition even when there's nothing to migrate is a safe no-op -
+        // MigrateMergedOverrides already handles an absent override on either side correctly.
+        var game = MakeGame("xbox-family", @"C:\XboxGames\Foo", GameSource.Xbox, legacyId: "xbox-oldfolder");
+
+        var remap = GameScannerService.ComputeLegacyIdRemap([game]);
+
+        var single = Assert.Single(remap);
+        Assert.Equal("xbox-oldfolder", single.Key);
+        Assert.Equal("xbox-family", single.Value);
+    }
+
+    [Fact]
+    public void GameWithNoLegacyId_IsIgnored()
+    {
+        var game = MakeGame("xbox-family", @"C:\XboxGames\Foo", GameSource.Xbox);
+
+        var remap = GameScannerService.ComputeLegacyIdRemap([game]);
+
+        Assert.Empty(remap);
+    }
+
+    [Fact]
+    public void TwoGamesClaimTheSameLegacyId_NeitherIsMigrated_TheOldOverrideIsLeftOrphanedRatherThanGuessed()
+    {
+        // The real, expected case this protects against: two packages that used to share one canonical
+        // install folder before a registration change split them into their own separate installs, both
+        // still pointing back at that one old, shared id. Copying that old game's saved Favorite/Hidden/
+        // artwork/identity into either one - or arbitrarily picking one - would risk handing one game's
+        // saved state to a completely different install.
+        var gameA = MakeGame("xbox-family-a", @"C:\XboxGames\Foo\A", GameSource.Xbox, legacyId: "xbox-oldfolder");
+        var gameB = MakeGame("xbox-family-b", @"C:\XboxGames\Foo\B", GameSource.Xbox, legacyId: "xbox-oldfolder");
+
+        var remap = GameScannerService.ComputeLegacyIdRemap([gameA, gameB]);
+
+        Assert.Empty(remap); // neither claimant inherits the ambiguous old id
+    }
+
+    [Fact]
+    public void AmbiguousLegacyIdAlongsideAnUnrelatedUnambiguousOne_OnlyTheUnambiguousOneMigrates()
+    {
+        var ambiguousA = MakeGame("xbox-family-a", @"C:\XboxGames\Foo\A", GameSource.Xbox, legacyId: "xbox-old-shared");
+        var ambiguousB = MakeGame("xbox-family-b", @"C:\XboxGames\Foo\B", GameSource.Xbox, legacyId: "xbox-old-shared");
+        var unambiguous = MakeGame("xbox-family-c", @"C:\XboxGames\Bar", GameSource.Xbox, legacyId: "xbox-old-solo");
+
+        var remap = GameScannerService.ComputeLegacyIdRemap([ambiguousA, ambiguousB, unambiguous]);
+
+        var single = Assert.Single(remap);
+        Assert.Equal("xbox-old-solo", single.Key);
+        Assert.Equal("xbox-family-c", single.Value);
     }
 }

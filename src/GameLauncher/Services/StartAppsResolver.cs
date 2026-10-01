@@ -18,8 +18,14 @@ namespace GameLauncher.Services;
 /// </summary>
 public static class StartAppsResolver
 {
-    public static IReadOnlyList<(string Name, string Aumid)> GetPackagedApps()
+    /// <summary>Test seam: bypasses PowerShell entirely. Null (the default) runs the real command.</summary>
+    internal static Func<IReadOnlyList<(string Name, string Aumid)>>? PackagedAppsOverrideForTest { get; set; }
+
+    public static IReadOnlyList<(string Name, string Aumid)> GetPackagedApps(CancellationToken ct = default)
     {
+        if (PackagedAppsOverrideForTest is { } fake)
+            return fake();
+
         try
         {
             using var process = new Process
@@ -46,7 +52,7 @@ public static class StartAppsResolver
                 },
             };
 
-            var rawOutput = RunAndReadStdout(process, TimeSpan.FromSeconds(10));
+            var rawOutput = RunAndReadStdout(process, TimeSpan.FromSeconds(10), ct);
             if (rawOutput is null)
             {
                 Logger.Warn("Get-StartApps timed out.");
@@ -100,23 +106,33 @@ public static class StartAppsResolver
     /// Returns the process's full stdout on success, or null if `timeout` elapsed first - in which case
     /// termination of the process (and, best-effort via Kill(entireProcessTree: true), any children the
     /// OS recorded under it at that moment) is REQUESTED and then confirmed with a short, bounded wait -
-    /// see TryKill's own remarks for exactly what "confirmed" does and doesn't guarantee here.</summary>
-    internal static string? RunAndReadStdout(Process process, TimeSpan timeout)
+    /// see TryKill's own remarks for exactly what "confirmed" does and doesn't guarantee here.
+    ///
+    /// `ct`, when supplied, is a genuinely DIFFERENT kind of stop than `timeout`: `timeout` firing is
+    /// this method's own internal, expected "the child didn't answer in time" case (soft failure, returns
+    /// null, caller decides what that means). `ct` firing is the CALLER'S OWN scan being cancelled from
+    /// outside - a real cancellation the caller is already set up to propagate (SafeScan lets
+    /// OperationCanceledException through uncaught), so it is rethrown here, not swallowed into the same
+    /// "returned null" shape a mere timeout would produce.</summary>
+    internal static string? RunAndReadStdout(Process process, TimeSpan timeout, CancellationToken ct = default)
     {
-        using var cts = new CancellationTokenSource(timeout);
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, ct);
         process.Start();
 
         try
         {
-            var readTask = process.StandardOutput.ReadToEndAsync(cts.Token);
-            var waitTask = process.WaitForExitAsync(cts.Token);
+            var readTask = process.StandardOutput.ReadToEndAsync(linked.Token);
+            var waitTask = process.WaitForExitAsync(linked.Token);
             Task.WhenAll(readTask, waitTask).GetAwaiter().GetResult();
             return readTask.Result;
         }
         catch (OperationCanceledException)
         {
             TryKill(process);
-            return null;
+            if (ct.IsCancellationRequested)
+                throw new OperationCanceledException(ct); // the caller's own cancellation, not our timeout - propagate it
+            return null; // our own timeout fired
         }
     }
 
