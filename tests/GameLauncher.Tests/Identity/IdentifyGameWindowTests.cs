@@ -198,8 +198,13 @@ public class IdentifyGameWindowTests
                 Assert.Same(vm.Candidates[0], vm.SelectedCandidate);
 
                 Invoke(ButtonNamed(window, "This is the game"));
-                for (var i = 0; i < 40 && h.Record(game.Id)?.Confirmed is null; i++)
+                // The record is saved on a worker; the button follows on the UI thread a moment later. Wait for BOTH (the first
+                // version waited only for the record and then read the button at once, which a slower machine loses).
+                for (var i = 0; i < 400 && (h.Record(game.Id)?.Confirmed is null || !ButtonNamed(window, "Clear identity").IsEnabled); i++)
+                {
                     Pump();
+                    Thread.Sleep(5);
+                }
 
                 Assert.Equal(new IdentityKey(Cat.Sgdb, "B"), h.Record(game.Id)!.Confirmed!.Key);
                 Assert.True(ButtonNamed(window, "Clear identity").IsEnabled);     // and the binding follows the state
