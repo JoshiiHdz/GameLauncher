@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace GameLauncher.Tests.Installer;
 
@@ -61,20 +63,17 @@ public sealed class CodeSigningScriptTests : IDisposable
 
     private static (int ExitCode, string Output) Ps(string command) => RunProcess(["-Command", command]);
 
-    /// <summary>A self-signed code-signing certificate exported to base64 .pfx text, the way the repository secret would hold it.</summary>
+    /// <summary>A self-signed code-signing certificate exported to base64 .pfx text, the way the repository secret would hold it. Built
+    /// in-process rather than with PowerShell's PKI cmdlets, which are not reliably there on a hosted build machine.</summary>
     private string MakeCertificateBase64(string subject = "CN=Axis Test Signing", string eku = "1.3.6.1.5.5.7.3.3", int days = 30, string password = Password)
     {
-        var pfx = Path.Combine(_dir, "test.pfx");
-        var script = $@"
-$cert = New-SelfSignedCertificate -Subject '{subject}' -Type Custom -KeyUsage DigitalSignature -KeyAlgorithm RSA -KeyLength 2048 `
-    -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays({days}) -TextExtension @('2.5.29.37={{text}}{eku}')
-$pwd = ConvertTo-SecureString -String '{password}' -Force -AsPlainText
-Export-PfxCertificate -Cert $cert -FilePath '{pfx}' -Password $pwd | Out-Null
-Write-Output $cert.Thumbprint";
-        var (code, output) = Ps(script);
-        Assert.True(code == 0, output);
-        _thumbprint = output.Trim().Split('\n').Last().Trim();
-        return Convert.ToBase64String(File.ReadAllBytes(pfx));
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid(eku)], critical: false));
+        using var cert = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(days));
+        _thumbprint = cert.Thumbprint;
+        return Convert.ToBase64String(cert.Export(X509ContentType.Pfx, password));
     }
 
     /// <summary>A real, unsigned PE file that no Windows catalog vouches for (system files are catalog-signed, which would hide a new signature).</summary>
