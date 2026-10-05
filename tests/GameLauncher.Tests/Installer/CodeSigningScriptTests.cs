@@ -199,8 +199,9 @@ public sealed class CodeSigningScriptTests : IDisposable
 
         Assert.True(code == 0, output);
         Assert.NotEqual(before.Length, new FileInfo(original).Length); // the signature block was appended
-        var (_, signer) = Ps($"(Get-AuthenticodeSignature '{original}').SignerCertificate.Thumbprint");
-        Assert.Equal(_thumbprint, signer.Trim());
+        // Read with .NET, not Get-AuthenticodeSignature: that cmdlet's module is not available on a hosted build machine.
+        using var signer = new X509Certificate2(X509Certificate.CreateFromSignedFile(original));
+        Assert.Equal(_thumbprint, signer.Thumbprint);
     }
 
     [Fact]
