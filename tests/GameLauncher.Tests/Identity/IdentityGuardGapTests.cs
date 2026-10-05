@@ -1,7 +1,6 @@
 using GameLauncher.Models;
 using GameLauncher.Services.CoverArt;
 using GameLauncher.Services.Identity;
-using GameLauncher.ViewModels;
 using GameLauncher.Services;
 using static GameLauncher.ViewModels.LibraryViewModel;
 

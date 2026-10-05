@@ -15,9 +15,6 @@
          automatic artwork selection prefers an actual portrait rather than zooming a landscape banner. -->
     <sys:Double x:Key="GameCardWidth">200</sys:Double>
     <sys:Double x:Key="GameCardArtHeight">260</sys:Double>
-    <!-- Text below the art is plain page content now, not a panel, so the caption no longer has a fixed
-         strip height - this is just the room the two lines occupy, for anything sizing a whole tile. -->
-    <sys:Double x:Key="GameCardCaptionHeight">60</sys:Double>
     <!-- Art only: the rounded clip applies to the artwork, not to art-plus-caption. -->
     <Rect x:Key="GameCardClipRect">0,0,200,260</Rect>
 
@@ -87,6 +84,13 @@
                 <ui:SymbolIcon Symbol="Play24" FontSize="15" Foreground="{StaticResource DesignAccent}" />
             </MenuItem.Icon>
         </MenuItem>
+        <MenuItem Header="Game details..."
+                  Command="{Binding PlacementTarget.Tag.ShowGameDetailsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
+            <MenuItem.Icon>
+                <ui:SymbolIcon Symbol="Info24" FontSize="15" />
+            </MenuItem.Icon>
+        </MenuItem>
         <MenuItem Header="Open install location"
                   Command="{Binding PlacementTarget.Tag.OpenInstallLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                   CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
@@ -102,6 +106,13 @@
                   CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
             <MenuItem.Icon>
                 <ui:SymbolIcon Symbol="Star24" FontSize="15" />
+            </MenuItem.Icon>
+        </MenuItem>
+        <MenuItem Header="Collections..."
+                  Command="{Binding PlacementTarget.Tag.EditCollectionsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
+            <MenuItem.Icon>
+                <ui:SymbolIcon Symbol="FolderAdd24" FontSize="15" />
             </MenuItem.Icon>
         </MenuItem>
         <MenuItem Header="Change Cover Manually"
@@ -135,6 +146,14 @@
                   CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
             <MenuItem.Icon>
                 <ui:SymbolIcon Symbol="EyeOff24" FontSize="15" />
+            </MenuItem.Icon>
+        </MenuItem>
+        <!-- Hands off to the game's own launcher; Axis never deletes game files itself. -->
+        <MenuItem Header="Uninstall..."
+                  Command="{Binding PlacementTarget.Tag.UninstallGameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
+            <MenuItem.Icon>
+                <ui:SymbolIcon Symbol="Delete24" FontSize="15" />
             </MenuItem.Icon>
         </MenuItem>
     </ContextMenu>
@@ -283,7 +302,7 @@
                                     </Image.Visibility>
                                 </Image>
                                 <ui:SymbolIcon Symbol="{Binding Source, Converter={x:Static conv:GameSourceToFallbackSymbolConverter.Instance}}"
-                                               FontSize="10" Foreground="#8CFFFFFF"
+                                               FontSize="11" Foreground="#E6FFFFFF"
                                                HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <ui:SymbolIcon.Visibility>
                                         <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForFallbackSymbol}">
@@ -376,6 +395,30 @@
                     <TextBlock FontSize="11" Foreground="{StaticResource DesignMuted}" Margin="0,1,0,0"
                                TextTrimming="CharacterEllipsis"
                                Text="{Binding Source, Converter={x:Static conv:GameSourceDisplayConverter.Instance}}" />
+                    <!-- "Recently played" detail: hours and when. Shown only when the list holding the card says so (its Tag is True: the
+                         Recently played strip on Home, and the Recently played view) and the game has been played from here. -->
+                    <TextBlock x:Name="PlayDetail" FontSize="10.5" Foreground="{StaticResource DesignMuted}" Margin="0,2,0,0"
+                               TextTrimming="CharacterEllipsis">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True" />
+                                            <Condition Binding="{Binding HasPlayTime}" Value="True" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                        <Run Text="{Binding PlayTimeDisplay, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding LastPlayedDisplay, Mode=OneWay}" />
+                    </TextBlock>
+                    <!-- Same title installed through another launcher too: a quiet amber line, so the duplicate is noticed without shouting. -->
+                    <TextBlock FontSize="10.5" Foreground="#F5A524" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                               Text="{Binding DuplicateNote}" ToolTip="{Binding DuplicateNote}"
+                               Visibility="{Binding HasDuplicate, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                     <!-- Storage information belongs to the selected-drive view, never on the artwork. -->
                     <Border x:Name="InstallSizePanel" Margin="0,5,0,0" Padding="8,3" CornerRadius="5"
                             Background="{StaticResource DesignSurface}" BorderBrush="{StaticResource DesignStroke}" BorderThickness="1"

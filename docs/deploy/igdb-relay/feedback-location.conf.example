@@ -1,0 +1,29 @@
+# In-app feedback: NOT deployed. This is the server half of the launcher's "Send Feedback" form.
+#
+# The launcher POSTs a small JSON body to https://<relay>/feedback (shaped like a Discord webhook body:
+# {"content": "...", "allowed_mentions": {"parse": []}}). This block forwards it to a private channel's webhook, so the
+# webhook secret lives ONLY on the server - the launcher binary and this public repo never contain it.
+#
+# To enable (needs the owner's approval; changes the VM):
+#   1. In a PRIVATE Discord channel: Edit Channel > Integrations > Webhooks > New Webhook > Copy URL.
+#   2. Put the two lines below in /etc/nginx/conf.d/ (outside the front server block), and the `location` inside the existing
+#      front `server { listen ... 443 ssl }` block, replacing WEBHOOK_ID/WEBHOOK_TOKEN with the copied URL's parts.
+#   3. nginx -t && systemctl reload nginx
+# Rollback: delete the location and the zone, reload nginx. Revoke the webhook in Discord to cut it off instantly.
+
+# At most 2 messages a minute per address (burst 3), 8 KB per message: a hostile client can't flood the channel.
+limit_req_zone $binary_remote_addr zone=feedback:1m rate=2r/m;
+
+# --- inside the front server block: ---
+location = /feedback {
+    limit_except POST { deny all; }
+    limit_req zone=feedback burst=3 nodelay;
+    limit_req_status 429;
+    client_max_body_size 8k;
+
+    proxy_pass https://discord.com/api/webhooks/WEBHOOK_ID/WEBHOOK_TOKEN;
+    proxy_ssl_server_name on;
+    proxy_set_header Host discord.com;
+    proxy_set_header Content-Type application/json;
+    proxy_set_header X-Forwarded-For "";   # keep the sender's address out of the channel's request logs
+}

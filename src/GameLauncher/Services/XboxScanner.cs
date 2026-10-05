@@ -1,6 +1,4 @@
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.RegularExpressions;
 using GameLauncher.Models;
 using GameLauncher.Services.CoverArt;
@@ -68,7 +66,7 @@ public static class XboxScanner
     private static readonly string[] StubNamePatterns =
         { " dlc", "launch tracker", "game stub", "game pass pack", "pre-order", "preorder" };
 
-    public static List<GameEntry> Scan(CancellationToken ct = default) => Scan(GetReadyDrives().ToList(), ct);
+    public static List<GameEntry> Scan(CancellationToken ct = default) => Scan(InstallPaths.ReadyDrives().ToList(), ct);
 
     internal static List<GameEntry> Scan(IReadOnlyList<string> readyDrives, CancellationToken ct = default)
     {
@@ -406,13 +404,13 @@ public static class XboxScanner
 
         return new GameEntry
         {
-            Id = $"xbox-{StableId(packageFamilyName ?? canonicalIdRoot ?? installRoot)}",
+            Id = $"xbox-{InstallPaths.StableHash(packageFamilyName ?? canonicalIdRoot ?? installRoot)}",
             // The pre-registration Id this SAME install would have hashed to, only when it's actually
             // possible for one to have existed: a known package identity (so Id above is family-based,
             // not folder-based) that ALSO sits under a recognized XboxGames top-level folder (so the OLD
             // scanner could plausibly have found and hashed it before this package-registration path
             // existed at all). Null whenever Id is already folder-based itself - nothing to reconcile.
-            LegacyId = packageFamilyName is not null && canonicalIdRoot is not null ? $"xbox-{StableId(canonicalIdRoot)}" : null,
+            LegacyId = packageFamilyName is not null && canonicalIdRoot is not null ? $"xbox-{InstallPaths.StableHash(canonicalIdRoot)}" : null,
             Name = displayName,
             CatalogName = catalogName,
             // A directory (not a file) when no CONFIRMED exe was found - IconService already treats a
@@ -687,34 +685,5 @@ public static class XboxScanner
 
     private static string NormalizeDir(string path) => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
 
-    private static IEnumerable<string> GetReadyDrives()
-    {
-        DriveInfo[] drives;
-        try
-        {
-            drives = DriveInfo.GetDrives();
-        }
-        catch (IOException)
-        {
-            yield break;
-        }
 
-        foreach (var drive in drives)
-        {
-            var ready = false;
-            try
-            {
-                ready = drive.IsReady && drive.DriveType is DriveType.Fixed or DriveType.Removable;
-            }
-            catch (IOException)
-            {
-            }
-
-            if (ready)
-                yield return drive.RootDirectory.FullName;
-        }
-    }
-
-    private static string StableId(string path)
-        => Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(path.ToLowerInvariant())));
 }

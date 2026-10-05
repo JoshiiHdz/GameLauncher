@@ -1,6 +1,4 @@
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using GameLauncher.Models;
 using Microsoft.Win32;
 
@@ -66,17 +64,17 @@ public static class PublisherUninstallScanner
                     if (!publisherContains.Any(p => publisher.Contains(p, StringComparison.OrdinalIgnoreCase)))
                         continue;
 
-                    if (excludeNameContains.Any(x => displayName.Contains(x, StringComparison.OrdinalIgnoreCase)))
+                    if (excludeNameContains.Any(x => displayName.Contains(x, StringComparison.OrdinalIgnoreCase)) || IsComponentName(displayName))
                         continue;
 
                     // From here on the publisher already matched and the name wasn't excluded - a
                     // strong signal this really is one of the user's games, so failing to resolve it
                     // the rest of the way is worth a trace (unlike the publisher-mismatch skip above,
                     // which fires for every unrelated installed program and would just be noise).
-                    var installLocation = entry?.GetValue("InstallLocation") as string;
-                    if (string.IsNullOrWhiteSpace(installLocation) || !Directory.Exists(installLocation))
+                    var installLocation = ResolveInstallDir(entry?.GetValue("InstallLocation") as string, entry?.GetValue("DisplayIcon") as string);
+                    if (installLocation is null)
                     {
-                        Logger.Warn($"  {source}: '{displayName}' matched but has no valid InstallLocation in the registry.");
+                        Logger.Warn($"  {source}: '{displayName}' matched but the registry gives no install folder for it (InstallLocation or a DisplayIcon inside the game).");
                         continue;
                     }
 
@@ -87,7 +85,7 @@ public static class PublisherUninstallScanner
                         continue;
                     }
 
-                    var id = $"{idPrefix}-{StableId(installLocation)}";
+                    var id = $"{idPrefix}-{InstallPaths.StableHash(installLocation)}";
                     if (games.Any(g => g.Id == id))
                         continue;
 
@@ -115,6 +113,45 @@ public static class PublisherUninstallScanner
         }
     }
 
-    private static string StableId(string path)
-        => Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(path.ToLowerInvariant())));
+    /// <summary>Words that mark a publisher's entry as a piece of software rather than a game: "Rockstar Games SDK", "EA Redistributable",
+    /// "Ubisoft Runtime", ... Matched as whole words, so a game with "SDK" inside a longer word is not caught.</summary>
+    private static readonly HashSet<string> ComponentWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SDK", "Redistributable", "Redistributables", "Redist", "Runtime", "Runtimes", "Prerequisite", "Prerequisites", "Prereq",
+        "Driver", "Drivers", "Updater", "Uninstaller", "Bootstrapper", "Crashpad",
+    };
+
+    internal static bool IsComponentName(string displayName)
+    {
+        var words = displayName.Split([' ', '-', '_', '.', ',', '(', ')', '[', ']', '/', '\\', ':', '+'], StringSplitOptions.RemoveEmptyEntries);
+        return words.Any(ComponentWords.Contains) || displayName.Contains("Visual C++", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The game's folder: its InstallLocation, or - when an installer left that blank, which many do - the folder of the exe its
+    /// DisplayIcon points at (installers set the icon to the game's own exe).</summary>
+    internal static string? ResolveInstallDir(string? installLocation, string? displayIcon,
+        Func<string, bool>? directoryExists = null, Func<string, bool>? fileExists = null)
+    {
+        directoryExists ??= Directory.Exists;
+        fileExists ??= File.Exists;
+
+        if (!string.IsNullOrWhiteSpace(installLocation) && directoryExists(installLocation))
+            return installLocation;
+
+        if (string.IsNullOrWhiteSpace(displayIcon))
+            return null;
+
+        // "C:\Games\Foooo.exe,0" - the index after the comma is the icon number, not part of the path.
+        var path = displayIcon.Trim().Trim('"');
+        var comma = path.LastIndexOf(',');
+        if (comma > 1 && int.TryParse(path[(comma + 1)..], out _))
+            path = path[..comma].Trim().Trim('"');
+
+        if (!Path.IsPathFullyQualified(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !fileExists(path))
+            return null;
+
+        var folder = Path.GetDirectoryName(path);
+        return !string.IsNullOrEmpty(folder) && directoryExists(folder) ? folder : null;
+    }
+
 }

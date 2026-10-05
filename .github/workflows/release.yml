@@ -182,10 +182,35 @@ jobs:
       # --shortcuts StartMenuRoot (Velopack's default is Desktop,StartMenuRoot) deliberately drops the
       # Desktop shortcut - installer/GameLauncher.iss's own desktop-icon checkbox is now the only thing
       # that creates one, so it isn't created unconditionally regardless of what the user chose there.
+      # --packTitle is the display name Velopack uses for the Start Menu shortcut (without it, that is the id, "GameLauncher"). Checked
+      # with a local `vpk pack`: only <title> in the package changes - the id and the shortcut's AUMID stay the same, so existing installs
+      # keep their identity and update normally.
+      # Optional code signing (installer/Code-Signing.ps1). With the CODE_SIGNING_PFX_BASE64 and CODE_SIGNING_PFX_PASSWORD repository secrets
+      # set, the launcher, the Velopack setup and (two steps below) the wrapped installer all get a SHA-256 signature with a timestamp. Without
+      # them this step only says the release is unsigned and everything below behaves exactly as it always did. The certificate lives in the
+      # runner's temp folder only until the cleanup step at the end of the job.
+      - name: Prepare code signing (optional)
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.CODE_SIGNING_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
+        run: ./installer/Code-Signing.ps1 -Mode Prepare -PfxBase64 $env:PFX_BASE64 -PfxPassword $env:PFX_PASSWORD
+
       - name: Pack
-        run: >
-          vpk pack -u GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe
-          --releaseNotes release-notes.md --shortcuts StartMenuRoot
+        shell: pwsh
+        run: |
+          $signing = @()
+          if ($env:AXIS_SIGN_PARAMS) { $signing = @('--signParams', $env:AXIS_SIGN_PARAMS) }
+          vpk pack -u GameLauncher -v ${{ steps.get-version.outputs.version }} -p publish -e GameLauncher.exe `
+            --packTitle "Axis Game Launcher" --releaseNotes release-notes.md --shortcuts StartMenuRoot @signing
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Only when signing is on: the setup vpk just produced must really carry a signature Windows trusts, or the release fails here
+      # rather than shipping something that merely claims to be signed.
+      - name: Verify the signed setup
+        if: env.AXIS_SIGN_PFX != ''
+        shell: pwsh
+        run: ./installer/Code-Signing.ps1 -Mode VerifyFile -File Releases\GameLauncher-win-Setup.exe
 
       # Opens the package vpk just produced and reads the configuration that is actually embedded in the launcher inside it - the check that
       # matters is on the artifact users install, not on the file this job wrote. Fails the release if it is missing, invalid or different.
@@ -207,6 +232,13 @@ jobs:
           /DAppVersion=${{ steps.get-version.outputs.version }}
           /DVelopackSetupExe=${{ github.workspace }}\Releases\GameLauncher-win-Setup.exe
           installer\GameLauncher.iss
+
+      - name: Sign and verify the wrapped installer
+        if: env.AXIS_SIGN_PFX != ''
+        shell: pwsh
+        run: |
+          ./installer/Code-Signing.ps1 -Mode SignFile -File installer\Output\GameLauncher-Setup.exe
+          ./installer/Code-Signing.ps1 -Mode VerifyFile -File installer\Output\GameLauncher-Setup.exe
 
       # No --publish here - this deliberately leaves the release as a draft (invisible to normal users
       # browsing releases) until the wrapped installer is confirmed attached below. Publishing here,
@@ -260,3 +292,9 @@ jobs:
         run: >
           gh release edit ${{ github.ref_name }} --repo ${{ github.repository }}
           --draft=false --latest
+
+      # Whatever happened above, the decoded certificate does not stay on the runner.
+      - name: Remove the signing certificate
+        if: always() && env.AXIS_SIGN_PFX != ''
+        shell: pwsh
+        run: ./installer/Code-Signing.ps1 -Mode Cleanup

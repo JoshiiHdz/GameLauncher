@@ -1,7 +1,5 @@
 using System.Drawing;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using System.Windows.Media.Imaging;
 using GameLauncher.Models;
 
@@ -29,7 +27,7 @@ public static class IconService
             // invalidated. Folding a short hash of the actual resolved ExecutablePath into the
             // filename means a changed exe naturally lands on a new cache file instead; the old one
             // is just an orphan on disk (a handful of small PNGs - not worth cleaning up).
-            var pathHash = Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(game.ExecutablePath.ToLowerInvariant())))[..8];
+            var pathHash = InstallPaths.StableHash(game.ExecutablePath)[..8];
             var cachePath = Path.Combine(CacheDir, $"{game.Id}-{pathHash}.png");
             if (File.Exists(cachePath))
                 return cachePath;

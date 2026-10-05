@@ -1,6 +1,4 @@
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using GameLauncher.Models;
 
 namespace GameLauncher.Services;
@@ -24,7 +22,7 @@ public static class ManualFolderScanner
         // Confirmed real via EaScanner: a bundled trial build can legitimately be larger than the
         // real game exe, winning the "largest file" pick otherwise. "anticheat" here catches the
         // generic case; easyanticheat/battleye above already cover the two named vendors.
-        "trial", "anticheat",
+        "trial", "anticheat", "crashhandler",
     };
 
     /// <summary>Folders that never contain a game of their own, or that are too expensive/noisy to walk.</summary>
@@ -121,7 +119,7 @@ public static class ManualFolderScanner
     }
 
     /// <summary>The largest non-excluded exe of a plausible size, or null if this folder holds no game.</summary>
-    private static string? PickGameExe(string[] exes)
+    internal static string? PickGameExe(string[] exes)
     {
         FileInfo? best = null;
 
@@ -149,7 +147,7 @@ public static class ManualFolderScanner
         return best?.FullName;
     }
 
-    private static GameEntry BuildEntry(string gameFolder, string exePath, string watchedRoot)
+    internal static GameEntry BuildEntry(string gameFolder, string exePath, string watchedRoot)
     {
         var name = ResolveName(gameFolder, watchedRoot, exePath);
 
@@ -191,6 +189,25 @@ public static class ManualFolderScanner
             : name;
     }
 
+    /// <summary>True for a folder name no game lives in (Windows, drivers, redistributables, ...).</summary>
+    internal static bool IsExcludedFolder(string name) => ExcludedFolderNames.Contains(name);
+
+    /// <summary>An exe that could be a game's: not an installer, helper or crash reporter, and big enough to be a real program.</summary>
+    internal static bool IsPlausibleGameExe(string exePath)
+    {
+        if (IsExcludedExe(exePath))
+            return false;
+
+        try
+        {
+            return new FileInfo(exePath).Length >= MinGameExeBytes;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private static bool IsExcludedExe(string exePath)
     {
         var name = Path.GetFileNameWithoutExtension(exePath).ToLowerInvariant();
@@ -199,9 +216,5 @@ public static class ManualFolderScanner
 
     // string.GetHashCode() is randomized per process run, which would break icon caching
     // (cache filename is derived from Id) and any future per-game overrides keyed by Id.
-    private static string StableId(string path)
-    {
-        var hash = MD5.HashData(Encoding.UTF8.GetBytes(path.ToLowerInvariant()));
-        return $"manual-{Convert.ToHexString(hash)}";
-    }
+    private static string StableId(string path) => $"manual-{InstallPaths.StableHash(path)}";
 }

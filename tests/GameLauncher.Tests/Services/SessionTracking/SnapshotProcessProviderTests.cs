@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using GameLauncher.Services;
 using GameLauncher.Services.SessionTracking;
 

@@ -22,6 +22,13 @@ public static class PlatformIconService
     private static readonly Dictionary<GameSource, BitmapImage?> Cache = new();
     private static readonly object Lock = new();
 
+    /// <summary>Forgets the launcher icons read so far, so the next ask reads them from the launchers again (Settings > Clear cache).</summary>
+    public static void ClearCache()
+    {
+        lock (Lock)
+            Cache.Clear();
+    }
+
     public static BitmapImage? GetIcon(GameSource source)
     {
         lock (Lock)
@@ -41,24 +48,24 @@ public static class PlatformIconService
 
     private static BitmapImage? Resolve(GameSource source)
     {
-        var exePath = source switch
-        {
-            GameSource.Steam => FindSteamExe(),
-            GameSource.Epic => FindEpicExe(),
-            GameSource.Gog => FindGogExe(),
-            GameSource.Ea => FindEaExe(),
-            GameSource.Ubisoft => FindUbisoftExe(),
-            GameSource.BattleNet => FindBattleNetExe(),
-            GameSource.Rockstar => FindRockstarExe(),
-            GameSource.AmazonGames => FindAmazonGamesExe(),
-            // Xbox: the Xbox app is an MSIX package under WindowsApps, which is ACL-locked, so its
-            // icon can't be read by path - MainWindow.xaml shows the hardcoded real Xbox logo instead
-            // of relying on this ever returning something for it (see this class's remarks).
-            _ => null,
-        };
-
+        var exePath = FindLauncherExe(source);
         return exePath is null ? null : ExtractIcon(exePath);
     }
+
+    /// <summary>The path of a launcher's own executable on this PC, or null when it isn't installed or has no conventional exe (manual
+    /// folders; Xbox, whose app is an ACL-locked MSIX package - MainWindow.xaml shows the hardcoded real Xbox logo instead).</summary>
+    public static string? FindLauncherExe(GameSource source) => source switch
+    {
+        GameSource.Steam => FindSteamExe(),
+        GameSource.Epic => FindEpicExe(),
+        GameSource.Gog => FindGogExe(),
+        GameSource.Ea => FindEaExe(),
+        GameSource.Ubisoft => FindUbisoftExe(),
+        GameSource.BattleNet => FindBattleNetExe(),
+        GameSource.Rockstar => FindRockstarExe(),
+        GameSource.AmazonGames => FindAmazonGamesExe(),
+        _ => null,
+    };
 
     private static string? FindSteamExe()
     {

@@ -20,7 +20,7 @@ public partial class App : Application
     /// in OnStartup included) sees them. A normal launch passes straight through as a no-op.
     /// </summary>
     [STAThread]
-    private static void Main(string[] args)
+    private static void Main()
     {
         VelopackApp.Build().Run();
 

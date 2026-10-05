@@ -21,7 +21,6 @@ public sealed class UnitOutput
 {
     public GameIdentityRecord? NewRecord { get; init; }
     public ArtworkHalf Artwork { get; init; } = ArtworkHalf.None;
-    public bool IdentityNotApplicable => NewRecord is null;
 }
 
 /// <summary>What a unit is asked to do for one game.</summary>

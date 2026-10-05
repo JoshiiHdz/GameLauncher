@@ -1,0 +1,16 @@
+<UserControl x:Class="GameLauncher.ConfirmDialog"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             Width="420">
+
+    <!-- The question and two buttons. The title and the close button come from the dialog card around it. -->
+    <StackPanel Margin="24,8,24,22">
+        <TextBlock x:Name="QuestionText" FontSize="13.5" TextWrapping="Wrap" LineHeight="20" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <ui:Button x:Name="NoButton" Padding="18,8" MinWidth="86" IsCancel="True" Click="No_Click" />
+            <ui:Button x:Name="YesButton" Padding="18,8" MinWidth="86" Margin="10,0,0,0" Click="Yes_Click" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

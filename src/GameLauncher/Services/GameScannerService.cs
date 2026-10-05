@@ -1,5 +1,4 @@
 using System.IO;
-using System.Windows.Media.Imaging;
 using GameLauncher.Models;
 using GameLauncher.Services.Identity;
 
@@ -30,7 +29,8 @@ public sealed record ScanResult(
     List<HealedWatchedFolder> HealedWatchedFolders,
     Dictionary<string, string> MergedGameIds,
     Dictionary<string, ArtworkApplyResult> ArtworkResultsByGameId,
-    Dictionary<string, string>? LegacyIdRemap = null);
+    Dictionary<string, string>? LegacyIdRemap = null,
+    DiskSweep? DiskSweep = null);
 
 /// <summary>One game's artwork outcome from a single scan - AsOfRevision is the live GameOverride.
 /// ArtworkRevision this scan captured (via its private Overrides snapshot) BEFORE doing any of its own
@@ -83,7 +83,7 @@ public sealed class GameScannerService
     /// screen (worth protecting through an outage) from one that only exists as a record after a restart.</param>
     public Task<ScanResult> ScanAllAsync(AppSettings settings, CancellationToken ct = default,
         IReadOnlyDictionary<string, long>? identityGenerations = null, ResolutionContext? resolutionContextOverride = null,
-        IReadOnlySet<string>? displayedCoverIds = null, IProgress<ScanProgress>? progress = null)
+        IReadOnlySet<string>? displayedCoverIds = null, IProgress<ScanProgress>? progress = null, bool forceDiskSweep = false)
     {
         // Deep-copied here, synchronously on the caller's (UI) thread, rather than letting the
         // background scan below touch settings.WatchedFolders (or the WatchedFolder objects inside it)
@@ -103,6 +103,13 @@ public sealed class GameScannerService
             .ToList();
         var originalPaths = watchedFolders.Select(w => w.Path).ToList(); // parallel to watchedFolders, captured pre-heal
 
+        // The disk search's inputs, copied for the same reason: the UI thread can switch a drive on or off while this scan runs.
+        var driveFilter = new DriveFilter(settings.IgnoredDrives);
+        var findWithoutLauncher = settings.FindGamesWithoutLauncher;
+        var rememberedFolders = settings.DiscoveredFolders.ToList();
+        var rememberedSweepAt = settings.LastDiskSweepUtc;
+        var rememberedSignature = settings.DiskSweepSignature;
+
         // Same reasoning for Overrides, with a sharper failure mode: cancelling a superseded scan is
         // only cooperative (it stops at the next ct.ThrowIfCancellationRequested(), not instantly), so
         // a cancelled scan's Task.Run body and a freshly-started replacement's can both be genuinely
@@ -119,6 +126,7 @@ public sealed class GameScannerService
                 CustomName = kv.Value.CustomName,
                 Hidden = kv.Value.Hidden,
                 Favorite = kv.Value.Favorite,
+                Collections = [.. kv.Value.Collections ?? []],
                 DateAdded = kv.Value.DateAdded,
                 ArtworkRevision = kv.Value.ArtworkRevision,
                 // The identity record is copied too (Clone copies the lists; the entries are immutable records): a
@@ -190,7 +198,42 @@ public sealed class GameScannerService
                 ("Manual folders", () => ManualFolderScanner.Scan(watchedFolders)),
             ], progress, ct));
 
+            // Games on a drive the user switched off are left out before anything else touches them (the walk above of a watched folder
+            // or a launcher library on that drive still reads names only; nothing from it is kept).
+            results.RemoveAll(g => driveFilter.IsIgnored(g.InstallDir));
+
+            // After the launchers, never instead of them: what they and the watched folders found is skipped by the disk search, and
+            // anything it finds that a launcher also knows is merged into the launcher's entry by the de-duplication below.
+            DiskSweep? newSweep = null;
+            if (findWithoutLauncher)
+            {
+                var knownDirs = results.Select(g => DiskGameFinder.Normalize(g.InstallDir)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                results.AddRange(RunSources(
+                [
+                    ("searching your drives", () =>
+                    {
+                        try
+                        {
+                            var (games, sweep) = DiskGameFinder.Find(driveFilter, knownDirs, rememberedFolders, rememberedSweepAt, rememberedSignature,
+                                forceDiskSweep, ct);
+                            newSweep = sweep;
+                            return games;
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            // An extra, best-effort step: whatever goes wrong in it must never cost the launcher results above.
+                            Logger.Warn("Disk search failed; the launchers' results are unaffected.", ex);
+                            return [];
+                        }
+                    }),
+                ], progress, ct));
+            }
+
             var (deduped, mergedGameIds) = DeduplicateByInstallLocation(results);
+
+            // After the merge, so a game a launcher also reported is still folded into that launcher's entry the usual way. What is
+            // left from watched folders is sorted by the marker its own folder carries: an EA game found by hand shows under EA.
+            LauncherMarkers.Apply(deduped);
 
             if (results.Count != deduped.Count)
                 Logger.Info($"De-duplicated {results.Count - deduped.Count} overlapping entr(y/ies).");
@@ -233,6 +276,7 @@ public sealed class GameScannerService
                     game.Name = over.CustomName;
                 game.Hidden = over?.Hidden ?? false;
                 game.Favorite = over?.Favorite ?? false;
+                game.Collections = over?.Collections is { Count: > 0 } c ? [.. c] : [];
                 game.DateAdded = dateAdded.Value;
 
                 var asOfRevision = over?.ArtworkRevision ?? 0;
@@ -267,7 +311,7 @@ public sealed class GameScannerService
             }
 
             // Final ordering doesn't matter here - LibraryViewModel re-sorts per the user's chosen SortOption.
-            return new ScanResult(deduped, newDateAdded, healedFolders, mergedGameIds, artworkResults, legacyIdRemap);
+            return new ScanResult(deduped, newDateAdded, healedFolders, mergedGameIds, artworkResults, legacyIdRemap, newSweep);
         }, ct);
     }
 
@@ -533,76 +577,6 @@ public sealed class GameScannerService
 
     private static bool IsAncestorDir(string ancestor, string descendant) =>
         descendant.StartsWith(ancestor + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-
-    // Isolates one game's cover-art enrichment the same way SafeScan isolates one source's scan below -
-    // CoverArtService.Apply and the individual cover art providers already handle their own EXPECTED
-    // failure modes (HTTP errors, a malformed API response shape - see SteamGridDbCoverArtProvider) and
-    // fall back to the exe icon on their own; this is the last-resort backstop for anything they don't
-    // anticipate, so one bad item can't abort enrichment for every other game still waiting in this
-    // loop, or the scan as a whole.
-    /// <summary>`applyCoverArt`/`getIcon` default to the real CoverArtService.Apply/IconService.GetIcon -
-    /// overridable (internal, same pattern as SafeScan's own `scan` parameter) so tests can force both
-    /// the primary attempt AND the fallback to throw deterministically, without depending on a real
-    /// HTTP failure or a real corrupt exe to trigger it.
-    ///
-    /// `existingSelection` short-circuits straight to loading a previously user-selected image (via
-    /// `applyStoredArtworkSafely`, itself already fully crash-isolated - see CoverArtService.
-    /// ApplyStoredSafely) instead of ever running the automatic matcher - an explicit selection is
-    /// authoritative and must never be silently replaced by a fresh automatic guess just because a scan
-    /// happened to run. Returns null in that case: there is nothing NEW to persist, the existing
-    /// selection stands unchanged. Returns the automatic match's identity/evidence otherwise (null if
-    /// none was found), for the caller to record as automatic metadata.</summary>
-    internal static ArtworkSelection? SafeApplyCoverArt(
-        GameEntry game, string? steamGridDbApiKey, ArtworkSelection? existingSelection,
-        string? igdbClientId = null, string? igdbClientSecret = null, CancellationToken ct = default,
-        Func<GameEntry, string?, ArtworkSelection?>? applyCoverArt = null,
-        Action<GameEntry, ArtworkSelection>? applyStoredArtworkSafely = null,
-        Func<GameEntry, BitmapImage?>? getIcon = null)
-    {
-        // applyCoverArt's own seam type is deliberately left at CoverArtService.Apply's OLD two-argument
-        // shape (game, steamGridDbApiKey) - widening it to also carry the IGDB credentials/ct would break
-        // every existing test that already supplies a two-argument override here (none of them are
-        // testing IGDB specifically; CoverArtServiceTests/IgdbCoverArtProviderTests cover that
-        // separately). The real, production default below closes over igdbClientId/igdbClientSecret/ct
-        // itself instead, so the live path still gets them without changing the seam's shape. ct lets a
-        // superseded scan interrupt an in-flight IGDB cover-image download rather than letting it run to
-        // completion regardless - see CoverArtService.Apply/IgdbCoverArtProvider.GetCoverArt's own remarks.
-        applyCoverArt ??= (g, key) => CoverArtService.Apply(g, key, igdbClientId, igdbClientSecret, ct: ct);
-        applyStoredArtworkSafely ??= (g, s) => CoverArtService.ApplyStoredSafely(g, s);
-        getIcon ??= IconService.GetIcon;
-
-        if (existingSelection is { IsUserSelected: true })
-        {
-            applyStoredArtworkSafely(game, existingSelection); // never throws
-            return null;
-        }
-
-        try
-        {
-            return applyCoverArt(game, steamGridDbApiKey);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // The scan itself was superseded - NOT a per-game enrichment failure. Falling back to the exe
-            // icon here (the catch below) would swallow the cancellation and let the loop go on to start
-            // network work for the next game; rethrowing lets ScanAllAsync's own cancellation handling
-            // (the same one its ct.ThrowIfCancellationRequested() checks feed) end the scan promptly.
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Logger.Warn($"Cover art enrichment failed unexpectedly for '{game.Name}' - falling back to the exe icon.", ex);
-
-            // The fallback call itself is not exempt from failing - CoverArtService.Apply's own normal
-            // fallback path calls this exact same icon lookup, so if icon extraction/decoding was what
-            // threw in the first place, retrying it here can throw again too. ApplyIconFallbackSafely is
-            // isolated separately so a second failure still can't escape this method and abort enrichment
-            // for every other game still waiting in the caller's loop - if both attempts fail, this
-            // simply leaves Icon null and IsCoverArt false, and the UI's own built-in glyph covers the rest.
-            CoverArtService.ApplyIconFallbackSafely(game, getIcon);
-            return null;
-        }
-    }
 
     // Isolates one source's failure (e.g. a Steam/manual library on a now-unplugged external drive)
     // so it can't wipe out games already found from every other source.

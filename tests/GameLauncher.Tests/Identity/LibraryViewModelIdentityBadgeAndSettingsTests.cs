@@ -2,7 +2,6 @@ using System.IO;
 using System.Text.Json;
 using GameLauncher.Models;
 using GameLauncher.Services;
-using GameLauncher.Services.CoverArt;
 using GameLauncher.Services.Identity;
 using GameLauncher.Tests.Services.CoverArt;
 using GameLauncher.ViewModels;

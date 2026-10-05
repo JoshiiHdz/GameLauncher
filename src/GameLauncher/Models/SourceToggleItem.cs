@@ -60,6 +60,12 @@ public sealed class SourceToggleItem : ObservableObject
 
     public bool HasIcon => ColorIcon is not null;
 
+    /// <summary>Games added by hand belong to no launcher, so there is no launcher icon to extract: the row draws a folder glyph.</summary>
+    public bool UsesGlyph => Source == GameSource.Manual;
+
+    /// <summary>The one-letter fallback badge: only for a launcher whose own icon could not be found.</summary>
+    public bool ShowLetter => !HasIcon && !UsesGlyph;
+
     /// <summary>Full colour while the launcher is on, a grey copy while it is off - what the collapsed
     /// sidebar shows, since it has no switch to read the state from.</summary>
     public ImageSource? DisplayIcon

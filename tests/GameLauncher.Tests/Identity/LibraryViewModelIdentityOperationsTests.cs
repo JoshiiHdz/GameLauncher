@@ -17,7 +17,7 @@ namespace GameLauncher.Tests.Identity;
 public class LibraryViewModelIdentityOperationsTests : IDisposable
 {
     private readonly List<IdentityHarness> _harnesses = new();
-    private const int HeightA = 480, HeightB = 640, HeightC = 800;
+    private const int HeightA = 480, HeightC = 800;
 
     public void Dispose()
     {

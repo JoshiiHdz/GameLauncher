@@ -8,4 +8,9 @@ public enum LibraryView
     All,
     Favorites,
     Recent,
+    /// <summary>Games with no tracked play time yet - for "what haven't I tried?". Tracked time only exists for play this app saw, so
+    /// it is not proof a game was never played, and the UI says "not played yet", not "never played".</summary>
+    NeverPlayed,
+    /// <summary>Games installed through more than one launcher, side by side.</summary>
+    Duplicates,
 }

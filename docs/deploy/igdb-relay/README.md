@@ -100,3 +100,9 @@ fails unless it is present, valid and equal to what was written). Set the reposi
 
 The launcher on other people's networks and machines; the hosting-side settings (public-IP type, actual bill); certificate behaviour beyond what the
 pinned client and curl exercise.
+
+## In-app feedback (not deployed)
+
+The launcher's **Send Feedback** form posts to `https://<relay>/feedback`. `feedback-location.conf.example` is the nginx block that forwards it to a
+private Discord channel's webhook (secret kept server-side, rate-limited, size-capped). Until it is deployed the form reports that it can't send and
+offers the GitHub issue page instead.

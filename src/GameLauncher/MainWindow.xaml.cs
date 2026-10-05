@@ -32,12 +32,18 @@ public partial class MainWindow : FluentWindow
 
     // Hosts the actual markup with isolated settings in WPF tests, without scanning the machine,
     // starting network lookups, or configuring the real tray icon merely to test a sidebar.
-    internal MainWindow(LibraryViewModel viewModel, bool startRuntimeServices)
+    internal MainWindow(LibraryViewModel viewModel, bool startRuntimeServices, bool? openPerSetting = null)
     {
         InitializeComponent();
         DataContext = viewModel;
+        InitializeShell();
         _sessionOrchestrator = new GameSessionOrchestrator(_sessionWatcher, WindowExitDiagnosticsEnabled);
         SizeToDisplay();
+
+        // Opens maximized unless the user turned that off. Tests build the window with runtime services off, and keep the size they set
+        // (unless a test asks for the real behaviour with openPerSetting).
+        if ((openPerSetting ?? startRuntimeServices) && viewModel.StartMaximized)
+            WindowState = WindowState.Maximized;
 
         Loaded += async (_, _) =>
         {
@@ -56,6 +62,13 @@ public partial class MainWindow : FluentWindow
             vm.VibrantBackgroundChanged += ApplyBackdrop;
             ApplyBackdrop(vm.VibrantBackground);
 
+            UpdateGlobalHotkey(vm);
+            vm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(LibraryViewModel.GlobalHotkeyEnabled))
+                    UpdateGlobalHotkey(vm);
+            };
+
             // Covers both launching a game and minimizing by hand.
             StateChanged += (_, _) =>
             {
@@ -71,11 +84,10 @@ public partial class MainWindow : FluentWindow
             // state.
             if (vm.ShowWhatsNew)
             {
-                var whatsNewWindow = new WhatsNewWindow(vm) { Owner = this };
-                whatsNewWindow.ShowDialog();
+                AppShell.ShowModal("What's New", new WhatsNewDialog(vm));
 
-                // Only reached once the window has actually closed, regardless of how (the "Got it"
-                // button, the title bar's close button, Alt+F4, ...) - the marker is only deleted here,
+                // Only reached once the card has actually closed, regardless of how (the "Got it"
+                // button, its close button, Esc, ...) - the marker is only deleted here,
                 // never at read time, so the notes survive to try again on a later launch if the app
                 // never gets this far (a crash, a forced shutdown, a scan that hangs).
                 vm.AcknowledgeWhatsNew();
@@ -84,12 +96,35 @@ public partial class MainWindow : FluentWindow
 
         Closed += (_, _) =>
         {
+            _hotkey?.Dispose();
             _externalMonitorCts.Cancel();
             viewModel.StopPassiveTracking();
             if (_watchedGame is { } game) viewModel.MarkGameNotRunning(game, _watchedSessionId);
             _sessionCts?.Cancel();
             TrayIcon.Dispose();
         };
+    }
+
+    private GlobalHotkeyService? _hotkey;
+
+    /// <summary>Registers (or gives back) Ctrl+Alt+Space to match the setting. If another program already has the combination the
+    /// launcher simply runs without a hotkey - Ctrl+K inside the window still works.</summary>
+    private void UpdateGlobalHotkey(LibraryViewModel vm)
+    {
+        _hotkey?.Dispose();
+        _hotkey = null;
+        if (!vm.GlobalHotkeyEnabled)
+            return;
+
+        _hotkey = GlobalHotkeyService.TryRegister(this, Key.Space, ModifierKeys.Control | ModifierKeys.Alt);
+        if (_hotkey is not null)
+        {
+            _hotkey.Pressed += () => Dispatcher.BeginInvoke(() =>
+            {
+                RestoreFromTray();
+                vm.ShowCommandPaletteCommand.Execute(null);
+            });
+        }
     }
 
     private async void OnGameLaunched(GameEntry game, Process? started)
@@ -302,20 +337,23 @@ public partial class MainWindow : FluentWindow
     }
 
     // The app still draws the caption buttons; their input is excluded from native caption hit testing.
+    /// <summary>The 3-dot button on a drive row opens the row's own context menu (the one a right-click opens).</summary>
+    private void DriveMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: FrameworkElement row, } && row.ContextMenu is { } menu)
+        {
+            menu.PlacementTarget = row;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+
+        e.Handled = true;
+    }
+
     private void CaptionMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
     private void CaptionMaximize_Click(object sender, RoutedEventArgs e) =>
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
     private void CaptionClose_Click(object sender, RoutedEventArgs e) => Close();
-
-    private void SettingsButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (DataContext is not LibraryViewModel vm)
-            return;
-
-        var settingsWindow = new SettingsWindow(vm) { Owner = this };
-        settingsWindow.ShowDialog();
-    }
-
 }

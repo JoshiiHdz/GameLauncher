@@ -25,7 +25,9 @@ public sealed partial class GameEntry : ObservableObject
     public string DetectedTitle => _detectedTitle ?? _name;
     public required string ExecutablePath { get; init; }
     public required string InstallDir { get; init; }
-    public required GameSource Source { get; init; }
+    /// <summary>Which launcher the game belongs to. Set by the scan that found it; a game found by watching a folder can be handed to the
+    /// launcher its folder shows (LauncherMarkers) once the scan has merged duplicates - which is why it can change after creation.</summary>
+    public required GameSource Source { get; set; }
 
     public string? LaunchUri { get; init; }
 
@@ -69,6 +71,18 @@ public sealed partial class GameEntry : ObservableObject
     [ObservableProperty]
     private bool _favorite;
 
+    /// <summary>The collections this game is in, as saved on its override. Replaced wholesale, never mutated in place.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<string> _collections = [];
+
+    /// <summary>"Also installed through Epic Games" - set when the same title is installed through another launcher too (see
+    /// DuplicateDetector); empty otherwise.</summary>
+    [ObservableProperty]
+    private string _duplicateNote = "";
+
+    [ObservableProperty]
+    private bool _hasDuplicate;
+
     /// <summary>True when automatic identification could not settle which game this is (no confident match, an ambiguous name,
     /// a contradiction, or unreadable identity data) - drives the small "?" badge that invites the user to identify it. A
     /// pinned or existing cover is unaffected: this is about IDENTITY, not about what image is shown.</summary>
@@ -103,15 +117,7 @@ public sealed partial class GameEntry : ObservableObject
         InstallSizeDisplay = FormatSize(value);
     }
 
-    private static string FormatSize(long? value) => value switch
-    {
-        null => "",
-        >= 1L << 40 => $"{value.Value / (double)(1L << 40):0.#} TB",
-        >= 1L << 30 => $"{value.Value / (double)(1L << 30):0.#} GB",
-        >= 1L << 20 => $"{value.Value / (double)(1L << 20):0.#} MB",
-        >= 1024 => $"{value.Value / 1024d:0.#} KB",
-        _ => $"{value.Value} B",
-    };
+    private static string FormatSize(long? value) => value is { } bytes ? ByteFormat.Size(bytes) : "";
 
     /// <summary>Play time this app has actually tracked, in seconds - see GameOverride.TotalPlaySeconds
     /// for why this is explicitly not a lifetime total.</summary>
@@ -145,18 +151,8 @@ public sealed partial class GameEntry : ObservableObject
         LastPlayedDisplay = LastPlayedUtc is { } last ? FormatRelative(last) : "";
     }
 
-    private static string FormatTracked(long seconds)
-    {
-        if (seconds <= 0)
-            return "";
-
-        // Minutes below an hour: "38.2 h tracked" is meaningless detail for a 12-minute session, and
-        // "0.2 h" reads like a bug.
-        if (seconds < 3600)
-            return $"{Math.Max(1, seconds / 60)} min tracked";
-
-        return $"{seconds / 3600d:0.#} h tracked";
-    }
+    private static string FormatTracked(long seconds) =>
+        seconds <= 0 ? "" : $"{PlayTimeFormat.Duration(seconds)} tracked";
 
     private static string FormatRelative(DateTime utc)
     {

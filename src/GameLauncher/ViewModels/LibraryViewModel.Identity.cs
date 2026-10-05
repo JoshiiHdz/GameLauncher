@@ -768,8 +768,7 @@ public partial class LibraryViewModel
                 return;
             }
 
-            var window = new IdentifyGameWindow(dialog, startOnCovers) { Owner = System.Windows.Application.Current?.MainWindow };
-            window.ShowDialog();
+            AppShell.ShowModal("Identify Game", new IdentifyGameDialog(dialog, startOnCovers));
             StatusText = string.IsNullOrWhiteSpace(dialog.StatusMessage) ? StatusText : dialog.StatusMessage;
         }
         catch (Exception ex)

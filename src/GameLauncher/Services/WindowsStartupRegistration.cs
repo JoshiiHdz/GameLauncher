@@ -8,6 +8,10 @@ internal interface IStartupRegistration
 {
     bool IsEnabled { get; }
     void SetEnabled(bool enabled);
+
+    /// <summary>Whether this copy of the app is somewhere it is safe to start from every sign-in. The first-run default only turns startup
+    /// on when it is - a loose copy run from Downloads or a temp folder could be deleted or moved, leaving a dead startup entry.</summary>
+    bool SuitableForDefaultStartup => true;
 }
 
 /// <summary>Only owns this app's per-user Startup shortcut. No registry/service/admin changes.</summary>
@@ -15,6 +19,10 @@ internal sealed class WindowsStartupRegistration(string startupDirectory, Func<(
 {
     private string ShortcutPath => Path.Combine(startupDirectory, "Axis Game Launcher.lnk");
     public bool IsEnabled => File.Exists(ShortcutPath);
+
+    /// <summary>True only for a Velopack-installed copy (it lives in its own folder and updates in place). A portable or loose copy is
+    /// never switched on by default; the person can still turn it on in Settings.</summary>
+    public bool SuitableForDefaultStartup => VelopackLocator.IsCurrentSet && VelopackLocator.Current is { IsPortable: false };
 
     public static WindowsStartupRegistration ForCurrentUser() => new(
         Environment.GetFolderPath(Environment.SpecialFolder.Startup), () =>

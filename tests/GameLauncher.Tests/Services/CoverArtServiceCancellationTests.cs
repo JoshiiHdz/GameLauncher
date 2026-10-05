@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using GameLauncher.Models;
 using GameLauncher.Services;

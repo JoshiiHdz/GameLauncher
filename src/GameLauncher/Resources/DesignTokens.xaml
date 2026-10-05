@@ -18,7 +18,6 @@
         Ink        ink           #f1f3f9   primary text
         Muted      muted         #9099ad   secondary text, idle icons
         Accent     accent        #ff6b86   Play, active rail marker, rings, focus
-        AccentInk  accent-ink    #2a0d14   text/icon ON the accent fill
     -->
 
     <Color x:Key="DesignBgColor">#FF0B0D13</Color>
@@ -29,7 +28,6 @@
     <Color x:Key="DesignInkColor">#FFF1F3F9</Color>
     <Color x:Key="DesignMutedColor">#FF9099AD</Color>
     <Color x:Key="DesignAccentColor">#FFFF6B86</Color>
-    <Color x:Key="DesignAccentInkColor">#FF2A0D14</Color>
 
     <SolidColorBrush x:Key="DesignBg" Color="{StaticResource DesignBgColor}" />
     <SolidColorBrush x:Key="DesignBg2" Color="{StaticResource DesignBg2Color}" />
@@ -39,17 +37,14 @@
     <SolidColorBrush x:Key="DesignInk" Color="{StaticResource DesignInkColor}" />
     <SolidColorBrush x:Key="DesignMuted" Color="{StaticResource DesignMutedColor}" />
     <SolidColorBrush x:Key="DesignAccent" Color="{StaticResource DesignAccentColor}" />
-    <SolidColorBrush x:Key="DesignAccentInk" Color="{StaticResource DesignAccentInkColor}" />
 
     <!-- Derived values the preview expresses as color-mix(), resolved here once.
          Hero fill      = surface at 72%            (color-mix(surface 72%, transparent))
          Hero border    = glow 24% over stroke      -> #5A3B4C
-         Flyout fill    = surface at 92%
          Ghost button   = ink at 9%
          Tile bar track = ink at 12%                                                        -->
     <SolidColorBrush x:Key="DesignHeroFill" Color="#B8141822" />
     <SolidColorBrush x:Key="DesignHeroStroke" Color="#FF5A3B4C" />
-    <SolidColorBrush x:Key="DesignFlyoutFill" Color="#EB141822" />
     <SolidColorBrush x:Key="DesignGhostFill" Color="#17F1F3F9" />
     <SolidColorBrush x:Key="DesignGhostFillHover" Color="#26F1F3F9" />
     <SolidColorBrush x:Key="DesignTrackFill" Color="#1FF1F3F9" />

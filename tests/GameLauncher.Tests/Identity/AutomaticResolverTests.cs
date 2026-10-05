@@ -504,7 +504,7 @@ public class AutomaticResolverTests : IDisposable
     {
         var output = Run(Foo(), Ctx(_igdb, _sgdb), Quarantined("""{ "Junk": 1 }"""));
 
-        Assert.True(output.IdentityNotApplicable);
+        Assert.Null(output.NewRecord); // identity half not applicable
         Assert.Equal(0, _igdb.TitleSearches + _sgdb.TitleSearches + _igdb.CoverFetches + _sgdb.CoverFetches);
     }
 

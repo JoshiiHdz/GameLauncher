@@ -14,5 +14,5 @@ public static class RockstarScanner
         sourceLabel: "Rockstar Games Launcher",
         idPrefix: "rockstar",
         publisherContains: new[] { "Rockstar Games" },
-        excludeNameContains: new[] { "Rockstar Games Launcher", "Social Club" });
+        excludeNameContains: new[] { "Rockstar Games Launcher", "Social Club", "Rockstar Games Services" });
 }

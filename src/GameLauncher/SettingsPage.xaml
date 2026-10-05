@@ -1,0 +1,426 @@
+<UserControl x:Class="GameLauncher.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:beh="clr-namespace:GameLauncher.Behaviors"
+             xmlns:services="clr-namespace:GameLauncher.Services"
+             xmlns:conv="clr-namespace:GameLauncher.Converters"
+             mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/DesignTokens.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- A group of related settings: one rounded card per group, titled, instead of one long undivided scroll. -->
+            <Style x:Key="GroupCardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource DesignSurface}" />
+                <Setter Property="BorderBrush" Value="{StaticResource DesignStroke}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="Padding" Value="18,16" />
+                <Setter Property="Margin" Value="0,0,0,14" />
+            </Style>
+            <Style x:Key="GroupTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="0,0,0,10" />
+            </Style>
+            <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="20" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="2,0,0,4" />
+            </Style>
+            <Style x:Key="SectionNoteStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12.5" />
+                <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="Margin" Value="2,0,0,16" />
+            </Style>
+            <Style x:Key="NoteStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="Margin" Value="0,5,0,0" />
+            </Style>
+            <Style x:Key="RowGapStyle" TargetType="Border">
+                <Setter Property="Height" Value="1" />
+                <Setter Property="Background" Value="{StaticResource DesignStroke}" />
+                <Setter Property="Margin" Value="0,14" />
+            </Style>
+            <!-- The category list matches the sidebar's own selection look (soft fill, accent marker) rather than the library's default blue. -->
+            <Style x:Key="CategoryItemStyle" TargetType="ListBoxItem">
+                <Setter Property="Padding" Value="12,9" />
+                <Setter Property="Margin" Value="0,0,0,3" />
+                <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <Grid>
+                                <Border x:Name="Root" CornerRadius="10" Background="Transparent" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter VerticalAlignment="Center" />
+                                </Border>
+                                <Border x:Name="Marker" Width="3" Height="18" CornerRadius="2" Margin="1,0,0,0"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center" Background="Transparent" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
+                                    <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
+                                    <Setter TargetName="Marker" Property="Background" Value="{StaticResource DesignAccent}" />
+                                    <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <!-- Categories on the left, one category at a time on the right - no endless scroll. Every setting from before is still here, just grouped. -->
+    <Grid Margin="22,6,22,18">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="196" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <ListBox x:Name="CategoryList" Grid.Column="0" Margin="0,4,18,0" BorderThickness="0" Background="Transparent"
+                 ItemContainerStyle="{StaticResource CategoryItemStyle}"
+                 SelectionChanged="CategoryList_SelectionChanged">
+            <ListBoxItem x:Name="GeneralCategory" AutomationProperties.Name="General">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="Settings24" FontSize="17" Width="26" />
+                    <TextBlock Text="General" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </ListBoxItem>
+            <ListBoxItem x:Name="LibraryCategory" AutomationProperties.Name="Library">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="Folder24" FontSize="17" Width="26" />
+                    <TextBlock Text="Library" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </ListBoxItem>
+            <ListBoxItem x:Name="AppearanceCategory" AutomationProperties.Name="Appearance">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="PaintBrush24" FontSize="17" Width="26" />
+                    <TextBlock Text="Appearance" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </ListBoxItem>
+            <ListBoxItem x:Name="PerformanceCategory" AutomationProperties.Name="Performance">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="Flash24" FontSize="17" Width="26" />
+                    <TextBlock Text="Performance" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </ListBoxItem>
+            <ListBoxItem x:Name="IntegrationsCategory" AutomationProperties.Name="Integrations">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="PlugConnected24" FontSize="17" Width="26" />
+                    <TextBlock Text="Integrations" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </ListBoxItem>
+            <ListBoxItem x:Name="BackupCategory" AutomationProperties.Name="Data and backup">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="Save24" FontSize="17" Width="26" />
+                    <TextBlock Text="Data and backup" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </ListBoxItem>
+            <ListBoxItem x:Name="AboutCategory" AutomationProperties.Name="About and support">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="Info24" FontSize="17" Width="26" />
+                    <TextBlock Text="About and support" VerticalAlignment="Center" FontSize="13" />
+                </StackPanel>
+            </ListBoxItem>
+        </ListBox>
+
+        <!-- The seven category panels share one cell; SettingsPage.xaml.cs shows the chosen one. Each scrolls on its own. -->
+        <Grid x:Name="SectionHost" Grid.Column="1">
+
+            <!-- ================= General ================= -->
+            <ScrollViewer x:Name="GeneralSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
+                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <TextBlock Text="General" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="How the launcher starts, how it behaves while you play, how play time is kept, and how you reach it." Style="{StaticResource SectionNoteStyle}" />
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Startup" Style="{StaticResource GroupTitleStyle}" />
+                            <ui:ToggleSwitch Content="Start with Windows" IsChecked="{Binding StartWithWindows}" />
+                            <TextBlock Text="Open Axis Game Launcher when you sign in. On by default for a new install. Keep a portable copy in a permanent location before enabling this."
+                                       Style="{StaticResource NoteStyle}" />
+                            <Border Style="{StaticResource RowGapStyle}" />
+                            <ui:ToggleSwitch Content="Open maximized" IsChecked="{Binding StartMaximized}" />
+                            <TextBlock Text="Fill the screen when the launcher opens. Turn off to open at a normal window size."
+                                       Style="{StaticResource NoteStyle}" />
+                            <Border Style="{StaticResource RowGapStyle}" />
+                            <ui:ToggleSwitch Content="Check for updates on startup" IsChecked="{Binding CheckForUpdates}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="While you play" Style="{StaticResource GroupTitleStyle}" />
+                            <ui:ToggleSwitch Content="Hide to tray while gaming" IsChecked="{Binding MinimizeToTrayWhileGaming}" />
+                            <TextBlock Text="While a game is running, hide to the system tray and come back automatically when it closes. When off, the launcher just minimizes to the taskbar."
+                                       Style="{StaticResource NoteStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Play time" Style="{StaticResource GroupTitleStyle}" />
+                            <ui:ToggleSwitch Content="Track games opened outside the launcher" IsChecked="{Binding TrackExternalGames}" />
+                            <TextBlock Text="While Axis Game Launcher is running, detect known game executables and track their running time. No earlier play history is imported. Protected games without a readable executable path may not be detected. This does not hide or restore the launcher."
+                                       Style="{StaticResource NoteStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Shortcuts" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="Press Ctrl+K in the launcher to find a game or run any command by typing." FontSize="13" TextWrapping="Wrap" />
+                            <Border Style="{StaticResource RowGapStyle}" />
+                            <ui:ToggleSwitch Content="Open the command palette from anywhere with Ctrl+Alt+Space" IsChecked="{Binding GlobalHotkeyEnabled}" />
+                            <TextBlock Text="Brings the launcher forward, even from the tray or while a game is open. Turn off if another program already uses that shortcut."
+                                       Style="{StaticResource NoteStyle}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= Library ================= -->
+            <ScrollViewer x:Name="LibrarySection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
+                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <TextBlock Text="Library" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="Where your games come from, and how they are scanned." Style="{StaticResource SectionNoteStyle}" />
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Watched folders" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="Games are auto-detected from Steam, Epic, GOG and more. Add folders below for anything else."
+                                       Style="{StaticResource NoteStyle}" Margin="0,0,0,10" />
+
+                            <ListBox ItemsSource="{Binding WatchedFolders}" BorderThickness="0" Background="Transparent" MaxHeight="180">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,3">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Path}" TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center" ToolTip="{Binding Path}" FontSize="12" />
+                                            <ui:Button Grid.Column="1" Appearance="Transparent" Padding="4"
+                                                       Icon="{ui:SymbolIcon Delete24}"
+                                                       Command="{Binding DataContext.RemoveFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <ui:Button Content="Add Folder" Command="{Binding AddFolderCommand}"
+                                       Icon="{ui:SymbolIcon FolderAdd24}" HorizontalAlignment="Left" Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Drives to search" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="Switch a drive off and nothing on it is searched, and its games leave your library until you switch it back on."
+                                       Style="{StaticResource NoteStyle}" Margin="0,0,0,10" />
+                            <ItemsControl x:Name="DriveSearchList" ItemsSource="{Binding SearchableDrives}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding SizeText}" FontSize="11" Foreground="{StaticResource DesignMuted}" />
+                                            </StackPanel>
+                                            <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IsSearched}" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Separator Margin="0,12" />
+                            <ui:ToggleSwitch x:Name="FindWithoutLauncherSwitch" Content="Find games installed without a launcher" IsChecked="{Binding FindGamesWithoutLauncher}" />
+                            <TextBlock Text="Pre-installed and repacked games, or a game folder copied from another PC, are recognised on the drives above and shown under No launcher. Only folder names are looked at; nothing is opened or read."
+                                       Style="{StaticResource NoteStyle}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Scanning" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="Re-scan after installing new games, or add a shortcut to launch Axis Game Launcher from your desktop."
+                                       Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button Content="Re-scan Library" Appearance="Primary"
+                                           Command="{Binding RescanCommand}"
+                                           Icon="{ui:SymbolIcon ArrowSync24}"
+                                           IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
+                                <ui:Button Content="{Binding DesktopShortcutButtonText}"
+                                           Command="{Binding CreateDesktopShortcutCommand}"
+                                           Icon="{ui:SymbolIcon Desktop24}" Margin="10,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Cover art" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="Real box art is fetched automatically for every source - Steam through its own store, everything else through IGDB (SteamGridDB as a fallback). Nothing to set up, no account needed."
+                                       FontSize="12.5" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= Appearance ================= -->
+            <ScrollViewer x:Name="AppearanceSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
+                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <TextBlock Text="Appearance" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="How the launcher looks." Style="{StaticResource SectionNoteStyle}" />
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Background" Style="{StaticResource GroupTitleStyle}" />
+                            <ui:ToggleSwitch Content="Vibrant background" IsChecked="{Binding VibrantBackground}" />
+                            <TextBlock Text="Frosted acrylic background. Uses a little GPU while the window is on screen - nothing while it's minimized during a game."
+                                       Style="{StaticResource NoteStyle}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= Performance ================= -->
+            <ScrollViewer x:Name="PerformanceSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
+                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <TextBlock Text="Performance" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="Free up memory and clear storage clutter - sizes are shown first, and you are asked before anything is deleted."
+                               Style="{StaticResource SectionNoteStyle}" />
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Optimize" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="Trim idle memory and clear temporary files, caches and the Recycle Bin from one page." Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
+                            <ui:Button Content="Open Optimize" Command="{Binding ShowOptimizeCommand}"
+                                       Icon="{ui:SymbolIcon Flash24}" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Before a game starts" Style="{StaticResource GroupTitleStyle}" />
+                            <ui:ToggleSwitch Content="Free up memory before launching a game" IsChecked="{Binding OptimizeBeforeLaunch}" />
+                            <TextBlock Text="Trims other apps' idle memory just before a game starts. Never closes anything."
+                                       Style="{StaticResource NoteStyle}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= Integrations ================= -->
+            <ScrollViewer x:Name="IntegrationsSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
+                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <TextBlock Text="Integrations" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="Other ways to play." Style="{StaticResource SectionNoteStyle}" />
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBlock Text="Controller mode" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <Border CornerRadius="8" Padding="8,2" Margin="10,0,0,0" VerticalAlignment="Center"
+                                        Background="{StaticResource DesignGhostFill}">
+                                    <TextBlock Text="COMING SOON" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource DesignAccent}" />
+                                </Border>
+                            </StackPanel>
+                            <TextBlock Text="A full-screen, controller-friendly view of your library for the couch or a TV, played with an Xbox-style controller. It is still being built and is not open yet."
+                                       Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
+                            <ui:Button Content="Open controller mode" Command="{Binding ShowBigScreenCommand}"
+                                       Icon="{ui:SymbolIcon Games24}" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= Data and backup ================= -->
+            <ScrollViewer x:Name="BackupSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
+                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <TextBlock Text="Data and backup" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="Keep your own data safe, or move it to another PC." Style="{StaticResource SectionNoteStyle}" />
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Library data" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="Save your favorites, hidden games, collections, notes, custom names, tracked play time and preferences to a file - to keep safe or move to another PC. Cover art, keys and folder paths are not included."
+                                       Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button Content="Export library data..." Command="{Binding ExportLibraryDataCommand}"
+                                           Icon="{ui:SymbolIcon ArrowUpload24}" />
+                                <ui:Button Content="Import library data..." Command="{Binding ImportLibraryDataCommand}"
+                                           Icon="{ui:SymbolIcon ArrowDownload24}" Margin="10,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Cache and reset" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="After an update a saved cover can be out of date. Clearing the cache removes the saved cover art and icons and looks every cover up again. Resetting also puts every setting back to its default. Your favorites, hidden games, collections, notes, play time, watched folders and the covers you chose yourself are kept either way."
+                                       Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button Content="Clear cache and refresh covers" Command="{Binding ClearCacheCommand}"
+                                           Icon="{ui:SymbolIcon ArrowSync24}" />
+                                <ui:Button Content="Reset all settings and cache..." Command="{Binding ResetEverythingCommand}"
+                                           Appearance="Danger" Icon="{ui:SymbolIcon Delete24}" Margin="10,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= About and support ================= -->
+            <ScrollViewer x:Name="AboutSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
+                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                    <TextBlock Text="About and support" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Style="{StaticResource SectionNoteStyle}">
+                        <Run Text="Axis Game Launcher &#8226; Version " /><Run Text="{x:Static services:AppInfo.Version}" />
+                    </TextBlock>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Updates" Style="{StaticResource GroupTitleStyle}" />
+                            <TextBlock Text="The launcher checks when it starts (change that under General). You can also check right now." Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
+                            <ui:Button Content="Check for Updates Now" Command="{Binding CheckForUpdateNowCommand}"
+                                       Icon="{ui:SymbolIcon ArrowSync24}" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Help" Style="{StaticResource GroupTitleStyle}" />
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button Content="Open Logs Folder" Command="{Binding OpenLogsFolderCommand}"
+                                           Icon="{ui:SymbolIcon DocumentText24}" />
+                                <ui:Button Content="Send Feedback or Report a Bug" Command="{Binding ReportBugCommand}"
+                                           Icon="{ui:SymbolIcon Bug24}" Margin="10,0,0,0"
+                                           ToolTip="Tell the developer about a bug, a wrong cover, or an idea - no account needed." />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>

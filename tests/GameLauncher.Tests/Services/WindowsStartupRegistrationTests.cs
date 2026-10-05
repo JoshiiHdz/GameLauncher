@@ -1,5 +1,6 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using GameLauncher.Models;
 using GameLauncher.Services;
 using GameLauncher.ViewModels;
 
@@ -46,6 +47,8 @@ public sealed class WindowsStartupRegistrationTests : IDisposable
     {
         public bool IsEnabled { get; private set; }
         public bool Fail;
+        public bool Installed = true;
+        public bool SuitableForDefaultStartup => Installed;
         public void SetEnabled(bool enabled)
         {
             if (Fail) throw new IOException("Access denied for test");
@@ -57,6 +60,7 @@ public sealed class WindowsStartupRegistrationTests : IDisposable
     public void TogglePersistsOnSuccess_AndRevertsOnRegistrationFailure()
     {
         var service = new FakeRegistration();
+        new SettingsService(_dir).Save(new AppSettings()); // not a first run: the first-run default does not apply
         var vm = new LibraryViewModel(new SettingsService(_dir), new PendingUpdateNotesService(_dir), service);
         Assert.False(vm.StartWithWindows);
         vm.StartWithWindows = true;
@@ -66,6 +70,70 @@ public sealed class WindowsStartupRegistrationTests : IDisposable
         Assert.Contains("Couldn't change", vm.StatusText);
         service.Fail = false; vm.StartWithWindows = false;
         Assert.False(vm.StartWithWindows); Assert.False(service.IsEnabled);
+    }
+
+    [Fact]
+    public void OnTheFirstRun_StartWithWindowsIsOnByDefault_AndTheChoiceIsSaved()
+    {
+        var service = new FakeRegistration();
+        var vm = new LibraryViewModel(new SettingsService(_dir), new PendingUpdateNotesService(_dir), service);
+
+        Assert.True(vm.StartWithWindows);
+        Assert.True(service.IsEnabled);
+        Assert.True(new SettingsService(_dir).Load().StartWithWindows);
+
+        // The next run is not a first run any more: turning it off in Settings sticks.
+        vm.StartWithWindows = false;
+        var again = new LibraryViewModel(new SettingsService(_dir), new PendingUpdateNotesService(_dir), service);
+        Assert.False(again.StartWithWindows);
+        Assert.False(service.IsEnabled);
+    }
+
+    [Fact]
+    public void ALooseOrPortableCopy_IsNeverSwitchedOnByTheDefault_ButCanStillBeTurnedOnInSettings()
+    {
+        var service = new FakeRegistration { Installed = false };
+        var vm = new LibraryViewModel(new SettingsService(_dir), new PendingUpdateNotesService(_dir), service);
+
+        Assert.False(vm.StartWithWindows);
+        Assert.False(service.IsEnabled);
+        Assert.False(File.Exists(Path.Combine(_dir, "settings.json"))); // still a first run: nothing was decided
+
+        vm.StartWithWindows = true; // a person's own choice always works
+        Assert.True(service.IsEnabled);
+    }
+
+    [Fact]
+    public void AnExistingInstall_IsNeverSwitchedOn_ByTheDefault()
+    {
+        new SettingsService(_dir).Save(new AppSettings { StartWithWindows = false }); // someone who has used it and has it off
+        var service = new FakeRegistration();
+
+        var vm = new LibraryViewModel(new SettingsService(_dir), new PendingUpdateNotesService(_dir), service);
+
+        Assert.False(vm.StartWithWindows);
+        Assert.False(service.IsEnabled);
+    }
+
+    [Fact]
+    public void IfTheFirstRunCannotSetItUp_ItStaysOff_AndTriesAgainNextTime()
+    {
+        var failing = new FakeRegistration { Fail = true };
+        var vm = new LibraryViewModel(new SettingsService(_dir), new PendingUpdateNotesService(_dir), failing);
+        Assert.False(vm.StartWithWindows);
+        Assert.False(File.Exists(Path.Combine(_dir, "settings.json"))); // nothing saved, so it is still a first run
+
+        var working = new FakeRegistration();
+        var next = new LibraryViewModel(new SettingsService(_dir), new PendingUpdateNotesService(_dir), working);
+        Assert.True(next.StartWithWindows);
+        Assert.True(working.IsEnabled);
+    }
+
+    [Fact]
+    public void WithNoStartupSupportInTheHost_TheFirstRunDefaultDoesNothing()
+    {
+        var vm = new LibraryViewModel(new SettingsService(_dir), new PendingUpdateNotesService(_dir));
+        Assert.False(vm.StartWithWindows);
     }
 
     public void Dispose() { if (Directory.Exists(_dir)) Directory.Delete(_dir, true); }

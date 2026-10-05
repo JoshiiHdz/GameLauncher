@@ -1,0 +1,125 @@
+<UserControl x:Class="GameLauncher.StatsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:beh="clr-namespace:GameLauncher.Behaviors"
+             xmlns:conv="clr-namespace:GameLauncher.Converters"
+             mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/DesignTokens.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="StatTileStyle" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource DesignSurface}" />
+                <Setter Property="BorderBrush" Value="{StaticResource DesignStroke}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Padding" Value="14,12" />
+                <Setter Property="Margin" Value="0,0,8,0" />
+            </Style>
+            <Style x:Key="SectionHeadingStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="0,22,0,10" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid MaxWidth="820" HorizontalAlignment="Center">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" Margin="24,8,24,8" Padding="0,0,14,0" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
+            <StackPanel>
+                <!-- Three headline numbers. -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Style="{StaticResource StatTileStyle}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding GameCount}" FontSize="26" FontWeight="Bold" />
+                            <TextBlock Text="Games" FontSize="11.5" Foreground="{StaticResource DesignMuted}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="1" Style="{StaticResource StatTileStyle}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalPlayDisplay}" FontSize="26" FontWeight="Bold" />
+                            <TextBlock Text="Tracked play time" FontSize="11.5" Foreground="{StaticResource DesignMuted}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource StatTileStyle}" Margin="0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding PlayedGameCount}" FontSize="26" FontWeight="Bold" />
+                            <TextBlock Text="Games played" FontSize="11.5" Foreground="{StaticResource DesignMuted}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <TextBlock Text="Most played" Style="{StaticResource SectionHeadingStyle}" />
+                <TextBlock Text="Nothing tracked yet. Play a game while Axis Game Launcher is running and it will show up here."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                           Visibility="{Binding HasNoPlay, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                <ItemsControl ItemsSource="{Binding MostPlayed}"
+                              Visibility="{Binding HasMostPlayed, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,0,0,10">
+                                <Grid>
+                                    <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" Margin="0,0,70,0" />
+                                    <TextBlock Text="{Binding Detail}" FontSize="12" HorizontalAlignment="Right"
+                                               Foreground="{StaticResource DesignMuted}" />
+                                </Grid>
+                                <ProgressBar Height="5" Margin="0,5,0,0" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding Fraction, Mode=OneWay}"
+                                             Foreground="{StaticResource DesignAccent}" Background="{StaticResource DesignTrackFill}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <StackPanel Visibility="{Binding HasPlayedThisWeek, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="{Binding PlayedThisWeekHeading}" Style="{StaticResource SectionHeadingStyle}" />
+                    <ItemsControl ItemsSource="{Binding PlayedThisWeek}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,6">
+                                    <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" Margin="0,0,110,0" />
+                                    <TextBlock Text="{Binding Detail}" FontSize="12" HorizontalAlignment="Right"
+                                               Foreground="{StaticResource DesignMuted}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding HasNotPlayed, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="Not played yet" Style="{StaticResource SectionHeadingStyle}" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding NotPlayedText}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        <!-- The same command as the sidebar's "Not played yet": it also closes this page. -->
+                        <ui:Button Grid.Column="1" Content="Show them" Margin="12,0,0,0"
+                                   Command="{Binding DataContext.SelectViewCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                   CommandParameter="unplayed" />
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <TextBlock Grid.Row="1" Margin="24,0,24,18"
+                   Text="Only play seen by Axis Game Launcher is counted - earlier play history isn't known."
+                   FontSize="11" Opacity="0.55" TextWrapping="Wrap" VerticalAlignment="Center" />
+    </Grid>
+</UserControl>

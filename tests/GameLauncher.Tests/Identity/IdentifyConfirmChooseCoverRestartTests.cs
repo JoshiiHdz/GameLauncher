@@ -3,7 +3,6 @@ using System.Net.Http;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
-using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using GameLauncher.Models;
@@ -188,13 +187,10 @@ public class IdentifyConfirmChooseCoverRestartTests : IDisposable
         Pump();
     }
 
-    private static IdentifyGameWindow ShowWindow(LibraryViewModel vm, GameEntry game, out IdentifyGameViewModel dialog)
+    private static DialogTestHost<IdentifyGameDialog> ShowWindow(LibraryViewModel vm, GameEntry game, out IdentifyGameViewModel dialog)
     {
         dialog = new IdentifyGameViewModel(vm, vm.CreateCatalogProvidersForPicker(), game.Id, game.Name);
-        var window = new IdentifyGameWindow(dialog)
-        {
-            WindowStartupLocation = WindowStartupLocation.Manual, Left = -5000, Top = -5000, ShowActivated = false,
-        };
+        var window = new DialogTestHost<IdentifyGameDialog>(new IdentifyGameDialog(dialog), 520, 640);
         window.Show();
         window.UpdateLayout();
         Pump();
@@ -228,7 +224,7 @@ public class IdentifyConfirmChooseCoverRestartTests : IDisposable
                 Assert.Equal(new[] { "Foo Tactics", "Foo Tactics 2" }, dialog.Candidates.Select(c => c.Title));
                 Assert.Equal("IGDB · 2011", dialog.Candidates[0].Subtitle);
 
-                window.CandidateList.SelectedItem = window.CandidateList.Items[0];
+                window.Dialog.CandidateList.SelectedItem = window.Dialog.CandidateList.Items[0];
                 Click(window, "This is the game");
                 await WaitUntil(() => vm1.GetOverride(game.Id)?.Artwork is { IsUserSelected: false } && game.IsCoverArt, "the confirmed game's cover");
             }
@@ -270,14 +266,14 @@ public class IdentifyConfirmChooseCoverRestartTests : IDisposable
             var window3 = ShowWindow(vm3, game3, out var dialog3);
             try
             {
-                window3.Tabs.SelectedItem = window3.CoverTab;
+                window3.Dialog.Tabs.SelectedItem = window3.Dialog.CoverTab;
                 window3.UpdateLayout();
                 Pump();
                 Click(window3, "Load covers");
                 await WaitUntil(() => dialog3.Covers.Count == 2, "the confirmed game's covers");
                 Assert.All(dialog3.Covers, c => Assert.Equal("42", c.Entry.Id));             // listed for the identity, never a title guess
 
-                window3.CoverList.SelectedItem = window3.CoverList.Items[1];                  // the alternative cover (a different image)
+                window3.Dialog.CoverList.SelectedItem = window3.Dialog.CoverList.Items[1];                  // the alternative cover (a different image)
                 Click(window3, "Use this cover");
                 await WaitUntil(() => vm3.GetOverride(game3.Id)!.Artwork is { IsUserSelected: true }, "the custom cover to be saved");
             }

@@ -22,6 +22,4 @@ public enum IdentityChangeOutcome
     /// <summary>Not allowed in the current state (rejecting the confirmed identity - that is Clear or Change; anything but
     /// Clear on a quarantined record).</summary>
     InvalidOperation,
-
-    AlreadyInProgress,
 }

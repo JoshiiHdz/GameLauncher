@@ -51,9 +51,19 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
 
     private static async Task Settle(MainWindow window)
     {
-        await Task.Delay(250); // Sidebar's 160 ms storyboard runs on the real dispatcher.
-        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        window.UpdateLayout();
+        // The sidebar's 160 ms width storyboard runs on the real dispatcher: wait until the width has stopped changing (at least 240 ms),
+        // not for a fixed time - a busy machine can stretch the animation past it.
+        var last = -1d;
+        for (var i = 0; i < 40; i++)
+        {
+            await Task.Delay(60);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            window.UpdateLayout();
+            var width = window.SidebarPanel.ActualWidth;
+            if (i >= 3 && Math.Abs(width - last) < 0.01)
+                break;
+            last = width;
+        }
     }
 
     private static async Task ClickSidebarToggle(MainWindow window)
@@ -67,14 +77,20 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
     public void Settings_ShowsStartupAndExternalTrackingToggles_WithRealBindings() => sta.RunAsync(async () =>
     {
         var vm = CreateModel();
-        var window = new SettingsWindow(vm) { Left = -5000, Top = -5000,
-            WindowStartupLocation = WindowStartupLocation.Manual, ShowActivated = false, ShowInTaskbar = false };
+        var window = Open(vm);
         try
         {
-            window.Show(); window.UpdateLayout();
-            var toggles = Descendants<Wpf.Ui.Controls.ToggleSwitch>(window).ToArray();
-            var startup = Assert.Single(toggles.Where(t => Equals(t.Content, "Start with Windows")));
-            var tracking = Assert.Single(toggles.Where(t => Equals(t.Content, "Track games opened outside the launcher")));
+            vm.ShowSettingsCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            window.UpdateLayout();
+            Assert.Equal("Settings", window.PageTitleText.Text);
+            var page = Descendants<SettingsPage>(window.PageContent).Single();
+            var startup = Assert.Single(Descendants<Wpf.Ui.Controls.ToggleSwitch>(window.PageContent).Where(t => Equals(t.Content, "Start with Windows")));
+            Assert.True(page.GeneralSection.IsVisible); // opens on General; the other categories are not even laid out yet
+
+            // Play time lives in General now, beside startup and the other behaviour switches.
+            var tracking = Assert.Single(Descendants<Wpf.Ui.Controls.ToggleSwitch>(page.GeneralSection).Where(t => Equals(t.Content, "Track games opened outside the launcher")));
+            Assert.DoesNotContain(Descendants<Wpf.Ui.Controls.ToggleSwitch>(page.LibrarySection), t => Equals(t.Content, "Track games opened outside the launcher"));
             Assert.False(startup.IsChecked);
             Assert.True(tracking.IsChecked);
             tracking.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
@@ -259,7 +275,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
                 if (source == GameSource.Xbox)
                     Assert.NotNull(window.HeroXboxLogo.Source);
                 if (source == GameSource.Manual)
-                    Assert.Equal(Wpf.Ui.Controls.SymbolRegular.Games24, window.HeroPlatformFallback.Symbol);
+                    Assert.Equal(Wpf.Ui.Controls.SymbolRegular.Folder24, window.HeroPlatformFallback.Symbol);
             }
         }
         finally { window.Close(); }
@@ -303,12 +319,13 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
         try
         {
             await Settle(window);
-            var headings = Descendants<TextBlock>(window.SidebarPanel)
-                .Where(t => t.Text is "LAUNCHERS" or "DRIVES").ToArray();
-            Assert.Equal(2, headings.Length);
-            Assert.All(headings, t => Assert.False(t.IsVisible));
+            TextBlock[] Headings() => Descendants<TextBlock>(window.SidebarPanel).Where(t => t.Text is "LAUNCHERS" or "DRIVES").ToArray();
+            // The rail has no titles: they sit in a collapsed wrapper, so none is showing (and none may even have been built yet).
+            Assert.All(Headings(), t => Assert.False(t.IsVisible));
             Assert.Equal(58, window.SidebarPanel.ActualWidth, 1);
             await ClickSidebarToggle(window);
+            var headings = Headings();
+            Assert.Equal(2, headings.Length);
             Assert.All(headings, t => Assert.True(t.IsVisible));
             vm.HasDrives = false;
             vm.HasAnySourceGames = false;
@@ -362,6 +379,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
     [Fact]
     public void EveryDrive_ShowsUsageAndSpaceWhenExpanded_HidesDetailsWhenCollapsed_AndStillFilters() => sta.RunAsync(async () =>
     {
+        GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false; // this test reads the bar's value, not its easing; restored in Dispose
         var vm = CreateModel();
         Populate(vm);
         vm.InstallSizeEstimatorForTest = (_, _) => 512;
@@ -494,6 +512,127 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
         return bytes;
     }
 
+    [Fact]
+    public void Collections_ListInTheSidebar_FilterOnClick_AndDeleteFromTheirMenu() => sta.RunAsync(async () =>
+    {
+        var vm = CreateModel();
+        Populate(vm);
+        var game = vm.Games.Single();
+        vm.SetGameCollections(game, ["Co-op", "Backlog"]);
+        var window = Open(vm);
+        try
+        {
+            await Settle(window);
+
+            var buttons = Descendants<Button>(window.SidebarPanel).Where(b => b.Name == "CollectionButton").ToArray();
+            Assert.Equal(["Backlog", "Co-op"], buttons.Select(b => (string)b.CommandParameter));
+            Assert.All(buttons, b => Assert.Same(vm.SelectCollectionCommand, b.Command));
+            Assert.All(buttons, b => Assert.True(b.IsVisible));
+            Assert.Contains("COLLECTIONS", Descendants<TextBlock>(window.SidebarPanel).Where(t => t.IsVisible).Select(t => t.Text));
+            Assert.Contains("1", Descendants<TextBlock>(buttons[0]).Where(t => t.IsVisible).Select(t => t.Text));
+            SavePreviewIfRequested(window, "collections-expanded.png");
+
+            ((IInvokeProvider)new ButtonAutomationPeer(buttons[1]).GetPattern(PatternInterface.Invoke)).Invoke();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Assert.Equal("Co-op", vm.SelectedCollection);
+            Assert.Equal("Co-op", vm.LibraryHeaderText);
+
+            // The row's own right-click menu carries a Delete item wired to that collection.
+            var menu = buttons[1].ContextMenu ?? throw new InvalidOperationException("The collection row has no menu.");
+            menu.PlacementTarget = buttons[1];
+            menu.IsOpen = true;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var delete = menu.Items.OfType<MenuItem>().Single();
+            Assert.Same(vm.DeleteCollectionCommand, delete.Command);
+            Assert.Equal("Co-op", delete.CommandParameter);
+            menu.IsOpen = false;
+
+            await ClickSidebarToggle(window);
+            Assert.False(vm.IsSidebarExpanded);
+            Assert.All(buttons, b => Assert.True(b.IsVisible));
+            Assert.DoesNotContain("COLLECTIONS", Descendants<TextBlock>(window.SidebarPanel).Where(t => t.IsVisible).Select(t => t.Text));
+            SavePreviewIfRequested(window, "collections-collapsed.png");
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public void CollectionsDialog_ShowsTickBoxesForExistingCollections_AndSavesTheirState() => sta.RunAsync(async () =>
+    {
+        var dialog = new CollectionsViewModel("Sidebar Test Game", ["Backlog", "Co-op"], ["Co-op"]);
+        var window = Open(CreateModel());
+        try
+        {
+            var shown = await ShellTestSupport.ShowDialogAsync(window, "Collections", new CollectionsDialog(dialog));
+            Assert.Equal("Collections", window.ModalTitle.Text);
+
+            var boxes = Descendants<CheckBox>(window.ModalContent).ToArray();
+            Assert.Equal(["Backlog", "Co-op"], boxes.Select(b => (string)b.Content));
+            Assert.Equal([false, true], boxes.Select(b => b.IsChecked == true));
+
+            boxes[0].IsChecked = true; // ticking a box writes through to the view model
+            Assert.Equal(["Backlog", "Co-op"], dialog.ChosenNames());
+            SavePreviewOf((FrameworkElement)window.Content, "collections-dialog.png");
+            await shown.CloseAsync();
+            Assert.False(window.IsModalOpen);
+            Assert.False(dialog.Saved); // closed without Save
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public void FeedbackDialog_ShowsTheFormWithItsControlsWired() => sta.RunAsync(async () =>
+    {
+        var form = new FeedbackViewModel(new FeedbackService(null, null, () => DateTime.UtcNow), () => "d");
+        var window = Open(CreateModel());
+        try
+        {
+            var shown = await ShellTestSupport.ShowDialogAsync(window, "Send Feedback", new FeedbackDialog(form));
+            var dialog = window.ModalContent;
+
+            var boxes = Descendants<Wpf.Ui.Controls.TextBox>(dialog).ToArray();
+            Assert.Equal(2, boxes.Length);
+            var send = Assert.Single(Descendants<Wpf.Ui.Controls.Button>(dialog).Where(b => Equals(b.Content, "Send")));
+            Assert.Same(form.SendCommand, send.Command);
+            Assert.False(send.IsEnabled); // nothing typed yet
+
+            boxes[0].Text = "The cover for my game is wrong";
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Assert.Equal("The cover for my game is wrong", form.Message);
+            Assert.True(send.IsEnabled);
+
+            // No relay in this build: sending reports it and reveals the GitHub fallback.
+            form.SendCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            window.UpdateLayout();
+            var fallback = Assert.Single(Descendants<Wpf.Ui.Controls.Button>(dialog).Where(b => Equals(b.Content, "Report on GitHub instead")));
+            Assert.True(fallback.IsVisible);
+            SavePreviewOf((FrameworkElement)window.Content, "feedback-window.png");
+            await shown.CloseAsync();
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public void Settings_HasAReportBugButton_WiredToTheCommand() => sta.RunAsync(async () =>
+    {
+        var vm = CreateModel();
+        var window = Open(vm);
+        try
+        {
+            vm.ShowSettingsCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            window.UpdateLayout();
+            var page = Descendants<SettingsPage>(window.PageContent).Single();
+            page.CategoryList.SelectedItem = page.AboutCategory;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            window.UpdateLayout();
+            var button = Assert.Single(Descendants<Wpf.Ui.Controls.Button>(window.PageContent).Where(b => Equals(b.Content, "Send Feedback or Report a Bug")));
+            Assert.Same(vm.ReportBugCommand, button.Command);
+        }
+        finally { window.Close(); }
+    });
+
     private static IEnumerable<T> Descendants<T>(DependencyObject parent) where T : DependencyObject
     {
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
@@ -518,8 +657,26 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
         encoder.Save(output);
     }
 
+    private static void SavePreviewOf(FrameworkElement window, string name)
+    {
+        if (Environment.GetEnvironmentVariable("GAME_LAUNCHER_SIDEBAR_PREVIEWS") is not { Length: > 0 } directory) return;
+        Directory.CreateDirectory(directory);
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(window.ActualWidth), (int)Math.Ceiling(window.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        // The acrylic backdrop is not captured off-screen, so paint the dark app colour behind the window first.
+        var backdrop = new DrawingVisual();
+        using (var context = backdrop.RenderOpen())
+            context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1C)), null, new Rect(0, 0, bitmap.Width, bitmap.Height));
+        bitmap.Render(backdrop);
+        bitmap.Render(window);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var output = File.Create(Path.Combine(directory, name));
+        encoder.Save(output);
+    }
+
     public void Dispose()
     {
+        GameLauncher.Behaviors.Motion.AnimationsEnabled = () => System.Windows.SystemParameters.ClientAreaAnimation;
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
 }

@@ -54,7 +54,10 @@ public sealed class SettingsService
     {
         var settings = TryLoad(_settingsPath) ?? TryLoad(_backupPath);
         if (settings is null)
-            return new AppSettings();
+        {
+            // A first run has neither the file nor its backup; an unreadable file is not a first run.
+            return new AppSettings { IsFreshInstall = !File.Exists(_settingsPath) && !File.Exists(_backupPath) };
+        }
 
         // A hand-edited or partially-corrupted file can deserialize successfully while still setting
         // a collection to JSON null (e.g. "WatchedFolders": null) - System.Text.Json happily accepts

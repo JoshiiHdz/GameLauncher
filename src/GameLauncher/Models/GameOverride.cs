@@ -15,6 +15,14 @@ public sealed class GameOverride
     public string? CustomName { get; set; }
     public bool Hidden { get; set; }
     public bool Favorite { get; set; }
+
+    /// <summary>The user's own groups this game is in ("Co-op", "Backlog"). Names only: a collection exists exactly as long as
+    /// some game is in it, so there is no second list to drift out of step (see LibraryViewModel.Collections).</summary>
+    public List<string> Collections { get; set; } = new();
+
+    /// <summary>The user's own free-text notes about this game (shown on its details page). Null when there are none.</summary>
+    public string? Notes { get; set; }
+
     public DateTime? DateAdded { get; set; }
 
     /// <summary>Total tracked running time, accumulated for launched sessions and observed external

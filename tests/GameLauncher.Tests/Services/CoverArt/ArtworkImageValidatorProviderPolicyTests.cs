@@ -1,4 +1,3 @@
-using System.Windows.Media.Imaging;
 using GameLauncher.Services.CoverArt;
 
 namespace GameLauncher.Tests.Services.CoverArt;

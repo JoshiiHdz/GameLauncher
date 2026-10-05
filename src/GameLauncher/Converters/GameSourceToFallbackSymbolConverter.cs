@@ -11,7 +11,7 @@ namespace GameLauncher.Converters;
 /// PlatformBadgeVisibilityConverter.ForFallbackSymbol keeps this SymbolIcon collapsed for Xbox games,
 /// showing the hardcoded Xbox logo (Assets\XboxLogo.png) in that slot instead, since its MSIX package
 /// icon is ACL-locked and can never be extracted. A folder-scanned game with no detected launcher
-/// (GameSource.Manual) gets a plain gamepad glyph. Everything else (Steam/Epic/GOG/EA whose launcher
+/// (GameSource.Manual) gets a folder glyph - it was added from a folder, not through any launcher. Everything else (Steam/Epic/GOG/EA whose launcher
 /// just isn't installed on this PC) keeps the generic question-mark - that's a different, temporary
 /// case, not a permanent one.
 /// </summary>
@@ -22,7 +22,7 @@ public sealed class GameSourceToFallbackSymbolConverter : IValueConverter
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value switch
         {
-            GameSource.Manual => SymbolRegular.Games24,
+            GameSource.Manual => SymbolRegular.Folder24,
             _ => SymbolRegular.Question24,
         };
 

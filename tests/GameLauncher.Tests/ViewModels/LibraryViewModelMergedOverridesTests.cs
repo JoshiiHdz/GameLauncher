@@ -451,7 +451,7 @@ public class LibraryViewModelMergedOverridesTests : IDisposable
 
         var gameC = MakeGame("game-c");
         _sut.SimulateRefreshResult([winner, gameC]);
-        var sessionC = _sut.MarkGameRunning(gameC); // supersedes A's tracking before A's own exit is seen
+        _sut.MarkGameRunning(gameC); // supersedes A's tracking before A's own exit is seen
 
         Assert.Equal("game-c", _sut.RunningGameId);
         Assert.True(gameC.IsRunning);

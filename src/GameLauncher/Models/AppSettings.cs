@@ -35,6 +35,22 @@ public sealed class AppSettings
     public bool DetectRockstar { get; set; } = true;
     public bool DetectAmazonGames { get; set; } = true;
 
+    /// <summary>Show games that were added from a watched folder and belong to no launcher (the sidebar's "No launcher" row).</summary>
+    public bool DetectManual { get; set; } = true;
+
+    /// <summary>Drives the user switched off: not searched, and their games are left out of the library until the drive is switched back on.</summary>
+    public List<IgnoredDrive> IgnoredDrives { get; set; } = new();
+
+    /// <summary>Also look for games that no launcher installed (repacks, pre-installed or copied folders) on every drive that is switched on.</summary>
+    public bool FindGamesWithoutLauncher { get; set; } = true;
+
+    /// <summary>The game folders the last full disk search found, so most scans only re-check them. See DiskGameFinder.</summary>
+    public List<string> DiscoveredFolders { get; set; } = new();
+    public DateTime? LastDiskSweepUtc { get; set; }
+
+    /// <summary>Which drives that search covered; when this differs from the drives now switched on, the search is due again.</summary>
+    public string? DiskSweepSignature { get; set; }
+
     /// <summary>Left sidebar expanded (labels + launcher switches) vs. collapsed to an icon rail.</summary>
     public bool SidebarExpanded { get; set; } = true;
 
@@ -46,8 +62,27 @@ public sealed class AppSettings
     /// When off, the launcher just minimizes to the taskbar as before.</summary>
     public bool MinimizeToTrayWhileGaming { get; set; } = true;
 
+    /// <summary>Trim other apps' idle memory just before a game is launched from here (see MemoryOptimizer). Off by default.</summary>
+    public bool OptimizeBeforeLaunch { get; set; }
+
+    /// <summary>Ctrl+Alt+Space from anywhere brings the launcher forward with the command palette open. On by default.</summary>
+    public bool GlobalHotkeyEnabled { get; set; } = true;
+
     public bool TrackExternalGames { get; set; } = true;
     public bool StartWithWindows { get; set; }
+
+    /// <summary>True only for the load that found no settings file at all - the very first run on this PC. Never saved. It is what
+    /// lets a first run switch "Start with Windows" on by default without ever overriding a choice someone already made.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsFreshInstall { get; set; }
+
+    /// <summary>Open the launcher maximized. On by default; Settings > General can turn it off.</summary>
+    public bool StartMaximized { get; set; } = true;
+
+    /// <summary>Which sidebar sections are open (an accordion): Tools, Launchers and Drives. Remembered between runs.</summary>
+    public bool SidebarToolsExpanded { get; set; } = true;
+    public bool SidebarLaunchersExpanded { get; set; } = true;
+    public bool SidebarDrivesExpanded { get; set; } = true;
 
     /// <summary>
     /// Optional SteamGridDB API key (steamgriddb.com/profile/preferences/api). When set, cover art

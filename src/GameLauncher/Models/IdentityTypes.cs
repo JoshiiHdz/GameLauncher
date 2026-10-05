@@ -53,7 +53,6 @@ public readonly record struct IdentifierNamespace(string Value) : IOpenString<Id
     public static readonly IdentifierNamespace UbisoftGame = new("UbisoftGame");
 
     public bool IsLauncher => Value is "SteamApp" or "GogProduct" or "EpicApp" or "UbisoftGame";
-    public bool IsKnownCatalog => this == IgdbGame || this == SteamGridDbGame;
 
     /// <summary>Among AUTOMATIC entries only (a user-confirmed entry outranks all of them regardless): lower wins.</summary>
     public int AutomaticPriority => this == IgdbGame ? 0 : this == SteamGridDbGame ? 1 : 2;

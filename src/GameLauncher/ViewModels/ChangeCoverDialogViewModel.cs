@@ -4,7 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace GameLauncher.ViewModels;
 
-/// <summary>Backs ChangeCoverWindow's local-only Preview -> Apply/Cancel step. Deliberately holds no
+/// <summary>Backs ChangeCoverDialog's local-only Preview -> Apply/Cancel step. Deliberately holds no
 /// gameId, no file bytes, and calls nothing in LibraryViewModel or ArtworkAssetStore - it only ever
 /// displays the already-decoded preview image LibraryViewModel.ValidateLocalCoverImageAsync produced and
 /// records which button the user pressed. The actual write-to-disk/commit-to-settings step
@@ -17,12 +17,12 @@ public sealed partial class ChangeCoverDialogViewModel : ObservableObject
     public string GameName { get; }
     public BitmapImage PreviewImage { get; }
 
-    /// <summary>True only once ApplyCommand has run - read by ChangeCoverWindow's owner (see
+    /// <summary>True only once ApplyCommand has run - read by ChangeCoverDialog's owner (see
     /// LibraryViewModel.ShowChangeCoverPreviewDialog) after ShowDialog() returns, since that's the one
     /// signal it needs to decide whether to go on and actually apply the previewed image.</summary>
     public bool Applied { get; private set; }
 
-    /// <summary>Raised by either command below - ChangeCoverWindow's code-behind subscribes and closes
+    /// <summary>Raised by either command below - ChangeCoverDialog's code-behind subscribes and closes
     /// itself, so this view model never needs to reference the Window it's hosted in.</summary>
     public event Action? RequestClose;
 

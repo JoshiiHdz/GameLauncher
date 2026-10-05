@@ -45,7 +45,7 @@ public sealed class WpfStaFixture : IDisposable
                 // Merges the same two dictionaries App.xaml itself declares (ui:ThemesDictionary +
                 // ui:ControlsDictionary) - without these, ui:Button/ui:TitleBar/ContextMenu/MenuItem
                 // fall back to bare, unstyled defaults, which would make a visual inspection of
-                // ChangeCoverWindow meaningless (it wouldn't look anything like what the app actually
+                // ChangeCoverDialog meaningless (it wouldn't look anything like what the app actually
                 // ships). Deliberately NOT constructing the real GameLauncher.App class itself: its
                 // constructor wires DispatcherUnhandledException to a blocking MessageBox.Show, which
                 // would hang an automated, headless test run if anything under test ever threw

@@ -1,7 +1,6 @@
 using System.IO;
 using System.Net.Http;
 using GameLauncher.Models;
-using GameLauncher.Services;
 using GameLauncher.Services.CoverArt;
 using GameLauncher.Services.Identity;
 using GameLauncher.Tests.Services.CoverArt;
@@ -15,7 +14,7 @@ namespace GameLauncher.Tests.Identity;
 public class IdentifyGameViewModelTests : IDisposable
 {
     private readonly IdentityHarness _h = new();
-    private const int HeightA = 480, HeightB = 640;
+    private const int HeightB = 640;
 
     public void Dispose() => _h.Dispose();
 

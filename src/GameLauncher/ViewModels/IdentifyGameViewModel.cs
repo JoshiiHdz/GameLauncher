@@ -109,9 +109,6 @@ public sealed partial class IdentifyGameViewModel : ObservableObject
     [ObservableProperty] private CandidateItem? _selectedCandidate;
     [ObservableProperty] private CoverItem? _selectedCover;
 
-    /// <summary>What the dialog is showing about the game right now (a copy captured on open / after each operation).</summary>
-    internal LibraryViewModel.IdentityDialogState Opened => _opened;
-
     private void Refresh(LibraryViewModel.IdentityDialogState state)
     {
         _opened = state;

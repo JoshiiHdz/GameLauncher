@@ -718,7 +718,7 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
     }
 
     [Fact]
-    public void OverflowMenuButton_OpensTheSameEightActions_TargetingTheClickedGame_AndNeverLaunchesTheGame()
+    public void OverflowMenuButton_OpensTheSameActions_TargetingTheClickedGame_AndNeverLaunchesTheGame()
     {
         _sta.RunAsync(async () =>
         {
@@ -750,7 +750,7 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.Same(overflow, menu.PlacementTarget);
 
                 var items = menu.Items.OfType<MenuItem>().ToList();
-                Assert.Equal(8, items.Count); // the 7 actions, plus the name header
+                Assert.Equal(11, items.Count); // the 10 actions, plus the name header
                 Assert.Equal(game.Name, GetMenuHeaderText(menu));
                 var play = items.Single(i => i.Header as string == "Play");
                 var openLocation = items.Single(i => i.Header as string == "Open install location");
@@ -759,7 +759,16 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 var changeCover = items.Single(i => i.Header as string == "Change Cover Manually");
                 var reset = items.Single(i => i.Header as string == "Reset cover to automatic");
                 var identify = items.Single(i => i.Header as string == "Identify game...");
+                var collections = items.Single(i => i.Header as string == "Collections...");
+                var details = items.Single(i => i.Header as string == "Game details...");
+                var uninstall = items.Single(i => i.Header as string == "Uninstall...");
 
+                Assert.Same(game, uninstall.CommandParameter);
+                Assert.Same(vm.UninstallGameCommand, uninstall.Command);
+                Assert.Same(game, details.CommandParameter);
+                Assert.Same(vm.ShowGameDetailsCommand, details.Command);
+                Assert.Same(game, collections.CommandParameter);
+                Assert.Same(vm.EditCollectionsCommand, collections.Command);
                 Assert.Same(game, play.CommandParameter);
                 Assert.Same(game, openLocation.CommandParameter);
                 Assert.Same(game, favorite.CommandParameter);

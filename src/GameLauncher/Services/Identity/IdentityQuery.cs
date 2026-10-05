@@ -43,8 +43,6 @@ public sealed class IdentityQuery
     /// the source and the hint. It contains no display name, so a rename never changes it (S1).</summary>
     public string Fingerprint => _fingerprint.Value;
 
-    public bool HasLauncherId(LauncherIdentifier id) => LauncherIds.Contains(id);
-
     public bool HasLauncherId(IdentityKey key) => LauncherIds.Any(l => l.Namespace == key.Namespace && l.Id == key.Id);
 
     private string ComputeFingerprint()

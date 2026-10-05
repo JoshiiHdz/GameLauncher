@@ -1,5 +1,3 @@
-using System.Net.Http;
-using GameLauncher.Models;
 using GameLauncher.Services.CoverArt;
 using GameLauncher.Services.Identity;
 using GameLauncher.Tests.Services.CoverArt;
