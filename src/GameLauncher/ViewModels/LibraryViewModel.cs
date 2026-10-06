@@ -139,6 +139,9 @@ public partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     private bool _minimizeToTrayWhileGaming = true;
 
+    [ObservableProperty]
+    private bool _minimizeToTrayOnMinimize;
+
     /// <summary>Expanded sidebar (labels, launcher switches) vs. the collapsed icon rail. Persisted.</summary>
     [ObservableProperty]
     private bool _isSidebarExpanded = true;
@@ -253,6 +256,7 @@ public partial class LibraryViewModel : ObservableObject
         if (ApplyFirstRunStartupDefault(startupRegistration))
             _startWithWindows = true;
         _startMaximized = _settings.StartMaximized;
+        _appearanceTheme = ThemeManager.Parse(_settings.AppearanceTheme);
         _findGamesWithoutLauncher = _settings.FindGamesWithoutLauncher;
         _isToolsExpanded = _settings.SidebarToolsExpanded;
         _isLaunchersExpanded = _settings.SidebarLaunchersExpanded;
@@ -264,7 +268,11 @@ public partial class LibraryViewModel : ObservableObject
         _igdbSecretSaved = _credentialStore.HasSecret();
         _vibrantBackground = _settings.VibrantBackground;
         _minimizeToTrayWhileGaming = _settings.MinimizeToTrayWhileGaming;
+        _minimizeToTrayOnMinimize = _settings.MinimizeToTrayOnMinimize;
         _optimizeBeforeLaunch = _settings.OptimizeBeforeLaunch;
+        _focusPlayEnabled = _settings.FocusPlay;
+        _focusPlayOnlyWhenPluggedIn = _settings.FocusPlayOnlyWhenPluggedIn;
+        EndFocusPlay(); // a switch an earlier crash or power cut never undid: put the power plan back now
         _globalHotkeyEnabled = _settings.GlobalHotkeyEnabled;
         _trackExternalGames = _settings.TrackExternalGames;
         _detectSteam = _settings.DetectSteam;
@@ -330,6 +338,12 @@ public partial class LibraryViewModel : ObservableObject
         _settingsService.Save(_settings);
     }
 
+    partial void OnMinimizeToTrayOnMinimizeChanged(bool value)
+    {
+        _settings.MinimizeToTrayOnMinimize = value;
+        _settingsService.Save(_settings);
+    }
+
     [RelayCommand]
     private void ToggleShowHidden() => ShowHiddenGames = !ShowHiddenGames;
 
@@ -363,14 +377,20 @@ public partial class LibraryViewModel : ObservableObject
 
     /// <summary>ApplyFilter runs on every keystroke, sort change and refresh, and clearing then re-adding a collection
     /// rebuilds every card even when nothing changed - so a collection is only touched when its contents really differ.</summary>
-    private static void ReplaceIfChanged<T>(ObservableCollection<T> target, IReadOnlyList<T> items)
+    /// <summary>Raised once after a filter pass that changed the Games or Recently played list. A list is rebuilt one game at a time, so listening to its own
+    /// change events would run the ribbon's whole rebuild once per game.</summary>
+    internal event Action? ListsChanged;
+
+    private static bool ReplaceIfChanged<T>(ObservableCollection<T> target, IReadOnlyList<T> items)
     {
         if (target.SequenceEqual(items))
-            return;
+            return false;
 
         target.Clear();
         foreach (var item in items)
             target.Add(item);
+
+        return true;
     }
 
     // The hero tint is sampled from pixels, so it is worked out once per cover image, not once per ApplyFilter.
@@ -400,6 +420,8 @@ public partial class LibraryViewModel : ObservableObject
         // The same: leaving a Duplicates view that has emptied re-enters here and paints.
         if (SyncDuplicates())
             return;
+
+        UpdateViewCounts();
 
         // Computed from the full, un-filtered scan result (not the Detect-filtered list below), so
         // disabling a source can never make its own sidebar row disappear. One pass, not one scan per launcher.
@@ -474,13 +496,13 @@ public partial class LibraryViewModel : ObservableObject
 
         // "Recently played": only games with real tracked sessions, newest first, capped so the strip
         // stays a strip. Empty (and hidden) until something has actually been played through the app.
-        ReplaceIfChanged(RecentlyPlayedGames, isHomeView
+        var listsChanged = ReplaceIfChanged(RecentlyPlayedGames, isHomeView
             ? ordered.Where(g => g.HasPlayTime).OrderByDescending(g => g.LastPlayedUtc).Take(10).ToList()
             : new List<GameEntry>());
         HasRecentlyPlayed = RecentlyPlayedGames.Count > 0;
 
         ReplaceIfChanged(FavoriteGames, ordered.Where(g => g.Favorite).ToList());
-        ReplaceIfChanged(Games, ordered);
+        listsChanged |= ReplaceIfChanged(Games, ordered);
         HasFavorites = FavoriteGames.Count > 0;
 
         // Hidden games: same narrowing as everything else, but sourced from g.Hidden directly rather than
@@ -550,5 +572,8 @@ public partial class LibraryViewModel : ObservableObject
         // the signal that something (a view, a drive, a search, a disabled source) is narrowing it.
         var totalGames = _allGames.Count;
         FooterCountText = $"{Games.Count} of {totalGames} {(totalGames == 1 ? "game" : "games")} shown";
+
+        if (listsChanged)
+            ListsChanged?.Invoke();
     }
 }

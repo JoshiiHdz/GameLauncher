@@ -430,7 +430,7 @@ public class LibraryViewModelDiscoveryTests : IDisposable
 
         _sut.ShowGameDetailsCommand.Execute(game);
 
-        Assert.Equal("Manual", shown!.SourceText);
+        Assert.Equal("No launcher", shown!.SourceText); // a game with no launcher reads "No launcher" everywhere now
         Assert.Equal("12 GB", shown.SizeText);
         Assert.StartsWith("1.5 h tracked, last played ", shown.PlayTimeText);
     }

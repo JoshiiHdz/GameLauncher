@@ -34,9 +34,11 @@ public partial class MainWindow : FluentWindow
     // starting network lookups, or configuring the real tray icon merely to test a sidebar.
     internal MainWindow(LibraryViewModel viewModel, bool startRuntimeServices, bool? openPerSetting = null)
     {
+        ThemeManager.EnsureLoaded(viewModel.AppearanceTheme); // the theme's resources must exist before the markup that reads them is built
         InitializeComponent();
         DataContext = viewModel;
         InitializeShell();
+        InitializeAppearance(viewModel);
         _sessionOrchestrator = new GameSessionOrchestrator(_sessionWatcher, WindowExitDiagnosticsEnabled);
         SizeToDisplay();
 
@@ -44,6 +46,18 @@ public partial class MainWindow : FluentWindow
         // (unless a test asks for the real behaviour with openPerSetting).
         if ((openPerSetting ?? startRuntimeServices) && viewModel.StartMaximized)
             WindowState = WindowState.Maximized;
+
+        // Restoring from maximized (or reopening where it was left on another monitor or resolution) must not leave the bottom of the window under the
+        // taskbar: keep a normal window inside its monitor's work area. Tests place their windows off screen on purpose, so only the real app does this.
+        if (startRuntimeServices)
+        {
+            StateChanged += (_, _) =>
+            {
+                if (WindowState == WindowState.Normal)
+                    Dispatcher.BeginInvoke(() => WindowWorkArea.Clamp(this), System.Windows.Threading.DispatcherPriority.Loaded);
+            };
+            Loaded += (_, _) => WindowWorkArea.Clamp(this);
+        }
 
         Loaded += async (_, _) =>
         {
@@ -68,12 +82,29 @@ public partial class MainWindow : FluentWindow
                 if (e.PropertyName == nameof(LibraryViewModel.GlobalHotkeyEnabled))
                     UpdateGlobalHotkey(vm);
             };
+            ThemeState.Instance.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(ThemeState.ShortcutsEnabled))
+                    UpdateGlobalHotkey(vm); // given back when a console theme is chosen, taken again when Axis is
+            };
 
             // Covers both launching a game and minimizing by hand.
             StateChanged += (_, _) =>
             {
                 if (WindowState == WindowState.Minimized)
                     MemoryTrimmer.Trim("window minimized");
+            };
+
+            // The minimize button (or any minimize) goes to the tray instead of the taskbar when the setting is on. Deferred so the window
+            // is not hidden from inside its own state-change notification; RestoreFromTray already brings back a hidden or minimized window.
+            StateChanged += (_, _) =>
+            {
+                if (WindowState == WindowState.Minimized && vm.MinimizeToTrayOnMinimize)
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        if (WindowState == WindowState.Minimized && vm.MinimizeToTrayOnMinimize && IsVisible)
+                            HideToTray();
+                    });
             };
 
             await vm.RefreshCommand.ExecuteAsync(null);
@@ -99,6 +130,7 @@ public partial class MainWindow : FluentWindow
             _hotkey?.Dispose();
             _externalMonitorCts.Cancel();
             viewModel.StopPassiveTracking();
+            viewModel.EndFocusPlay();
             if (_watchedGame is { } game) viewModel.MarkGameNotRunning(game, _watchedSessionId);
             _sessionCts?.Cancel();
             TrayIcon.Dispose();
@@ -113,7 +145,7 @@ public partial class MainWindow : FluentWindow
     {
         _hotkey?.Dispose();
         _hotkey = null;
-        if (!vm.GlobalHotkeyEnabled)
+        if (!vm.GlobalHotkeyEnabled || !ThemeState.Instance.ShortcutsEnabled)
             return;
 
         _hotkey = GlobalHotkeyService.TryRegister(this, Key.Space, ModifierKeys.Control | ModifierKeys.Alt);
@@ -187,7 +219,7 @@ public partial class MainWindow : FluentWindow
         bool exited;
         try
         {
-            exited = await _sessionOrchestrator.WaitForExitAsync(sessionId, game, started, token);
+            exited = await _sessionOrchestrator.WaitForExitAsync(sessionId, game, started, token, ids => vm.OnGameProcessesFound(game, ids));
         }
         catch (OperationCanceledException)
         {
@@ -197,6 +229,9 @@ public partial class MainWindow : FluentWindow
 
         if (token.IsCancellationRequested)
             return;
+
+        // The game has ended, or was never found (nothing more to wait for either way): Focus play puts the power plan back.
+        vm.EndFocusPlay();
 
         // If the game's processes were never found, leave the window hidden (and the badge showing)
         // rather than assuming it's closed - it's most likely still running, and the tray icon is
@@ -332,7 +367,7 @@ public partial class MainWindow : FluentWindow
         // Keep FluentWindow's resize border/backdrop settings, but restore a real non-client caption.
         // DragMove alone cannot provide Windows' maximized-to-restored drag behavior.
         var captionChrome = (WindowChrome)chrome.Clone();
-        captionChrome.CaptionHeight = 46;
+        captionChrome.CaptionHeight = CurrentCaptionHeight;
         WindowChrome.SetWindowChrome(this, captionChrome);
     }
 

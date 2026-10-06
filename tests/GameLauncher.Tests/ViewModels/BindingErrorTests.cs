@@ -72,6 +72,7 @@ public sealed class BindingErrorTests(WpfStaFixture sta) : IDisposable
             vm.SelectDriveCommand.Execute("C:");
 
             vm.ShowStatsCommand.Execute(null); await ShellTestSupport.SettleAsync();
+            vm.ShowPlayTimeCommand.Execute(vm.Games[0]); await ShellTestSupport.SettleAsync();
             vm.PickGameCommand.Execute(null); await ShellTestSupport.SettleAsync();
             vm.ShowGameDetailsCommand.Execute(vm.Games[0]); await ShellTestSupport.SettleAsync();
             vm.ShowStorageCommand.Execute("C:"); await ShellTestSupport.SettleAsync();

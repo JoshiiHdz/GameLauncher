@@ -17,6 +17,7 @@ public partial class LibraryViewModel
     public const string PickPageKey = "pick";
     public const string StoragePageKey = "storage";
     public const string DetailsPageKey = "details";
+    public const string MyPcPageKey = "mypc";
 
     /// <summary>The page now showing over the library, or null when the library itself is showing.</summary>
     [ObservableProperty]
@@ -28,7 +29,7 @@ public partial class LibraryViewModel
 
     /// <summary>Which page is open (one of the *PageKey constants), so the sidebar can mark its entry.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSettingsPageOpen), nameof(IsStatsPageOpen), nameof(IsOptimizePageOpen), nameof(IsPickPageOpen))]
+    [NotifyPropertyChangedFor(nameof(IsSettingsPageOpen), nameof(IsStatsPageOpen), nameof(IsOptimizePageOpen), nameof(IsPickPageOpen), nameof(IsMyPcPageOpen))]
     private string _currentPageKey = "";
 
     public bool IsPageOpen => CurrentPage is not null;
@@ -36,6 +37,7 @@ public partial class LibraryViewModel
     public bool IsStatsPageOpen => CurrentPageKey == StatsPageKey;
     public bool IsOptimizePageOpen => CurrentPageKey == OptimizePageKey;
     public bool IsPickPageOpen => CurrentPageKey == PickPageKey;
+    public bool IsMyPcPageOpen => CurrentPageKey == MyPcPageKey;
 
     /// <summary>The Settings category last open (an index into its category list), so reopening Settings lands where the user left off.
     /// Not saved: a new session starts on General.</summary>
@@ -92,4 +94,26 @@ public partial class LibraryViewModel
 
         OpenPage(SettingsPageKey, "Settings", this);
     }
+
+    /// <summary>Opens Settings on its Performance category (the Optimize card and the before-launch switches), for the Optimize shortcut.</summary>
+    [RelayCommand]
+    private void ShowOptimizeSettings() => OpenSettingsAt(PerformanceSettingsCategory);
+
+    /// <summary>Opens Settings on a given category (an index into its list), even when Settings is already open on another.</summary>
+    internal void OpenSettingsAt(int category)
+    {
+        SettingsCategory = category;
+        if (IsSettingsPageOpen)
+            ClosePage(); // reopen so the page lands on the category
+
+        ShowSettings();
+    }
+
+    // The Settings category list, in order (see SettingsPage.xaml).
+    internal const int GeneralSettingsCategory = 0;
+    internal const int LibrarySettingsCategory = 1;
+    internal const int AppearanceSettingsCategory = 2;
+    internal const int PerformanceSettingsCategory = 3;
+    internal const int BackupSettingsCategory = 4;
+    internal const int AboutSettingsCategory = 5;
 }

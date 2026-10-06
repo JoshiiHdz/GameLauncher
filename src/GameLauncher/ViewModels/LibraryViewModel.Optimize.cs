@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GameLauncher.Services;
@@ -17,9 +15,6 @@ public partial class LibraryViewModel
 
     /// <summary>Test seam: receives the page's view model instead of opening the window.</summary>
     internal Action<OptimizeViewModel>? OptimizeDialogForTest { get; set; }
-
-    /// <summary>Test seam: stands in for starting a tool or link from the page.</summary>
-    internal Action<string>? OpenOptimizeToolForTest { get; set; }
 
     /// <summary>Off by default: trimming other apps' memory is harmless but not something to do behind someone's back.</summary>
     [ObservableProperty]
@@ -51,30 +46,19 @@ public partial class LibraryViewModel
         }
     }
 
-    private void OpenOptimizeTool(string target)
-    {
-        try
-        {
-            if (OpenOptimizeToolForTest is { } seam)
-                seam(target);
-            else
-                Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
-        {
-            Logger.Warn($"Optimize: couldn't open '{target}'.", ex);
-            StatusText = $"Couldn't open {target}: {ex.Message}";
-        }
-    }
+    private OptimizeViewModel CreateOptimizeViewModel() =>
+        new(MemoryOptimizerService, CleanCategoriesFactory(), RunningGameFolders(),
+            question => AppShell.Confirm("Clear these files?", question, yes: "Clear files", no: "Cancel", warning: true),
+            () => _allGames.ToList(),
+            game => UninstallGameCommand.Execute(game),
+            _runningGameId);
 
     [RelayCommand]
     private void ShowOptimize()
     {
         try
         {
-            var page = new OptimizeViewModel(MemoryOptimizerService, CleanCategoriesFactory(), RunningGameFolders(), OptimizeTools.Detect(),
-                question => AppShell.Confirm("Clear these files?", question, yes: "Clear files", no: "Cancel", warning: true),
-                OpenOptimizeTool);
+            var page = CreateOptimizeViewModel();
 
             if (OptimizeDialogForTest is { } seam)
                 seam(page);

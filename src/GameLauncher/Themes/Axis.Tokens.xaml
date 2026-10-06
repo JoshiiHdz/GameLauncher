@@ -1,0 +1,250 @@
+<!-- Axis.Tokens.xaml — generated from 02-tokens.md. Same keys in all three themes. Swap this dictionary to switch theme. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib"
+                    xmlns:motion="clr-namespace:GameLauncher.Behaviors">
+
+    <sys:String x:Key="ThemeId">Axis</sys:String>
+
+    <!-- Colours -->
+    <Color x:Key="BgColor">#FF0B0D13</Color>
+    <Color x:Key="Bg2Color">#FF070910</Color>
+    <Color x:Key="SurfaceColor">#FF141822</Color>
+    <Color x:Key="SurfaceTranslucentColor">#FF141822</Color>
+    <Color x:Key="Surface2Color">#FF1B2030</Color>
+    <Color x:Key="StrokeColor">#FF262C3A</Color>
+    <Color x:Key="ChipFillColor">#FF1B2030</Color>
+    <Color x:Key="ChipFillHoverColor">#FF262C3A</Color>
+    <Color x:Key="ChipStrokeColor">#FF262C3A</Color>
+    <Color x:Key="InkColor">#FFF1F3F9</Color>
+    <Color x:Key="InkSoftColor">#FFC5CBD8</Color>
+    <Color x:Key="MutedColor">#FF9099AD</Color>
+    <Color x:Key="SubtleColor">#FF9099AD</Color>
+    <Color x:Key="AccentColor">#FFFF6B86</Color>
+    <Color x:Key="AccentHoverColor">#FFE85A75</Color>
+    <Color x:Key="AccentInkColor">#FF0B0D13</Color>
+    <Color x:Key="AccentTextColor">#FFFF6B86</Color>
+    <Color x:Key="AccentGlowColor">#00000000</Color>
+    <Color x:Key="AccentSoftFillColor">#24FF6B86</Color>
+    <Color x:Key="AccentSoftStrokeColor">#66FF6B86</Color>
+    <Color x:Key="FocusInkColor">#FFFF6B86</Color>
+    <Color x:Key="InverseFillColor">#FF1B2030</Color>
+    <Color x:Key="InverseInkColor">#FFFF6B86</Color>
+    <Color x:Key="DangerColor">#FFF87171</Color>
+    <Color x:Key="DangerSolidColor">#FFEF4444</Color>
+    <Color x:Key="DangerFillColor">#1FEF4444</Color>
+    <Color x:Key="DangerStrokeColor">#4DEF4444</Color>
+    <Color x:Key="StarColor">#FFFBBF24</Color>
+    <Color x:Key="ArtPlateColor">#E00B0D13</Color>
+    <Color x:Key="ToggleOffTrackColor">#FF262C3A</Color>
+    <Color x:Key="ToggleOffKnobColor">#FF9099AD</Color>
+    <Color x:Key="CheckOffStrokeColor">#FF4B5363</Color>
+    <Color x:Key="ScrimColor">#B3000000</Color>
+    <Color x:Key="ScrimLightColor">#B3000000</Color>
+
+    <!-- Brushes (templates use only these) -->
+    <SolidColorBrush x:Key="Bg" Color="{StaticResource BgColor}" />
+    <SolidColorBrush x:Key="Bg2" Color="{StaticResource Bg2Color}" />
+    <SolidColorBrush x:Key="Surface" Color="{StaticResource SurfaceColor}" />
+    <SolidColorBrush x:Key="SurfaceTranslucent" Color="{StaticResource SurfaceTranslucentColor}" />
+    <SolidColorBrush x:Key="Surface2" Color="{StaticResource Surface2Color}" />
+    <SolidColorBrush x:Key="Stroke" Color="{StaticResource StrokeColor}" />
+    <SolidColorBrush x:Key="ChipFill" Color="{StaticResource ChipFillColor}" />
+    <SolidColorBrush x:Key="ChipFillHover" Color="{StaticResource ChipFillHoverColor}" />
+    <SolidColorBrush x:Key="ChipStroke" Color="{StaticResource ChipStrokeColor}" />
+    <SolidColorBrush x:Key="Ink" Color="{StaticResource InkColor}" />
+    <SolidColorBrush x:Key="InkSoft" Color="{StaticResource InkSoftColor}" />
+    <SolidColorBrush x:Key="Muted" Color="{StaticResource MutedColor}" />
+    <SolidColorBrush x:Key="Subtle" Color="{StaticResource SubtleColor}" />
+    <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentHover" Color="{StaticResource AccentHoverColor}" />
+    <SolidColorBrush x:Key="AccentInk" Color="{StaticResource AccentInkColor}" />
+    <SolidColorBrush x:Key="AccentText" Color="{StaticResource AccentTextColor}" />
+    <SolidColorBrush x:Key="AccentGlow" Color="{StaticResource AccentGlowColor}" />
+    <SolidColorBrush x:Key="AccentSoftFill" Color="{StaticResource AccentSoftFillColor}" />
+    <SolidColorBrush x:Key="AccentSoftStroke" Color="{StaticResource AccentSoftStrokeColor}" />
+    <SolidColorBrush x:Key="FocusInk" Color="{StaticResource FocusInkColor}" />
+    <SolidColorBrush x:Key="InverseFill" Color="{StaticResource InverseFillColor}" />
+    <SolidColorBrush x:Key="InverseInk" Color="{StaticResource InverseInkColor}" />
+    <SolidColorBrush x:Key="Danger" Color="{StaticResource DangerColor}" />
+    <SolidColorBrush x:Key="DangerSolid" Color="{StaticResource DangerSolidColor}" />
+    <SolidColorBrush x:Key="DangerFill" Color="{StaticResource DangerFillColor}" />
+    <SolidColorBrush x:Key="DangerStroke" Color="{StaticResource DangerStrokeColor}" />
+    <SolidColorBrush x:Key="Star" Color="{StaticResource StarColor}" />
+    <SolidColorBrush x:Key="ArtPlate" Color="{StaticResource ArtPlateColor}" />
+    <SolidColorBrush x:Key="ToggleOffTrack" Color="{StaticResource ToggleOffTrackColor}" />
+    <SolidColorBrush x:Key="ToggleOffKnob" Color="{StaticResource ToggleOffKnobColor}" />
+    <SolidColorBrush x:Key="CheckOffStroke" Color="{StaticResource CheckOffStrokeColor}" />
+    <SolidColorBrush x:Key="Scrim" Color="{StaticResource ScrimColor}" />
+    <SolidColorBrush x:Key="ScrimLight" Color="{StaticResource ScrimLightColor}" />
+
+    <!-- WPF-UI accent override: every library control reads the theme accent (01 §1.4) -->
+    <Color x:Key="SystemAccentColor">#FFFF6B86</Color>
+    <Color x:Key="SystemAccentColorPrimary">#FFFF6B86</Color>
+    <Color x:Key="SystemAccentColorSecondary">#FFFF6B86</Color>
+    <Color x:Key="SystemAccentColorTertiary">#FFE85A75</Color>
+    <SolidColorBrush x:Key="SystemAccentColorPrimaryBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="SystemAccentColorSecondaryBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="SystemAccentColorTertiaryBrush" Color="{StaticResource AccentHoverColor}" />
+    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="{StaticResource AccentHoverColor}" />
+    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="{StaticResource AccentHoverColor}" />
+    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="{StaticResource AccentInkColor}" />
+    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="{StaticResource AccentTextColor}" />
+
+    <!-- Corner radii -->
+    <CornerRadius x:Key="RadiusCard">10</CornerRadius>
+    <CornerRadius x:Key="RadiusRibbonItem">14</CornerRadius>
+    <CornerRadius x:Key="RadiusPanel">12</CornerRadius>
+    <CornerRadius x:Key="RadiusHero">16</CornerRadius>
+    <CornerRadius x:Key="RadiusButton">8</CornerRadius>
+    <CornerRadius x:Key="RadiusInput">8</CornerRadius>
+    <CornerRadius x:Key="RadiusMenu">10</CornerRadius>
+    <CornerRadius x:Key="RadiusMenuRow">6</CornerRadius>
+    <CornerRadius x:Key="RadiusDialog">16</CornerRadius>
+    <CornerRadius x:Key="RadiusPalette">12</CornerRadius>
+    <CornerRadius x:Key="RadiusPalRow">8</CornerRadius>
+    <CornerRadius x:Key="RadiusNavItem">8</CornerRadius>
+    <CornerRadius x:Key="RadiusCheck">4</CornerRadius>
+    <CornerRadius x:Key="RadiusPageLayer">0</CornerRadius>
+    <CornerRadius x:Key="RadiusSheet">0</CornerRadius>
+
+    <!-- Sizes, spacing, type sizes, depth (0 = not used by this theme) -->
+    <sys:Double x:Key="CaptionHeight">44</sys:Double>
+    <sys:Double x:Key="TopBarHeight">0</sys:Double>
+    <sys:Double x:Key="FooterHeight">28</sys:Double>
+    <sys:Double x:Key="SidebarWidth">232</sys:Double>
+    <sys:Double x:Key="RailWidth">64</sys:Double>
+    <sys:Double x:Key="PageGutter">24</sys:Double>
+    <sys:Double x:Key="PageGutterSmall">16</sys:Double>
+    <sys:Double x:Key="CardWidth">156</sys:Double>
+    <sys:Double x:Key="CardHeight">203</sys:Double>
+    <sys:Double x:Key="CardWidthSmall">120</sys:Double>
+    <sys:Double x:Key="CardHeightSmall">156</sys:Double>
+    <sys:Double x:Key="RibbonItemSize">0</sys:Double>
+    <sys:Double x:Key="RibbonItemFocusedSize">0</sys:Double>
+    <sys:Double x:Key="RibbonItemSizeSmall">0</sys:Double>
+    <sys:Double x:Key="RibbonItemFocusedSizeSmall">0</sys:Double>
+    <sys:Double x:Key="ShelfGap">16</sys:Double>
+    <sys:Double x:Key="GridGapRow">22</sys:Double>
+    <sys:Double x:Key="GridGapColumn">16</sys:Double>
+    <sys:Double x:Key="ButtonHeight">34</sys:Double>
+    <sys:Double x:Key="HeroButtonHeight">40</sys:Double>
+    <sys:Double x:Key="InputHeight">34</sys:Double>
+    <sys:Double x:Key="MenuWidth">250</sys:Double>
+    <sys:Double x:Key="MenuRowHeight">32</sys:Double>
+    <sys:Double x:Key="DialogWidth">420</sys:Double>
+    <sys:Double x:Key="PaletteWidth">560</sys:Double>
+    <sys:Double x:Key="PaletteWidthSmall">460</sys:Double>
+    <sys:Double x:Key="PageBodyMaxWidth">720</sys:Double>
+    <sys:Double x:Key="SettingsNavWidth">200</sys:Double>
+    <sys:Double x:Key="FontSizeDisplay">34</sys:Double>
+    <sys:Double x:Key="FontSizeDisplaySmall">24</sys:Double>
+    <sys:Double x:Key="FontSizePageTitle">22</sys:Double>
+    <sys:Double x:Key="FontSizeSectionTitle">18</sys:Double>
+    <sys:Double x:Key="FontSizeGroupTitle">14</sys:Double>
+    <sys:Double x:Key="FontSizeBody">13</sys:Double>
+    <sys:Double x:Key="FontSizeNote">12</sys:Double>
+    <sys:Double x:Key="FontSizeLabel">10</sys:Double>
+    <sys:Double x:Key="FontSizeCardName">14</sys:Double>
+    <sys:Double x:Key="FontSizeCardMeta">12</sys:Double>
+    <sys:Double x:Key="FontSizeBadge">11</sys:Double>
+    <sys:Double x:Key="FocusRingThickness">2</sys:Double>
+    <sys:Double x:Key="FocusRingGap">2</sys:Double>
+    <sys:Double x:Key="FocusScale">1</sys:Double>
+    <sys:Double x:Key="HoverLift">-2</sys:Double>
+    <sys:Double x:Key="RiseDistance">10</sys:Double>
+    <sys:Double x:Key="PageRiseDistance">10</sys:Double>
+    <sys:Double x:Key="RecedeScale">1</sys:Double>
+    <sys:Double x:Key="RecedeDimOpacity">0</sys:Double>
+    <sys:Double x:Key="GlowBlurMin">0</sys:Double>
+    <sys:Double x:Key="GlowBlurMax">0</sys:Double>
+
+    <!-- Font weights -->
+    <FontWeight x:Key="FontWeightDisplay">Bold</FontWeight>
+    <FontWeight x:Key="FontWeightPageTitle">SemiBold</FontWeight>
+    <FontWeight x:Key="FontWeightGroupTitle">SemiBold</FontWeight>
+    <FontWeight x:Key="FontWeightCardName">SemiBold</FontWeight>
+    <FontWeight x:Key="FontWeightLabel">SemiBold</FontWeight>
+    <FontFamily x:Key="ThemeFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+    <FontFamily x:Key="ThemeDisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
+
+    <!-- Durations -->
+    <Duration x:Key="DurHover">0:0:00.150</Duration>
+    <Duration x:Key="DurFocus">0:0:00.150</Duration>
+    <Duration x:Key="DurMenu">0:0:00.160</Duration>
+    <Duration x:Key="DurPanel">0:0:00.200</Duration>
+    <Duration x:Key="DurDialog">0:0:00.260</Duration>
+    <Duration x:Key="DurPage">0:0:00.260</Duration>
+    <Duration x:Key="DurBackground">0:0:00.260</Duration>
+    <Duration x:Key="DurToast">0:0:00.000</Duration>
+    <Duration x:Key="ToastHold">0:0:02.600</Duration>
+    <Duration x:Key="DurBar">0:0:00.520</Duration>
+    <Duration x:Key="DurBreathe">0:0:00.000</Duration>
+
+    <!-- Easings (BezierEase from xaml/Code/BezierEase.cs) -->
+    <motion:BezierEase x:Key="EaseStandard" X1="0.4" Y1="0" X2="0.2" Y2="1" />
+    <motion:BezierEase x:Key="EaseFocus" X1="0.4" Y1="0" X2="0.2" Y2="1" />
+    <motion:BezierEase x:Key="EaseOutSnap" X1="0.2" Y1="0.8" X2="0.2" Y2="1" />
+    <motion:BezierEase x:Key="EaseSoft" X1="0.2" Y1="0.7" X2="0.2" Y2="1" />
+
+
+    <!-- Additions used by Shared.Styles.xaml and the theme templates (not in 02-tokens.md; same keys in every theme) -->
+    <SolidColorBrush x:Key="TrackFill" Color="#14FFFFFF" />
+    <Thickness x:Key="FocusRingMargin">-4</Thickness>
+    <Thickness x:Key="FocusRingBorder">2</Thickness>
+    <CornerRadius x:Key="RadiusBar">3</CornerRadius>
+    <x:Null x:Key="PrimaryGlowEffect" />
+    <x:Null x:Key="HeroGlowEffect" />
+    <x:Null x:Key="ToggleGlowEffect" />
+    <x:Null x:Key="BarGlowEffect" />
+
+
+    <!-- Layout values with their 760x480 ("Small") counterparts; ThemeLayout publishes the right one as Active<Name>. -->
+    <sys:Double x:Key="HeroHeight">250</sys:Double>
+    <sys:Double x:Key="HeroHeightSmall">150</sys:Double>
+    <sys:Double x:Key="ToolTileWidth">0</sys:Double>
+    <sys:Double x:Key="ToolTileWidthSmall">0</sys:Double>
+    <sys:Double x:Key="ToolTileHeight">0</sys:Double>
+    <sys:Double x:Key="ToolTileHeightSmall">0</sys:Double>
+    <sys:Double x:Key="GuideWidth">0</sys:Double>
+    <sys:Double x:Key="GuideWidthSmall">0</sys:Double>
+    <sys:Double x:Key="DialogWidthSmall">420</sys:Double>
+    <sys:Double x:Key="SearchWidth">380</sys:Double>
+    <sys:Double x:Key="SearchWidthSmall">200</sys:Double>
+    <sys:Double x:Key="SettingsTileWidth">0</sys:Double>
+    <sys:Double x:Key="SettingsTileWidthSmall">0</sys:Double>
+    <sys:Double x:Key="SettingsTileHeight">0</sys:Double>
+    <sys:Double x:Key="SettingsTileHeightSmall">0</sys:Double>
+    <sys:Double x:Key="SettingsNavWidthSmall">160</sys:Double>
+    <sys:Double x:Key="RibbonTop">0</sys:Double>
+    <sys:Double x:Key="RibbonTopSmall">0</sys:Double>
+    <sys:Double x:Key="HeroTop">0</sys:Double>
+    <sys:Double x:Key="HeroTopSmall">0</sys:Double>
+    <sys:Double x:Key="FilterColumnWidth">0</sys:Double>
+    <sys:Double x:Key="FilterColumnWidthSmall">0</sys:Double>
+    <sys:Double x:Key="PaletteTop">56</sys:Double>
+    <sys:Double x:Key="PaletteTopSmall">56</sys:Double>
+
+
+    <!-- Page presentation (spec 06 section 6.5) -->
+    <SolidColorBrush x:Key="GroupCardFill" Color="#FF141822" />
+    <SolidColorBrush x:Key="GroupCardStroke" Color="#FF262C3A" />
+    <SolidColorBrush x:Key="BackButtonFill" Color="#FF141822" />
+    <SolidColorBrush x:Key="BackButtonStroke" Color="#FF262C3A" />
+    <sys:Double x:Key="BackButtonSize">32</sys:Double>
+    <sys:Double x:Key="PageTop">18</sys:Double>
+    <sys:Double x:Key="PageSideGutter">28</sys:Double>
+    <sys:Double x:Key="PageSideGutterSmall">16</sys:Double>
+
+    <sys:Double x:Key="FontSizeStat">26</sys:Double>
+    <FontWeight x:Key="FontWeightStat">Bold</FontWeight>
+
+    <SolidColorBrush x:Key="PaletteFill" Color="#FF141822" />
+    <SolidColorBrush x:Key="PaletteStroke" Color="#FF262C3A" />
+    <SolidColorBrush x:Key="PaletteLine" Color="#FF262C3A" />
+
+    <SolidColorBrush x:Key="InputFill" Color="#FF070910" />
+    <SolidColorBrush x:Key="InputStroke" Color="#FF262C3A" />
+
+</ResourceDictionary>

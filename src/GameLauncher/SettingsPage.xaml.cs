@@ -32,7 +32,7 @@ public partial class SettingsPage : UserControl
     /// <summary>The panel for each category, in the same order as the list.</summary>
     private FrameworkElement[] Sections => new FrameworkElement[]
     {
-        GeneralSection, LibrarySection, AppearanceSection, PerformanceSection, IntegrationsSection, BackupSection, AboutSection,
+        GeneralSection, LibrarySection, AppearanceSection, PerformanceSection, BackupSection, AboutSection,
     };
 
     private void CategoryList_SelectionChanged(object sender, SelectionChangedEventArgs e) => ShowSelectedSection(animate: true);
@@ -44,7 +44,13 @@ public partial class SettingsPage : UserControl
             return;
 
         if (DataContext is LibraryViewModel library)
+        {
             library.SettingsCategory = index;
+
+            // Focus play is only offered on a PC that can use it, which is found out by trying; the first look at Performance starts that check.
+            if (index == LibraryViewModel.PerformanceSettingsCategory)
+                _ = library.CheckFocusPlayAvailabilityAsync();
+        }
 
         var sections = Sections;
         for (var i = 0; i < sections.Length; i++)

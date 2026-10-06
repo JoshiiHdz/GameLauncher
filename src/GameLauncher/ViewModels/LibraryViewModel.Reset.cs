@@ -69,11 +69,15 @@ public partial class LibraryViewModel
     {
         VibrantBackground = true;
         MinimizeToTrayWhileGaming = true;
+        MinimizeToTrayOnMinimize = false;
         OptimizeBeforeLaunch = false;
+        FocusPlayEnabled = false;
+        FocusPlayOnlyWhenPluggedIn = true;
         GlobalHotkeyEnabled = true;
         TrackExternalGames = true;
         CheckForUpdates = true;
         StartMaximized = true;
+        AppearanceTheme = ThemeId.Axis;
         StartWithWindows = _startupRegistration?.SuitableForDefaultStartup ?? false; // on by default, but only for an installed copy
 
         _bulkSettingChange = true;

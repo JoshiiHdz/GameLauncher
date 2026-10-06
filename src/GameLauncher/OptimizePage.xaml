@@ -15,8 +15,8 @@
             </ResourceDictionary.MergedDictionaries>
 
             <Style x:Key="SectionHeadingStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="15" />
-                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="FontSize" Value="{DynamicResource FontSizeGroupTitle}" />
+                <Setter Property="FontWeight" Value="{DynamicResource FontWeightGroupTitle}" />
                 <Setter Property="Margin" Value="0,0,0,4" />
             </Style>
             <Style x:Key="SectionNoteStyle" TargetType="TextBlock">
@@ -28,34 +28,40 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid MaxWidth="820" HorizontalAlignment="Center">
+    <!-- Centred in its area in every theme: the Grid is held to the page width and a stretched element that is capped sits in the middle. -->
+    <Grid MaxWidth="{DynamicResource PageBodyMaxWidth}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <ScrollViewer Grid.Row="0" Padding="0,0,14,0" Margin="24,8,24,16" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
+        <ScrollViewer Grid.Row="0" Padding="0,0,14,0" Margin="0,8,0,16" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
             <StackPanel>
                 <!-- Memory -->
+                <Border Style="{StaticResource GroupCard}"><StackPanel>
                 <TextBlock Text="Memory" Style="{StaticResource SectionHeadingStyle}" />
                 <TextBlock Text="Asks Windows to trim the memory other apps are holding but not using, so more is free for a game. It never closes anything, and leaves the app you are using and the running game alone."
                            Style="{StaticResource SectionNoteStyle}" />
-                <ProgressBar Height="6" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding MemoryUsedFraction, Mode=OneWay}"
-                             Foreground="{StaticResource DesignAccent}" Background="{StaticResource DesignTrackFill}" />
+                <ProgressBar Height="8" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding MemoryUsedFraction, Mode=OneWay}"
+                             Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}" />
                 <TextBlock Text="{Binding MemoryText}" FontSize="12" Opacity="0.75" Margin="0,6,0,10" TextWrapping="Wrap" />
                 <ui:Button Content="Free up memory" Appearance="Primary" Icon="{ui:SymbolIcon Flash24}"
                            Command="{Binding FreeUpMemoryCommand}" HorizontalAlignment="Left" />
                 <TextBlock Text="{Binding MemoryResultText}" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"
                            Visibility="{Binding HasMemoryResult, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
 
-                <Separator Margin="0,22" />
+                </StackPanel></Border>
 
                 <!-- Storage -->
+                <Border Style="{StaticResource GroupCard}"><StackPanel>
                 <TextBlock Text="Storage" Style="{StaticResource SectionHeadingStyle}" />
                 <TextBlock Text="Clears leftovers that are safe to lose. Sizes are shown before anything is deleted, and you are asked first."
                            Style="{StaticResource SectionNoteStyle}" />
                 <!-- One bar, like the memory one above: full when the clutter is found, draining as it is cleared, ending on what is left. -->
-                <ProgressBar x:Name="StorageBar" Height="6" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding StorageBarFraction, Mode=OneWay}"
-                             Foreground="{StaticResource DesignAccent}" Background="{StaticResource DesignTrackFill}"
+                <ProgressBar x:Name="StorageBar" Height="8" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding StorageBarFraction, Mode=OneWay}"
+                             Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}"
                              Visibility="{Binding HasStorageBar, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                 <TextBlock x:Name="StorageLine" Text="{Binding StorageText}" FontSize="12" Opacity="0.75" Margin="0,6,0,12" TextWrapping="Wrap"
                            Visibility="{Binding HasStorageBar, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
@@ -70,8 +76,12 @@
                                 <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Top" MinWidth="0" Margin="0,0,10,0" />
                                 <StackPanel Grid.Column="1">
                                     <Grid>
-                                        <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" Margin="0,0,150,0" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding SizeText}" FontSize="12" HorizontalAlignment="Right" Foreground="{StaticResource DesignMuted}" />
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" Margin="0,0,12,0" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" MaxWidth="150" TextAlignment="Right" />
                                     </Grid>
                                     <TextBlock Text="{Binding Description}" FontSize="11.5" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,0" />
                                 </StackPanel>
@@ -79,39 +89,44 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <ui:Button Content="Scan again" Icon="{ui:SymbolIcon ArrowSync24}" Command="{Binding ScanCommand}" />
-                    <ui:Button Content="Clear selected" Appearance="Primary" Icon="{ui:SymbolIcon Delete24}" Margin="8,0,0,0"
-                               Command="{Binding CleanCommand}" />
-                </StackPanel>
+                <WrapPanel Margin="0,4,0,0">
+                    <ui:Button Content="Scan again" Icon="{ui:SymbolIcon ArrowSync24}" Margin="0,0,8,8" Command="{Binding ScanCommand}" />
+                    <ui:Button Content="{Binding SelectAllText}" Icon="{ui:SymbolIcon CheckboxChecked24}" Margin="0,0,8,8" Command="{Binding ToggleSelectAllCommand}" />
+                    <ui:Button Content="Clear selected" Appearance="Primary" Icon="{ui:SymbolIcon Delete24}" Margin="0,0,8,8" Command="{Binding CleanCommand}" />
+                </WrapPanel>
 
                 <TextBlock Text="{Binding StorageResultText}" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"
                            Visibility="{Binding HasStorageResult, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
 
-                <Separator Margin="0,22" />
+                </StackPanel></Border>
 
-                <!-- Other tools -->
-                <TextBlock Text="More tools" Style="{StaticResource SectionHeadingStyle}" />
-                <TextBlock Text="BleachBit and Mem Reduct are free, open-source cleaners (GPLv3). They are not built into Axis - they open here if you have them."
+                <!-- Space saver -->
+                <Border Style="{StaticResource GroupCard}" Visibility="{Binding HasSpaceSaver, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
+                <TextBlock Text="Space saver" Style="{StaticResource SectionHeadingStyle}" />
+                <TextBlock Text="The biggest games you haven't played for 60 days. Uninstall starts the game's own uninstaller - nothing is removed until you confirm there."
                            Style="{StaticResource SectionNoteStyle}" />
-                <ItemsControl ItemsSource="{Binding Tools}">
+                <TextBlock Text="{Binding SpaceSaverSummary}" FontSize="12" Opacity="0.75" Margin="0,0,0,10" TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding SpaceSaverRows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding Description}" FontSize="11.5" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding LastPlayedText}" FontSize="11.5" Opacity="0.6" Margin="0,2,0,0" />
                                 </StackPanel>
-                                <ui:Button Grid.Column="1" Content="{Binding ActionText}" Command="{Binding OpenCommand}" VerticalAlignment="Top" />
+                                <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,0" />
+                                <ui:Button Grid.Column="2" Content="Uninstall..." Icon="{ui:SymbolIcon Delete24}" Command="{Binding UninstallCommand}" VerticalAlignment="Center" />
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-
+                <ui:Button Content="Check again" Icon="{ui:SymbolIcon ArrowSync24}" Command="{Binding RefreshSpaceSaverCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" />
+                </StackPanel></Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>

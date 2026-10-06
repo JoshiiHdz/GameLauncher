@@ -172,16 +172,9 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
         return null;
     }
 
-    /// <summary>The name-header MenuItem (Tag="MenuHeader") each card's ContextMenu carries - found by tag rather
-    /// than by its (game-specific) text, and by IsEnabled==true rather than false, since it is a real, clickable
-    /// "close the menu" row now, not an inert label.</summary>
-    private static MenuItem GetMenuHeader(ContextMenu menu) =>
-        menu.Items.OfType<MenuItem>().Single(i => (string?)i.Tag == "MenuHeader");
-
-    /// <summary>The game name text shown inside a menu header, read from the Grid/TextBlock that is the
-    /// header's actual Header content (see GameCardTemplate.xaml's MenuHeaderName).</summary>
-    private static string GetMenuHeaderText(ContextMenu menu) =>
-        ((TextBlock)((Grid)GetMenuHeader(menu).Header).Children[0]).Text;
+    /// <summary>The menu's rows in order, with "-" for a separator (spec 07 section 7.5: ten rows, three separators, no name header).</summary>
+    private static List<string> MenuShape(ContextMenu menu) =>
+        menu.Items.Cast<object>().Select(i => i is MenuItem m ? (m.Header as string ?? ((string?)m.Tag == "MenuHeader" ? "[name + close X]" : "")) : "-").ToList();
 
     private static (MenuItem ChangeCover, MenuItem Reset) OpenContextMenu(Button button)
     {
@@ -198,54 +191,10 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
 
     // ---- Each menu targets the clicked card -----------------------------------------------------------
 
-    /// <summary>The card's own hover highlight can disappear the instant the mouse reaches this (separately-
-    /// rooted) popup, so the menu carries its own name header - this proves it shows the right game per-card,
-    /// not just a fixed value from whichever card opened first.</summary>
+    /// <summary>The card menu is the spec's, under a name header with a close X: Play, details, favorite/hide/collections, the cover rows, identify, open location, uninstall - split by
+    /// three separators.</summary>
     [Fact]
-    public void ContextMenu_ShowsTheGamesNameAsAHeader_ThatFollowsWhicheverCardWasClicked()
-    {
-        _sta.RunAsync(async () =>
-        {
-            var vm = MakeViewModel();
-            var gameA = MakeGame("game-a", "Game A");
-            var gameB = MakeGame("game-b", "Game B");
-            vm.SimulateRefreshResult([gameA, gameB]);
-            vm.Games.Add(gameA);
-            vm.Games.Add(gameB);
-
-            var (window, _, main, _) = BuildHostWindow(vm);
-            try
-            {
-                var buttonA = FindCardButton(main, gameA);
-                var menuA = buttonA.ContextMenu!;
-                menuA.PlacementTarget = buttonA;
-                menuA.IsOpen = true;
-                PumpDispatcher();
-                Assert.Equal("Game A", GetMenuHeaderText(menuA));
-                menuA.IsOpen = false;
-
-                var buttonB = FindCardButton(main, gameB);
-                var menuB = buttonB.ContextMenu!;
-                menuB.PlacementTarget = buttonB;
-                menuB.IsOpen = true;
-                PumpDispatcher();
-                Assert.Equal("Game B", GetMenuHeaderText(menuB));
-            }
-            finally
-            {
-                window.Close();
-            }
-
-            await Task.CompletedTask;
-        });
-    }
-
-    /// <summary>The header has no Command and no submenu, so - by WPF's own, unmodified MenuItem behavior, not
-    /// anything this app implements - a click anywhere on the row (including the "x") just closes the menu, the
-    /// same as clicking any other plain leaf item. This tests the facts that make that true, not the popup's
-    /// actual close animation/state, which an off-screen host cannot reliably drive with a synthetic click.</summary>
-    [Fact]
-    public void ContextMenu_HeaderIsAnOrdinaryClickableRow_WithNoCommandOrSubmenu_SoClickingItJustClosesTheMenu()
+    public void ContextMenu_HasTheNameHeaderThenTheSpecRowsInOrder()
     {
         _sta.RunAsync(async () =>
         {
@@ -263,11 +212,11 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 menu.IsOpen = true;
                 PumpDispatcher();
 
-                var header = GetMenuHeader(menu);
-
-                Assert.True(header.IsEnabled);
-                Assert.Null(header.Command);
-                Assert.Empty(header.Items);
+                Assert.Equal(
+                    new[] { "[name + close X]", "-", "Play", "Game details...", "-", "Favorite", "Hide", "Collections...", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location", "Uninstall..." },
+                    MenuShape(menu));
+                var uninstall = menu.Items.OfType<MenuItem>().Last();
+                Assert.Equal("Destructive", uninstall.Tag);
             }
             finally
             {
@@ -614,13 +563,14 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 }
                 var rootPosition = root.TranslatePoint(new Point(), window);
                 var enter = Start(trigger.EnterActions);
-                enter.SeekAlignedToLastTick(window, TimeSpan.FromMilliseconds(120), TimeSeekOrigin.BeginTime);
-                Assert.Equal(-6, ((TranslateTransform)motion.RenderTransform).Y, precision: 2);
-                enter.SeekAlignedToLastTick(window, TimeSpan.FromMilliseconds(300), TimeSeekOrigin.BeginTime);
-                Assert.Equal(-4, ((TranslateTransform)motion.RenderTransform).Y, precision: 2);
+                var hover = Behaviors.ThemeTiming.Hover.TimeSpan + TimeSpan.FromMilliseconds(40);
+                enter.SeekAlignedToLastTick(window, hover, TimeSeekOrigin.BeginTime);
+                Assert.Equal(-2, ((TranslateTransform)motion.RenderTransform).Y, precision: 2);
+                enter.SeekAlignedToLastTick(window, hover + TimeSpan.FromMilliseconds(200), TimeSeekOrigin.BeginTime);
+                Assert.Equal(-2, ((TranslateTransform)motion.RenderTransform).Y, precision: 2); // lifts 2 px and stays
                 Assert.Equal(rootPosition, root.TranslatePoint(new Point(), window));
                 var exit = Start(trigger.ExitActions);
-                exit.SeekAlignedToLastTick(window, TimeSpan.FromMilliseconds(160), TimeSeekOrigin.BeginTime);
+                exit.SeekAlignedToLastTick(window, hover, TimeSeekOrigin.BeginTime);
                 Assert.Equal(0, ((TranslateTransform)motion.RenderTransform).Y, precision: 2);
                 Assert.Equal(rootPosition, root.TranslatePoint(new Point(), window));
                 exit.Remove(window);
@@ -750,12 +700,11 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.Same(overflow, menu.PlacementTarget);
 
                 var items = menu.Items.OfType<MenuItem>().ToList();
-                Assert.Equal(11, items.Count); // the 10 actions, plus the name header
-                Assert.Equal(game.Name, GetMenuHeaderText(menu));
+                Assert.Equal(11, items.Count); // the 10 actions, plus the name header with its close X
                 var play = items.Single(i => i.Header as string == "Play");
                 var openLocation = items.Single(i => i.Header as string == "Open install location");
-                var favorite = items.Single(i => i.Header as string == "Add to favorites"); // game starts un-favorited
-                var hide = items.Single(i => i.Header as string == "Hide from library"); // game starts un-hidden
+                var favorite = items.Single(i => i.Header as string == "Favorite"); // game starts un-favorited
+                var hide = items.Single(i => i.Header as string == "Hide"); // game starts un-hidden
                 var changeCover = items.Single(i => i.Header as string == "Change Cover Manually");
                 var reset = items.Single(i => i.Header as string == "Reset cover to automatic");
                 var identify = items.Single(i => i.Header as string == "Identify game...");
@@ -860,30 +809,30 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                     menu.IsOpen = true;
                     PumpDispatcher();
                     var items = menu.Items.OfType<MenuItem>().ToList();
-                    var favorite = items.Single(i => i.Header as string is "Add to favorites" or "Remove from favorites");
-                    var hideItem = items.Single(i => i.Header as string is "Hide from library" or "Show in library");
+                    var favorite = items.Single(i => i.Header as string is "Favorite" or "Unfavorite");
+                    var hideItem = items.Single(i => i.Header as string is "Hide" or "Unhide");
                     return (favorite, hideItem);
                 }
 
                 var (favoriteBefore, hideBefore) = OpenMenuAndFindActions(main);
-                Assert.Equal("Add to favorites", favoriteBefore.Header);
-                Assert.Equal("Hide from library", hideBefore.Header);
+                Assert.Equal("Favorite", favoriteBefore.Header);
+                Assert.Equal("Hide", hideBefore.Header);
 
                 vm.ToggleFavoriteCommand.Execute(game); // moves game: main -> favorites section
                 window.UpdateLayout();
                 PumpDispatcher();
 
                 var (favoriteAfterFav, hideAfterFav) = OpenMenuAndFindActions(favorites);
-                Assert.Equal("Remove from favorites", favoriteAfterFav.Header);
-                Assert.Equal("Hide from library", hideAfterFav.Header);
+                Assert.Equal("Unfavorite", favoriteAfterFav.Header);
+                Assert.Equal("Hide", hideAfterFav.Header);
 
                 vm.ToggleHiddenCommand.Execute(game); // moves game: favorites -> hidden section
                 window.UpdateLayout();
                 PumpDispatcher();
 
                 var (favoriteAfterHide, hideAfterHide) = OpenMenuAndFindActions(hidden);
-                Assert.Equal("Remove from favorites", favoriteAfterHide.Header);
-                Assert.Equal("Show in library", hideAfterHide.Header);
+                Assert.Equal("Unfavorite", favoriteAfterHide.Header);
+                Assert.Equal("Unhide", hideAfterHide.Header);
                 Assert.Same(vm.ToggleFavoriteCommand, favoriteAfterHide.Command);
                 Assert.Same(vm.ToggleHiddenCommand, hideAfterHide.Command);
                 Assert.Same(game, favoriteAfterHide.CommandParameter);

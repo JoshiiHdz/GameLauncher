@@ -1,0 +1,114 @@
+<UserControl x:Class="GameLauncher.PlayTimePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:beh="clr-namespace:GameLauncher.Behaviors"
+             xmlns:conv="clr-namespace:GameLauncher.Converters"
+             xmlns:controls="clr-namespace:GameLauncher.Controls"
+             mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/DesignTokens.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="TimeTileStyle" TargetType="Border">
+                <Setter Property="Background" Value="{DynamicResource GroupCardFill}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource GroupCardStroke}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="beh:ThemeRadius.Key" Value="RadiusPanel" />
+                <Setter Property="Padding" Value="18,16" />
+                <Setter Property="Margin" Value="0,0,10,0" />
+            </Style>
+
+            <!-- Centred in every theme: a stretched panel held to its MaxWidth sits in the middle of the page. -->
+            <Style x:Key="PlayTimeBodyStyle" TargetType="StackPanel">
+                <Setter Property="MaxWidth" Value="{DynamicResource PageBodyMaxWidth}" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <ScrollViewer Margin="0,8,0,8" Padding="0,0,14,0" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
+        <StackPanel Style="{StaticResource PlayTimeBodyStyle}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- The game's card, with its cover (the launcher's logo on a plain panel when the game has no cover). -->
+                <Grid x:Name="GameCard" Width="170" Height="226" VerticalAlignment="Top" DataContext="{Binding Game}">
+                    <Border x:Name="Art" beh:ThemeRadius.Key="RadiusCard" Background="{DynamicResource Surface}">
+                        <Border beh:ThemeRadius.Key="RadiusCard">
+                            <Border.Background>
+                                <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Border.Background>
+                        </Border>
+                    </Border>
+                    <Border x:Name="Fallback" beh:ThemeRadius.Key="RadiusCard" Visibility="Collapsed">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0.2,1">
+                                <GradientStop Color="#262A36" Offset="0" />
+                                <GradientStop Color="#181B24" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <Border Width="64" Height="64" CornerRadius="18" Background="#0FFFFFFF" BorderBrush="#1FFFFFFF" BorderThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <controls:LauncherIcon Width="36" Height="36" HorizontalAlignment="Center" />
+                        </Border>
+                    </Border>
+                    <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8" Height="26" Padding="7,0,11,0" CornerRadius="13" Background="{DynamicResource ArtPlate}"
+                            BorderBrush="#24FFFFFF" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <controls:LauncherIcon Width="15" Height="15" Margin="0,0,6,0" />
+                            <TextBlock Text="{Binding Source, Converter={x:Static conv:LauncherNameConverter.Instance}}" FontSize="12" FontWeight="Medium" Foreground="White" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8" Width="20" Height="20" CornerRadius="10" Background="{DynamicResource ArtPlate}"
+                            BorderBrush="#24FFFFFF" BorderThickness="1" Visibility="{Binding Favorite, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <ui:SymbolIcon Symbol="Star24" Filled="True" FontSize="14" Foreground="{DynamicResource Star}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <Grid.Triggers />
+                </Grid>
+
+                <StackPanel Grid.Column="1" Margin="22,0,0,0" VerticalAlignment="Top">
+                    <TextBlock Text="{Binding Game.Name}" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="68" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding LastPlayedText}" Margin="0,4,0,18" FontSize="13" Foreground="{DynamicResource Muted}" />
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Style="{StaticResource TimeTileStyle}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding TodayText}" FontSize="{DynamicResource FontSizeStat}" FontWeight="{DynamicResource FontWeightStat}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="Played today" FontSize="11.5" Foreground="{DynamicResource Muted}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Style="{StaticResource TimeTileStyle}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Last7DaysText}" FontSize="{DynamicResource FontSizeStat}" FontWeight="{DynamicResource FontWeightStat}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="Last 7 days" FontSize="11.5" Foreground="{DynamicResource Muted}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Style="{StaticResource TimeTileStyle}" Margin="0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding AllTimeText}" FontSize="{DynamicResource FontSizeStat}" FontWeight="{DynamicResource FontWeightStat}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="All time" FontSize="11.5" Foreground="{DynamicResource Muted}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="{Binding HistoryNote}" Margin="0,18,0,0" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
+                       Visibility="{Binding HasHistoryNote, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+            <TextBlock Margin="0,10,0,14" Text="Only play seen by Axis Game Launcher is counted - earlier play history isn't known."
+                       FontSize="11" Opacity="0.55" TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

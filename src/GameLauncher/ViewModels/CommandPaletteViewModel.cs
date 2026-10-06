@@ -41,10 +41,21 @@ public sealed partial class CommandPaletteViewModel : ObservableObject
     private void Refresh()
     {
         Results.Clear();
-        foreach (var item in PaletteSearch.Search(_items, Query, MaxResults))
-            Results.Add(item);
 
-        SelectedIndex = Results.Count > 0 ? 0 : -1;
+        // Games first, then commands (each keeping its ranking), with a heading on the first row of each kind.
+        var found = PaletteSearch.Search(_items, Query, MaxResults);
+        var ordered = found.Where(i => i.Kind == PaletteKind.Game).Concat(found.Where(i => i.Kind != PaletteKind.Game)).ToList();
+        var lastKind = (PaletteKind?)null;
+        foreach (var item in ordered)
+        {
+            item.Header = item.Kind != lastKind ? (item.Kind == PaletteKind.Game ? "GAMES" : "COMMANDS") : null;
+            lastKind = item.Kind;
+            Results.Add(item);
+        }
+
+        // The rows are grouped, but the highlight starts on the best match overall: typing "settings" and pressing Enter must not launch a game that
+        // merely sits in the first group.
+        SelectedIndex = found.Count > 0 ? Math.Max(0, Results.IndexOf(found[0])) : -1;
         OnPropertyChanged(nameof(HasNoResults));
         OnPropertyChanged(nameof(EmptyText));
     }

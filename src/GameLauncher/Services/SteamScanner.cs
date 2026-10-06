@@ -65,6 +65,20 @@ public static partial class SteamScanner
         return games;
     }
 
+    /// <summary>Steam's own folder followed by every library folder, or nothing when Steam is not installed. Read each time it is asked for, so a
+    /// Steam installed after Axis started is found.</summary>
+    internal static IReadOnlyList<string> FindSteamFolders()
+    {
+        try
+        {
+            return GetSteamInstallPath() is { } steam && Directory.Exists(steam) ? GetLibraryFolders(steam) : [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
     private static string? GetSteamInstallPath()
     {
         try

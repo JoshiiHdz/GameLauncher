@@ -1,0 +1,1135 @@
+<UserControl x:Class="GameLauncher.ConsoleTileView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:beh="clr-namespace:GameLauncher.Behaviors"
+             xmlns:controls="clr-namespace:GameLauncher.Controls"
+             xmlns:conv="clr-namespace:GameLauncher.Converters"
+             xmlns:vm="clr-namespace:GameLauncher.ViewModels">
+
+    <!-- Console-tile (docs/spec 04): the focused game's art fills the window, square tiles with no text under them, a Guide sheet for all
+         navigation, fast snappy motion. The DataContext is the ShellState; the library is Library. Everything the library does is a
+         library command - this view only arranges it. -->
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <SolidColorBrush x:Key="WhiteChip" Color="#14FFFFFF" />
+            <SolidColorBrush x:Key="WhiteChipHover" Color="#29FFFFFF" />
+            <SolidColorBrush x:Key="WhiteChipBorder" Color="#24FFFFFF" />
+            <SolidColorBrush x:Key="WhiteRing" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="SoftInk" Color="#FFE5E7EB" />
+            <SolidColorBrush x:Key="ActionFill" Color="#1FFFFFFF" />
+            <SolidColorBrush x:Key="ActionFillHover" Color="#33FFFFFF" />
+            <SolidColorBrush x:Key="PlateFill" Color="#FFF1F3F9" />
+
+
+            <!-- Filled button that inverts on hover (Guide round button, Settings square button). -->
+            <Style x:Key="TopIconButton" TargetType="Button">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Background" Value="#A60F1117" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusButton" Background="{TemplateBinding Background}" BorderBrush="#4DFFFFFF" BorderThickness="1">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusButton" BorderBrush="{StaticResource WhiteRing}" BorderThickness="3" Margin="-1"
+                                        Visibility="Collapsed" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{StaticResource WhiteRing}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Bg}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="GuideButton" TargetType="Button" BasedOn="{StaticResource TopIconButton}">
+                <Setter Property="Background" Value="#6607080B" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <Border x:Name="Body" CornerRadius="18" Background="{TemplateBinding Background}" BorderBrush="#D9FFFFFF" BorderThickness="2">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <Border x:Name="Ring" CornerRadius="21" BorderBrush="{StaticResource WhiteRing}" BorderThickness="3" Margin="-3"
+                                        Visibility="Collapsed" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{StaticResource WhiteRing}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Bg}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Home / Library tabs: pills, the inverted (light) fill is the active cue. -->
+            <Style x:Key="TabPill" TargetType="RadioButton">
+                <Setter Property="Foreground" Value="{StaticResource SoftInk}" />
+                <Setter Property="Background" Value="{StaticResource WhiteChip}" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Grid>
+                                <Border x:Name="Body" CornerRadius="16" Background="{TemplateBinding Background}" Padding="16,0">
+                                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                </Border>
+                                <Border x:Name="Ring" CornerRadius="19" BorderBrush="{StaticResource WhiteRing}" BorderThickness="3" Margin="-3"
+                                        Visibility="Collapsed" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{StaticResource WhiteChipHover}" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{DynamicResource InverseFill}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource InverseInk}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Library tab view pills: square-cornered, the light fill marks the active view. -->
+            <Style x:Key="ViewPill" TargetType="RadioButton">
+                <Setter Property="Foreground" Value="{StaticResource SoftInk}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Height" Value="30" />
+                <Setter Property="Margin" Value="0,0,6,4" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Grid>
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusNavItem" Background="{StaticResource WhiteChip}" Padding="12,0">
+                                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" BorderBrush="{StaticResource WhiteRing}" BorderThickness="3" Margin="-3"
+                                        Visibility="Collapsed" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{StaticResource WhiteChipHover}" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{DynamicResource InverseFill}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource InverseInk}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Small rounded chips (Sort, Rescan library) and the hero's action buttons. -->
+            <Style x:Key="ChipButton" TargetType="Button">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="Height" Value="26" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusButton" Background="{StaticResource WhiteChip}" BorderBrush="{StaticResource WhiteChipBorder}"
+                                        BorderThickness="1" Padding="10,0">
+                                    <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" />
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusButton" BorderBrush="{StaticResource WhiteRing}" BorderThickness="2" Margin="-2"
+                                        Visibility="Collapsed" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{StaticResource WhiteChipHover}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.5" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="HeroButton" TargetType="Button">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Background" Value="{StaticResource ActionFill}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Height" Value="44" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusButton" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusButton" BorderBrush="{StaticResource WhiteRing}" BorderThickness="3" Margin="-3"
+                                        Visibility="Collapsed" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{StaticResource ActionFillHover}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="HeroPlayButton" TargetType="Button" BasedOn="{StaticResource HeroButton}">
+                <Setter Property="Foreground" Value="{DynamicResource AccentInk}" />
+                <Setter Property="FontWeight" Value="Bold" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusButton" Background="{DynamicResource Accent}" Padding="22,0,28,0">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}">
+                                        <ui:SymbolIcon Symbol="Play24" Filled="True" FontSize="16" VerticalAlignment="Center" />
+                                        <ContentPresenter Margin="10,0,0,0" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusButton" BorderBrush="{StaticResource WhiteRing}" BorderThickness="3" Margin="-3"
+                                        Visibility="Collapsed" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{DynamicResource AccentHover}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- The tile (140 x 182): art only at rest. Focus (keyboard, controller or pointer hover) scales it, rings it in white, drops a shadow
+                 and fades in the name strip. -->
+            <Style x:Key="GameTileButton" TargetType="Button">
+                <Setter Property="Width" Value="{DynamicResource ActiveCardWidth}" />
+                <Setter Property="Height" Value="{DynamicResource ActiveCardHeight}" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="beh:MotionExtensions.FocusScale" Value="{DynamicResource FocusScale}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid x:Name="Root">
+                                <Border x:Name="Shadow" beh:ThemeRadius.Key="RadiusCard" Background="{DynamicResource Bg}" Opacity="0">
+                                    <Border.Effect>
+                                        <DropShadowEffect ShadowDepth="18" BlurRadius="40" Direction="270" Color="#000000" Opacity="0.8" />
+                                    </Border.Effect>
+                                </Border>
+                                <Grid x:Name="Press" RenderTransformOrigin="0.5,0.5">
+                                    <Grid.RenderTransform>
+                                        <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1" />
+                                    </Grid.RenderTransform>
+                                    <Border beh:ThemeRadius.Key="RadiusCard" Background="{DynamicResource Surface}" />
+                                    <Border x:Name="Art" beh:ThemeRadius.Key="RadiusCard">
+                                        <Border.Background>
+                                            <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center"
+                                                        RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Border.Background>
+                                    </Border>
+                                    <!-- Icon fallback: launcher initials on a plate, with the game's name under it. -->
+                                    <Border x:Name="Fallback" beh:ThemeRadius.Key="RadiusCard" Visibility="Collapsed">
+                                        <Border.Background>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="0.2,1">
+                                                <GradientStop Color="#262A36" Offset="0" />
+                                                <GradientStop Color="#181B24" Offset="1" />
+                                            </LinearGradientBrush>
+                                        </Border.Background>
+                                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                            <Border Width="52" Height="52" CornerRadius="12" Background="#0FFFFFFF" BorderBrush="#1FFFFFFF" BorderThickness="1" HorizontalAlignment="Center">
+                                                <controls:LauncherIcon Width="30" Height="30" HorizontalAlignment="Center" />
+                                            </Border>
+                                            <TextBlock Text="{Binding Name}" Margin="10,10,10,0" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"
+                                                       TextAlignment="Center" TextWrapping="Wrap" MaxHeight="48" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="NameStrip" VerticalAlignment="Bottom" Padding="10,26,10,9" Opacity="0" IsHitTestVisible="False">
+                                        <Border.Background>
+                                            <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                                                <GradientStop Color="#EB000000" Offset="0.4" />
+                                                <GradientStop Color="#00000000" Offset="1" />
+                                            </LinearGradientBrush>
+                                        </Border.Background>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Bold" Foreground="White" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="11" FontWeight="Medium" Foreground="{DynamicResource InkSoft}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis">
+                                                <TextBlock.Text>
+                                                    <MultiBinding Converter="{x:Static conv:GameMetaConverter.Instance}" ConverterParameter="tracked">
+                                                        <Binding />
+                                                        <Binding Path="TotalPlaySeconds" />
+                                                        <Binding Path="LastPlayedDisplay" />
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="5,3" CornerRadius="2" Background="{DynamicResource ArtPlate}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <controls:LauncherIcon Width="13" Height="13" Margin="0,0,5,0" />
+                                            <TextBlock Text="{Binding Source, Converter={x:Static conv:LauncherUpperConverter.Instance}}" FontSize="9" FontWeight="ExtraBold" Foreground="White" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Width="20" Height="20" CornerRadius="2" Background="{DynamicResource ArtPlate}"
+                                            Visibility="{Binding Favorite, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                        <ui:SymbolIcon Symbol="Star24" Filled="True" FontSize="12" Foreground="{DynamicResource Star}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusCard" BorderBrush="{DynamicResource FocusInk}" BorderThickness="3" Opacity="0" IsHitTestVisible="False" />
+                                </Grid>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsCoverArt}" Value="False">
+                                    <Setter TargetName="Fallback" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="Art" Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <Trigger Property="beh:MotionExtensions.IsFocused" Value="True">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                                <DoubleAnimation Storyboard.TargetName="Shadow" Storyboard.TargetProperty="Opacity" To="1" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                                <DoubleAnimation Storyboard.TargetName="NameStrip" Storyboard.TargetProperty="Opacity" To="1" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                                <DoubleAnimation Storyboard.TargetName="Shadow" Storyboard.TargetProperty="Opacity" To="0" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                                <DoubleAnimation Storyboard.TargetName="NameStrip" Storyboard.TargetProperty="Opacity" To="0" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="PressScale" Storyboard.TargetProperty="ScaleX" To="1.02" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                                <DoubleAnimation Storyboard.TargetName="PressScale" Storyboard.TargetProperty="ScaleY" To="1.02" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="PressScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                                <DoubleAnimation Storyboard.TargetName="PressScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- One tile in a shelf or the grid. The wrapper carries the gap, so the scaled focus tile is not clipped by its neighbour's margin. -->
+            <DataTemplate x:Key="GameTileTemplate">
+                <Grid Margin="0,0,8,0">
+                    <Button Style="{StaticResource GameTileButton}" ToolTip="{Binding Name}"
+                            Click="Tile_Click" MouseEnter="Tile_MouseEnter" MouseRightButtonUp="Tile_RightClick" GotKeyboardFocus="Tile_GotKeyboardFocus">
+                        <beh:MotionExtensions.IsFocused>
+                            <MultiBinding Converter="{x:Static conv:SameGameConverter.Instance}">
+                                <Binding />
+                                <Binding Path="(beh:ShellFocus.Game)" RelativeSource="{RelativeSource Self}" />
+                                <Binding Path="(beh:ShellFocus.Row)" RelativeSource="{RelativeSource Self}" />
+                                <Binding Path="(beh:ShellFocus.FocusedRow)" RelativeSource="{RelativeSource Self}" />
+                            </MultiBinding>
+                        </beh:MotionExtensions.IsFocused>
+                    </Button>
+                </Grid>
+            </DataTemplate>
+
+            <ItemsPanelTemplate x:Key="HorizontalShelfPanel">
+                <VirtualizingStackPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+
+            <!-- A horizontally scrolling row: the scrollbar is hidden, the wheel and keyboard still scroll it. -->
+            <Style x:Key="ShelfStyle" TargetType="ItemsControl">
+                <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+                <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel" />
+                <Setter Property="ItemsPanel" Value="{StaticResource HorizontalShelfPanel}" />
+                <Setter Property="ItemTemplate" Value="{StaticResource GameTileTemplate}" />
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ItemsControl">
+                            <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" CanContentScroll="True" beh:EdgeScroll.Enabled="True"
+                                          Focusable="False" Padding="6,12,6,14" PreviewMouseWheel="Shelf_PreviewMouseWheel">
+                                <ItemsPresenter />
+                            </ScrollViewer>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Guide tab icons: a square tab, the light fill marks the open tab. -->
+            <Style x:Key="GuideTabIcon" TargetType="RadioButton">
+                <Setter Property="Foreground" Value="#D1D5DB" />
+                <Setter Property="Height" Value="44" />
+                <Setter Property="Margin" Value="0,0,4,0" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Grid>
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusNavItem" Background="#0FFFFFFF">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" BorderBrush="{StaticResource WhiteRing}" BorderThickness="2" Opacity="0" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{DynamicResource InverseFill}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource InverseInk}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Guide rows (42 high, 14 SemiBold white): hover is a 2 px inner white ring with no fill change, like the tiles; the open view is green. -->
+            <Style x:Key="GuideRow" TargetType="RadioButton">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Height" Value="42" />
+                <Setter Property="Margin" Value="0,0,0,2" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Grid x:Name="Root">
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusNavItem" Background="Transparent" Padding="12,0">
+                                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Stretch" TextElement.Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" BorderBrush="{StaticResource WhiteRing}" BorderThickness="2" Opacity="0" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{DynamicResource AccentSoftFill}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Root" Property="Opacity" Value="0.5" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="GuideCount" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="Opacity" Value="0.7" />
+                <Setter Property="HorizontalAlignment" Value="Right" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <!-- A frame that rings on hover, for rows that hold their own control (a launcher's toggle). -->
+            <Style x:Key="GuideFrame" TargetType="ContentControl">
+                <Setter Property="Margin" Value="0,0,0,2" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ContentControl">
+                            <Grid>
+                                <ContentPresenter />
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" BorderBrush="{StaticResource WhiteRing}" BorderThickness="2" Opacity="0" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="DriveMenuButton" TargetType="Button">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Body" beh:ThemeRadius.Key="RadiusButton" Background="{StaticResource WhiteChip}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{StaticResource WhiteRing}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Bg}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="{StaticResource WhiteRing}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Bg}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="ShelfTitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="FontWeight" Value="Bold" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+            <Style x:Key="ShelfSub" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid x:Name="Shell" Background="{DynamicResource Bg}" beh:ShellFocus.Game="{Binding FocusedGame}" beh:ShellFocus.FocusedRow="{Binding FocusedRow}" ClipToBounds="True">
+
+        <!-- Background: the focused game's cover across the whole window, under two gradients that keep every line of text on a dark base. -->
+        <controls:ArtBackdrop x:Name="Backdrop" Source="{Binding HeroArt}" IsHitTestVisible="False" />
+        <Border IsHitTestVisible="False">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                    <GradientStop Color="#F007080B" Offset="0" />
+                    <GradientStop Color="#9E07080B" Offset="0.42" />
+                    <GradientStop Color="#1F07080B" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+        <Border IsHitTestVisible="False">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                    <GradientStop Color="#07080B" Offset="0" />
+                    <GradientStop Color="#EB07080B" Offset="0.36" />
+                    <GradientStop Color="#0007080B" Offset="0.70" />
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+
+        <!-- A dark fade under the title bar and top bar, so the tabs, search and buttons read on a bright cover. -->
+        <Border Height="150" VerticalAlignment="Top" IsHitTestVisible="False">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#CC07080B" Offset="0" />
+                    <GradientStop Color="#80070B0B" Offset="0.55" />
+                    <GradientStop Color="#0007080B" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+
+        <Grid x:Name="ShellContent">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="32" />
+                <RowDefinition Height="52" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Top bar -->
+            <Grid Grid.Row="1" Margin="{DynamicResource ActiveGutterMargin}">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="GuideButton" Style="{StaticResource GuideButton}" Command="{Binding ToggleNavCommand}" ToolTip="Guide (G)" Margin="0,0,10,0">
+                        <ui:SymbolIcon Symbol="Navigation24" FontSize="18" />
+                    </Button>
+                    <RadioButton x:Name="HomeTab" Style="{StaticResource TabPill}" Content="Home" Command="{Binding ShowHomeCommand}" Margin="0,0,6,0">
+                        <RadioButton.IsChecked>
+                            <MultiBinding Converter="{x:Static conv:TabActiveConverter.Instance}" ConverterParameter="Home" Mode="OneWay">
+                                <Binding Path="Tab" />
+                                <Binding Path="Library.IsPageOpen" />
+                            </MultiBinding>
+                        </RadioButton.IsChecked>
+                    </RadioButton>
+                    <RadioButton x:Name="LibraryTab" Style="{StaticResource TabPill}" Content="Library" Command="{Binding ShowLibraryCommand}">
+                        <RadioButton.IsChecked>
+                            <MultiBinding Converter="{x:Static conv:TabActiveConverter.Instance}" ConverterParameter="Library" Mode="OneWay">
+                                <Binding Path="Tab" />
+                                <Binding Path="Library.IsPageOpen" />
+                            </MultiBinding>
+                        </RadioButton.IsChecked>
+                    </RadioButton>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="SearchButton" Command="{Binding Library.ShowCommandPaletteCommand}" Width="{DynamicResource ActiveSearchWidth}" Height="34"
+                            Margin="0,0,6,0" Cursor="Hand" ToolTip="Search (Ctrl+K)" FocusVisualStyle="{x:Null}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Grid>
+                                    <Border x:Name="Body" beh:ThemeRadius.Key="RadiusInput" Background="#A60F1117" BorderBrush="#4DFFFFFF"
+                                            BorderThickness="1" Padding="10,0">
+                                        <Grid>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <ui:SymbolIcon Symbol="Search24" FontSize="16" Foreground="White" />
+                                                <TextBlock Text="Search" Margin="8,0,0,0" FontSize="13" Foreground="#C9CED8" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                            <Border HorizontalAlignment="Right" VerticalAlignment="Center" Padding="5,2" CornerRadius="3" Background="#1AFFFFFF">
+                                                <TextBlock Text="Ctrl K" FontSize="10" FontWeight="SemiBold" Foreground="White" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                    <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusInput" BorderBrush="{StaticResource WhiteRing}" BorderThickness="3" Margin="-3"
+                                            Visibility="Collapsed" IsHitTestVisible="False" />
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Body" Property="Background" Value="{StaticResource WhiteChipBorder}" />
+                                    </Trigger>
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                        <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Button x:Name="SettingsButton" Style="{StaticResource TopIconButton}" Command="{Binding Library.ShowSettingsCommand}" ToolTip="Settings" Margin="0,0,6,0">
+                        <ui:SymbolIcon Symbol="Options24" FontSize="18" />
+                    </Button>
+                    <Button x:Name="PowerButton" Style="{StaticResource TopIconButton}" Command="{Binding Library.ShutdownPcCommand}" ToolTip="Shut down this PC (asks first)">
+                        <ui:SymbolIcon Symbol="Power24" FontSize="18" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- Home -->
+            <ScrollViewer x:Name="HomeScroll" Grid.Row="2" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <ScrollViewer.Style>
+                    <Style TargetType="ScrollViewer">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tab}" Value="Home" />
+                                    <Condition Binding="{Binding Library.IsPageOpen}" Value="False" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible" />
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ScrollViewer.Style>
+                <StackPanel Margin="{DynamicResource ActiveGutterBodyMargin}">
+
+                    <!-- Hero: describes the focused game and follows focus. -->
+                    <Grid Height="{DynamicResource ActiveHeroHeight}" Visibility="{Binding HasHeroGame, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <StackPanel x:Name="Hero" VerticalAlignment="Bottom" HorizontalAlignment="Left" MaxWidth="640" Margin="0,0,0,20">
+                            <TextBlock Text="{Binding HeroEyebrow}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AccentText}" />
+                            <TextBlock Text="{Binding HeroGame.Name}" FontSize="{DynamicResource ActiveFontSizeDisplay}" FontWeight="ExtraBold" Foreground="White"
+                                       LineHeight="47" LineStackingStrategy="BlockLineHeight" TextWrapping="Wrap" MaxHeight="96" TextTrimming="CharacterEllipsis" Margin="0,8,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <Border Background="{StaticResource PlateFill}" CornerRadius="2" Padding="6,3" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" DataContext="{Binding HeroGame}">
+                                        <controls:LauncherIcon Width="14" Height="14" Margin="0,0,5,0" />
+                                        <TextBlock Text="{Binding Source, Converter={x:Static conv:LauncherUpperConverter.Instance}}" FontSize="10" FontWeight="ExtraBold"
+                                                   Foreground="{DynamicResource Bg}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="{Binding HeroGame, Converter={x:Static conv:DriveAndSizeConverter.Instance}}" Margin="14,0,0,0" FontSize="13" FontWeight="Medium"
+                                           Foreground="#D1D5DB" VerticalAlignment="Center" />
+                                <TextBlock Margin="14,0,0,0" FontSize="13" FontWeight="Medium" Foreground="#D1D5DB" VerticalAlignment="Center">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{x:Static conv:GameMetaConverter.Instance}" ConverterParameter="tracked">
+                                            <Binding Path="HeroGame" />
+                                            <Binding Path="HeroGame.TotalPlaySeconds" />
+                                            <Binding Path="HeroGame.LastPlayedDisplay" />
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                <Button x:Name="HeroPlay" Style="{StaticResource HeroPlayButton}" Content="Play" Command="{Binding PlayCommand}" CommandParameter="{Binding HeroGame}" />
+                                <Button x:Name="HeroDetails" Style="{StaticResource HeroButton}" Content="Details" Padding="18,0" Margin="8,0,0,0"
+                                        Command="{Binding Library.ShowGameDetailsCommand}" CommandParameter="{Binding HeroGame}" />
+                                <Button x:Name="HeroMore" Style="{StaticResource HeroButton}" Width="44" Margin="8,0,0,0" ToolTip="More" Click="HeroMore_Click">
+                                    <ui:SymbolIcon Symbol="MoreHorizontal24" FontSize="18" />
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Empty library: no shelves, the library's own explanation and its actions. -->
+                    <StackPanel x:Name="EmptyHome" Margin="0,40,0,0" MaxWidth="420" HorizontalAlignment="Left"
+                                Visibility="{Binding Library.HasNoGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <TextBlock Text="{Binding Library.EmptyStateTitle}" FontSize="22" FontWeight="ExtraBold" Foreground="White" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Library.EmptyStateDescription}" FontSize="14" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,8,0,16" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Style="{StaticResource HeroPlayButton}" Height="40" Content="Open Launchers in the Guide" Click="OpenLaunchers_Click"
+                                    Visibility="{Binding Library.HasAnySourceGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                            <Button Style="{StaticResource HeroButton}" Height="40" Padding="18,0" Content="Add folder" Command="{Binding Library.AddFolderCommand}" />
+                            <Button Style="{StaticResource HeroButton}" Height="40" Padding="18,0" Margin="8,0,0,0" Content="Rescan library" Command="{Binding Library.RescanCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Recently played -->
+                    <StackPanel Margin="0,10,0,0" Visibility="{Binding Library.HasRecentlyPlayed, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Recently played" Style="{StaticResource ShelfTitle}" />
+                            <TextBlock Text="Tracked by Axis Game Launcher" Style="{StaticResource ShelfSub}" Margin="12,0,0,0" />
+                        </StackPanel>
+                        <ItemsControl x:Name="RecentShelf" beh:ShellFocus.Row="0" Style="{StaticResource ShelfStyle}" ItemsSource="{Binding Library.RecentlyPlayedGames}" Margin="-6,0" />
+                    </StackPanel>
+
+                    <!-- All games -->
+                    <StackPanel Margin="0,10,0,0" Visibility="{Binding Library.HasNoGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}">
+                        <WrapPanel>
+                            <TextBlock Text="All games" Style="{StaticResource ShelfTitle}" />
+                            <TextBlock Text="{Binding Library.Games.Count, Converter={x:Static conv:GameCountTextConverter.Instance}}" Style="{StaticResource ShelfSub}" Margin="12,0,0,0" />
+                            <Button x:Name="SortChip" Style="{StaticResource ChipButton}" Margin="12,0,0,0" Click="SortChip_Click" ToolTip="Sort the games">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Sort: " VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding SortLabel}" VerticalAlignment="Center" />
+                                    <ui:SymbolIcon Symbol="ChevronDown24" FontSize="12" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="RescanChip" Style="{StaticResource ChipButton}" Margin="6,0,0,0" Content="Rescan library" Command="{Binding Library.RescanCommand}" />
+                        </WrapPanel>
+                        <ItemsControl x:Name="AllShelf" beh:ShellFocus.Row="1" Style="{StaticResource ShelfStyle}" ItemsSource="{Binding Library.Games}" Margin="-6,0" />
+                    </StackPanel>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Library tab -->
+            <ScrollViewer x:Name="LibraryScroll" Grid.Row="2" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <ScrollViewer.Style>
+                    <Style TargetType="ScrollViewer">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tab}" Value="Library" />
+                                    <Condition Binding="{Binding Library.IsPageOpen}" Value="False" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible" />
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ScrollViewer.Style>
+                <StackPanel Margin="{DynamicResource ActiveGutterBodyMargin}">
+                    <Grid Margin="0,12,0,8">
+                        <WrapPanel VerticalAlignment="Center">
+                            <TextBlock Text="Library" FontSize="28" FontWeight="ExtraBold" Foreground="White" Margin="0,0,14,0" VerticalAlignment="Center" />
+                            <RadioButton x:Name="ViewAll" Style="{StaticResource ViewPill}" Content="All games" IsChecked="{Binding Library.IsAllViewSelected, Mode=OneWay}"
+                                         Command="{Binding ShowViewCommand}" CommandParameter="all" />
+                            <RadioButton x:Name="ViewFavorites" Style="{StaticResource ViewPill}" Content="Favorites" IsChecked="{Binding Library.IsFavoritesViewSelected, Mode=OneWay}"
+                                         Command="{Binding ShowViewCommand}" CommandParameter="favorites" />
+                            <RadioButton x:Name="ViewRecent" Style="{StaticResource ViewPill}" Content="Recently played" IsChecked="{Binding Library.IsRecentViewSelected, Mode=OneWay}"
+                                         Command="{Binding ShowViewCommand}" CommandParameter="recent" />
+                            <RadioButton x:Name="ViewUnplayed" Style="{StaticResource ViewPill}" Content="Not played yet" IsChecked="{Binding Library.IsNeverPlayedViewSelected, Mode=OneWay}"
+                                         Command="{Binding ShowViewCommand}" CommandParameter="unplayed" />
+                            <ItemsControl ItemsSource="{Binding Library.Collections}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <RadioButton Style="{StaticResource ViewPill}" Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                     Command="{Binding DataContext.ShowCollectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                     CommandParameter="{Binding Name}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </WrapPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button Style="{StaticResource ChipButton}" Height="30" Click="SortChip_Click" ToolTip="Sort the games">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Sort: " VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding SortLabel}" VerticalAlignment="Center" />
+                                    <ui:SymbolIcon Symbol="ChevronDown24" FontSize="12" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource ChipButton}" Height="30" Margin="6,0,0,0" Content="Rescan library" Command="{Binding Library.RescanCommand}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel x:Name="EmptyLibrary" MaxWidth="420" HorizontalAlignment="Left" Margin="0,32,0,0"
+                                Visibility="{Binding Library.HasNoGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <TextBlock Text="{Binding Library.EmptyStateTitle}" FontSize="22" FontWeight="ExtraBold" Foreground="White" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Library.EmptyStateDescription}" FontSize="14" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,8,0,16" />
+                        <Button Style="{StaticResource HeroPlayButton}" Height="40" HorizontalAlignment="Left" Content="Show all games" Command="{Binding ShowViewCommand}" CommandParameter="all" />
+                    </StackPanel>
+
+                    <ItemsControl x:Name="LibraryGrid" beh:ShellFocus.Row="0" ItemsSource="{Binding Library.Games}" ItemTemplate="{StaticResource GameTileTemplate}" Focusable="False" Margin="-4,4,0,36"
+                                  Visibility="{Binding Library.HasNoGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- ===== The Guide (opened by the round button or G): all secondary navigation, in a sheet from the left edge ===== -->
+        <Grid x:Name="GuideLayer" Panel.ZIndex="20" Visibility="{Binding NavOpen, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+            <Border x:Name="GuideScrim" Background="#8C000000" MouseLeftButtonDown="GuideScrim_MouseDown"
+                    beh:MotionExtensions.Enter="Fade" beh:MotionExtensions.EnterDurationKey="DurPage" />
+            <Border x:Name="GuidePanel" HorizontalAlignment="Left" Width="{DynamicResource ActiveGuideWidth}" Background="{DynamicResource Bg2}"
+                    BorderBrush="{DynamicResource Stroke}" BorderThickness="0,0,1,0" Padding="0,32,0,0"
+                    beh:MotionExtensions.Enter="SlideLeft" beh:MotionExtensions.EnterDurationKey="DurPanel"
+                    KeyboardNavigation.TabNavigation="Cycle">
+                <DockPanel>
+                    <!-- Footer: the status line (there is no footer bar in this theme). Settings and Shut down are buttons in the top bar. -->
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,0">
+                        <Border Height="1" Background="{DynamicResource Stroke}" />
+                        <StackPanel Margin="12,8,12,10">
+                            <Grid Margin="12,6,12,0">
+                                <TextBlock Text="{Binding Library.FooterCountText}" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource Muted}" HorizontalAlignment="Left" />
+                                <TextBlock Text="{Binding Library.StatusText}" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" />
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Header -->
+                    <Grid DockPanel.Dock="Top" Margin="20,6,20,14">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Width="26" Height="26" CornerRadius="13" BorderBrush="White" BorderThickness="2">
+                                <TextBlock Text="A" FontSize="11" FontWeight="ExtraBold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="Axis" FontSize="15" FontWeight="ExtraBold" Foreground="White" Margin="10,0,0,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Guide" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource Muted}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <Border HorizontalAlignment="Right" VerticalAlignment="Center" Padding="6,2" CornerRadius="3" Background="#1AFFFFFF">
+                            <TextBlock Text="G" FontSize="10" FontWeight="SemiBold" Foreground="White" />
+                        </Border>
+                    </Grid>
+
+                    <!-- Icon tabs -->
+                    <UniformGrid DockPanel.Dock="Top" Columns="4" Margin="16,0,16,0">
+                        <RadioButton x:Name="GuideTabViews" Style="{StaticResource GuideTabIcon}" ToolTip="Views and collections" Command="{Binding SetGuideTabCommand}" CommandParameter="Views"
+                                     IsChecked="{Binding GuideTab, Converter={x:Static conv:EqualsParameterConverter.Instance}, ConverterParameter=Views, Mode=OneWay}">
+                            <ui:SymbolIcon Symbol="Grid24" FontSize="20" />
+                        </RadioButton>
+                        <RadioButton x:Name="GuideTabLaunchers" Style="{StaticResource GuideTabIcon}" ToolTip="Launchers" Command="{Binding SetGuideTabCommand}" CommandParameter="Launchers"
+                                     IsChecked="{Binding GuideTab, Converter={x:Static conv:EqualsParameterConverter.Instance}, ConverterParameter=Launchers, Mode=OneWay}">
+                            <ui:SymbolIcon Symbol="Options24" FontSize="20" />
+                        </RadioButton>
+                        <RadioButton x:Name="GuideTabTools" Style="{StaticResource GuideTabIcon}" ToolTip="Tools" Command="{Binding SetGuideTabCommand}" CommandParameter="Tools"
+                                     IsChecked="{Binding GuideTab, Converter={x:Static conv:EqualsParameterConverter.Instance}, ConverterParameter=Tools, Mode=OneWay}">
+                            <ui:SymbolIcon Symbol="Wrench24" FontSize="20" />
+                        </RadioButton>
+                        <RadioButton x:Name="GuideTabDrives" Style="{StaticResource GuideTabIcon}" ToolTip="Drives" Command="{Binding SetGuideTabCommand}" CommandParameter="Drives"
+                                     IsChecked="{Binding GuideTab, Converter={x:Static conv:EqualsParameterConverter.Instance}, ConverterParameter=Drives, Mode=OneWay}">
+                            <ui:SymbolIcon Symbol="Storage24" FontSize="20" />
+                        </RadioButton>
+                    </UniformGrid>
+
+                    <TextBlock DockPanel.Dock="Top" Margin="20,14,20,6" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Muted}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="VIEWS AND COLLECTIONS" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding GuideTab}" Value="Launchers"><Setter Property="Text" Value="LAUNCHERS" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding GuideTab}" Value="Tools"><Setter Property="Text" Value="TOOLS" /></DataTrigger>
+                                    <DataTrigger Binding="{Binding GuideTab}" Value="Drives"><Setter Property="Text" Value="DRIVES" /></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <!-- Body: one list per tab -->
+                    <Grid Margin="12,0,12,8">
+                        <ScrollViewer x:Name="GuideViewsList" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                      Visibility="{Binding GuideTab, Converter={x:Static conv:TabVisibilityConverter.Instance}, ConverterParameter=Views}">
+                            <StackPanel>
+                                <RadioButton x:Name="GuideAll" Style="{StaticResource GuideRow}" Command="{Binding ShowViewCommand}" CommandParameter="all" IsChecked="{Binding Library.IsAllViewSelected, Mode=OneWay}">
+                                    <Grid><TextBlock Text="All games" /><TextBlock Text="{Binding Library.AllGamesCount}" Style="{StaticResource GuideCount}" /></Grid>
+                                </RadioButton>
+                                <RadioButton x:Name="GuideFavorites" Style="{StaticResource GuideRow}" Command="{Binding ShowViewCommand}" CommandParameter="favorites" IsChecked="{Binding Library.IsFavoritesViewSelected, Mode=OneWay}">
+                                    <Grid><TextBlock Text="Favorites" /><TextBlock Text="{Binding Library.FavoritesCount}" Style="{StaticResource GuideCount}" /></Grid>
+                                </RadioButton>
+                                <RadioButton x:Name="GuideRecent" Style="{StaticResource GuideRow}" Command="{Binding ShowViewCommand}" CommandParameter="recent" IsChecked="{Binding Library.IsRecentViewSelected, Mode=OneWay}">
+                                    <Grid><TextBlock Text="Recently played" /><TextBlock Text="{Binding Library.RecentCount}" Style="{StaticResource GuideCount}" /></Grid>
+                                </RadioButton>
+                                <RadioButton x:Name="GuideUnplayed" Style="{StaticResource GuideRow}" Command="{Binding ShowViewCommand}" CommandParameter="unplayed" IsChecked="{Binding Library.IsNeverPlayedViewSelected, Mode=OneWay}">
+                                    <Grid><TextBlock Text="Not played yet" /><TextBlock Text="{Binding Library.UnplayedCount}" Style="{StaticResource GuideCount}" /></Grid>
+                                </RadioButton>
+                                <RadioButton x:Name="GuideDuplicates" Style="{StaticResource GuideRow}" Command="{Binding ShowViewCommand}" CommandParameter="duplicates" IsChecked="{Binding Library.IsDuplicatesViewSelected, Mode=OneWay}"
+                                             Visibility="{Binding Library.HasDuplicates, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                    <Grid><TextBlock Text="Installed twice" /><TextBlock Text="{Binding Library.DuplicatesCount}" Style="{StaticResource GuideCount}" /></Grid>
+                                </RadioButton>
+                                <ItemsControl ItemsSource="{Binding Library.Collections}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <RadioButton Style="{StaticResource GuideRow}" ToolTip="{Binding ToolTip}" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                         Command="{Binding DataContext.ShowCollectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding Name}">
+                                                <Grid><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" Margin="0,0,40,0" /><TextBlock Text="{Binding Count}" Style="{StaticResource GuideCount}" /></Grid>
+                                            </RadioButton>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <ScrollViewer x:Name="GuideLaunchersList" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                      Visibility="{Binding GuideTab, Converter={x:Static conv:TabVisibilityConverter.Instance}, ConverterParameter=Launchers}">
+                            <ItemsControl ItemsSource="{Binding Library.SourceItems}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <ContentControl Style="{StaticResource GuideFrame}" x:Name="Row" Visibility="Collapsed">
+                                            <ui:ToggleSwitch IsChecked="{Binding IsEnabled, Mode=TwoWay}" Padding="12,0" MinHeight="46" ToolTip="{Binding ToolTip}">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <Border Width="28" Height="28" CornerRadius="4" Background="#22252F">
+                                                        <Grid>
+                                                            <TextBlock Text="{Binding Letter}" FontSize="10" FontWeight="ExtraBold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                       Visibility="{Binding ShowLetter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                                                            <ui:SymbolIcon Symbol="Games24" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                           Visibility="{Binding UsesGlyph, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                                                            <Image Source="{Binding DisplayIcon}" Width="16" Height="16" RenderOptions.BitmapScalingMode="HighQuality" />
+                                                        </Grid>
+                                                    </Border>
+                                                    <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" Margin="14,0,0,0" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </ui:ToggleSwitch>
+                                        </ContentControl>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding HasGames}" Value="True">
+                                                <Setter TargetName="Row" Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <ScrollViewer x:Name="GuideToolsList" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                      Visibility="{Binding GuideTab, Converter={x:Static conv:TabVisibilityConverter.Instance}, ConverterParameter=Tools}">
+                            <StackPanel>
+                                <RadioButton Style="{StaticResource GuideRow}" Command="{Binding RunFromNavCommand}" CommandParameter="{Binding Library.ShowStatsCommand}" IsChecked="{Binding Library.IsStatsPageOpen, Mode=OneWay}">
+                                    <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="DataBarVertical24" FontSize="18" VerticalAlignment="Center" /><TextBlock Text="Stats" Margin="12,0,0,0" VerticalAlignment="Center" /></StackPanel>
+                                </RadioButton>
+                                <RadioButton Style="{StaticResource GuideRow}" Command="{Binding RunFromNavCommand}" CommandParameter="{Binding Library.ShowMyPcCommand}" IsChecked="{Binding Library.IsMyPcPageOpen, Mode=OneWay}">
+                                    <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Desktop24" FontSize="18" VerticalAlignment="Center" /><TextBlock Text="My PC" Margin="12,0,0,0" VerticalAlignment="Center" /></StackPanel>
+                                </RadioButton>
+                                <RadioButton Style="{StaticResource GuideRow}" Command="{Binding RunFromNavCommand}" CommandParameter="{Binding Library.PickGameCommand}" IsChecked="{Binding Library.IsPickPageOpen, Mode=OneWay}">
+                                    <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="ArrowShuffle24" FontSize="18" VerticalAlignment="Center" /><TextBlock Text="Pick a game" Margin="12,0,0,0" VerticalAlignment="Center" /></StackPanel>
+                                </RadioButton>
+                                <RadioButton Style="{StaticResource GuideRow}" Command="{Binding RunFromNavCommand}" CommandParameter="{Binding Library.ShowOptimizeCommand}" IsChecked="{Binding Library.IsOptimizePageOpen, Mode=OneWay}">
+                                    <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Flash24" FontSize="18" VerticalAlignment="Center" /><TextBlock Text="Optimize" Margin="12,0,0,0" VerticalAlignment="Center" /></StackPanel>
+                                </RadioButton>
+                                <RadioButton Style="{StaticResource GuideRow}" Command="{Binding RunFromNavCommand}" CommandParameter="{Binding Library.AddFolderCommand}">
+                                    <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="FolderAdd24" FontSize="18" VerticalAlignment="Center" /><TextBlock Text="Add folder" Margin="12,0,0,0" VerticalAlignment="Center" /></StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <ScrollViewer x:Name="GuideDrivesList" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                      Visibility="{Binding GuideTab, Converter={x:Static conv:TabVisibilityConverter.Instance}, ConverterParameter=Drives}">
+                            <ItemsControl ItemsSource="{Binding Library.Drives}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{DynamicResource Surface}" CornerRadius="4" Padding="12" Margin="0,0,0,6">
+                                            <StackPanel>
+                                                <Grid>
+                                                    <Button x:Name="DriveName" Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand" HorizontalAlignment="Left" FocusVisualStyle="{x:Null}"
+                                                            Command="{Binding DataContext.ShowDriveCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding Letter}"
+                                                            ToolTip="Show only the games on this drive">
+                                                        <TextBlock FontSize="14" FontWeight="Bold" Foreground="White">
+                                                            <Run Text="{Binding Label, Mode=OneWay}" /><Run Text=" (" /><Run Text="{Binding Letter, Mode=OneWay}" /><Run Text=")" />
+                                                        </TextBlock>
+                                                    </Button>
+                                                    <Button x:Name="DriveMenu" HorizontalAlignment="Right" Width="30" Height="26" Click="GuideDriveMenu_Click" ToolTip="Drive options" Style="{StaticResource DriveMenuButton}">
+                                                        <ui:SymbolIcon Symbol="MoreHorizontal20" FontSize="15" />
+                                                    </Button>
+                                                </Grid>
+                                                <ProgressBar Height="6" Margin="0,8,0,0" Minimum="0" Maximum="1" Value="{Binding UsedFraction, Mode=OneWay}" IsHitTestVisible="False" />
+                                                <TextBlock Text="{Binding SummaryText}" FontSize="12" FontWeight="Medium" Foreground="{DynamicResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                                                <TextBlock Text="Not searched - its games are hidden" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" Margin="0,4,0,0"
+                                                           Visibility="{Binding IsIgnored, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- ===== Menus: a square list beside the tile (card menu) or under the button (More, drive); a click anywhere else closes it ===== -->
+        <Grid x:Name="MenuLayer" Panel.ZIndex="30" Visibility="{Binding IsMenuOpen, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+            <Border x:Name="MenuCatcher" Background="Transparent" MouseDown="MenuCatcher_MouseDown" />
+            <Border x:Name="MenuPanel" HorizontalAlignment="Left" VerticalAlignment="Top" Width="{DynamicResource MenuWidth}" Background="{DynamicResource Surface}"
+                    BorderBrush="{DynamicResource Stroke}" BorderThickness="1" beh:ThemeRadius.Key="RadiusMenu" Padding="0,4,0,6"
+                    beh:MotionExtensions.Enter="DropIn" beh:MotionExtensions.EnterDurationKey="DurMenu">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="50" ShadowDepth="25" Direction="270" Color="#000000" Opacity="0.70" />
+                </Border.Effect>
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding MenuHeaderUpper}" Padding="14,8" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding MenuCentered}" Value="True">
+                                            <Setter Property="TextAlignment" Value="Center" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <Border x:Name="MenuCloseButton" Grid.Column="1" Width="34" Height="30" Margin="0,0,4,0" Cursor="Hand" ToolTip="Close menu (Esc)" MouseLeftButtonUp="MenuClose_Click">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource Surface2}" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <ui:SymbolIcon Symbol="Dismiss24" FontSize="13" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </Grid>
+                    <ItemsControl x:Name="MenuRows" ItemsSource="{Binding MenuItems}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Border x:Name="Separator" Height="1" Margin="0,4" Background="{DynamicResource Stroke}" Visibility="Collapsed" />
+                                    <Border x:Name="Row" Height="{DynamicResource MenuRowHeight}" Background="Transparent" Cursor="Hand"
+                                            MouseEnter="MenuRow_MouseEnter" MouseLeftButtonUp="MenuRow_Click">
+                                        <TextBlock x:Name="Label" Text="{Binding Header}" Margin="14,0" FontSize="14" FontWeight="Medium" Foreground="{DynamicResource Ink}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    </Border>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsSeparator}" Value="True">
+                                        <Setter TargetName="Separator" Property="Visibility" Value="Visible" />
+                                        <Setter TargetName="Row" Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Destructive}" Value="True">
+                                        <Setter TargetName="Label" Property="Foreground" Value="{DynamicResource Danger}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Centered}" Value="True">
+                                        <Setter TargetName="Label" Property="HorizontalAlignment" Value="Center" />
+                                        <Setter TargetName="Label" Property="TextAlignment" Value="Center" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                        <Setter TargetName="Label" Property="FontWeight" Value="Bold" />
+                                        <Setter TargetName="Label" Property="Foreground" Value="{DynamicResource Accent}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                        <Setter TargetName="Row" Property="Background" Value="{DynamicResource InverseFill}" />
+                                        <Setter TargetName="Label" Property="Foreground" Value="{DynamicResource InverseInk}" />
+                                    </DataTrigger>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsActive}" Value="True" />
+                                            <Condition Binding="{Binding Destructive}" Value="True" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter TargetName="Row" Property="Background" Value="{DynamicResource DangerSolid}" />
+                                        <Setter TargetName="Label" Property="Foreground" Value="White" />
+                                    </MultiDataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ===== Feedback toast: white, bottom-right ===== -->
+        <Border x:Name="Toast" Panel.ZIndex="70" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="{DynamicResource ActiveToastMargin}" MaxWidth="360"
+                Background="{DynamicResource InverseFill}" CornerRadius="4" Padding="8,8,18,8" IsHitTestVisible="False"
+                Visibility="{Binding HasFeedback, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"
+                beh:MotionExtensions.Enter="SlideUp" beh:MotionExtensions.EnterDurationKey="DurToast">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="40" ShadowDepth="20" Direction="270" Color="#000000" Opacity="0.70" />
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <Border Width="34" Height="44" CornerRadius="2" Background="#2A2D3A">
+                    <Border CornerRadius="2">
+                        <Border.Background>
+                            <ImageBrush ImageSource="{Binding FeedbackGame.Icon}" Stretch="UniformToFill" />
+                        </Border.Background>
+                    </Border>
+                </Border>
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding FeedbackText}" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource InverseInk}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding FeedbackDetail}" FontSize="12" FontWeight="Medium" Foreground="#4B5563" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding FeedbackDetail, Converter={x:Static conv:HasTextVisibilityConverter.Instance}}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

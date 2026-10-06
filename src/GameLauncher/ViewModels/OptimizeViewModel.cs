@@ -32,34 +32,81 @@ public sealed partial class CleanItem : ObservableObject
 }
 
 /// <summary>The Optimize page: free up RAM, clear storage clutter (always with a size shown first and a question before anything is
-/// deleted), and a few other tools. Works through interfaces and delegates so none of it needs a real PC to test.</summary>
+/// deleted) and the games worth uninstalling. Works through interfaces and delegates so none of it needs a real PC to test.</summary>
 public sealed partial class OptimizeViewModel : ObservableObject
 {
     private readonly IMemoryOptimizer _memory;
     private readonly IReadOnlyList<string> _protectedFolders;
     private readonly Func<string, bool> _confirm;
-    private readonly Action<string> _open;
+    private readonly Func<IReadOnlyList<GameEntry>>? _games;
+    private readonly Action<GameEntry>? _uninstall;
+    private readonly string? _runningGameId;
 
     /// <param name="protectedFolders">Install folders whose programs memory trimming must leave alone (the running game's).</param>
     /// <param name="confirm">The "are you sure?" question; true to go ahead.</param>
-    /// <param name="open">Starts a program or link.</param>
+    /// <param name="games">The library's games, for the Space saver list; null leaves the list out.</param>
+    /// <param name="uninstall">Starts a game's uninstall (the usual Uninstall command).</param>
     public OptimizeViewModel(IMemoryOptimizer memory, IReadOnlyList<CleanCategory> categories, IReadOnlyList<string> protectedFolders,
-        IReadOnlyList<OptimizeTool> tools, Func<string, bool> confirm, Action<string> open)
+        Func<string, bool> confirm,
+        Func<IReadOnlyList<GameEntry>>? games = null, Action<GameEntry>? uninstall = null, string? runningGameId = null)
     {
+        _games = games;
+        _uninstall = uninstall;
+        _runningGameId = runningGameId;
         _memory = memory;
         _protectedFolders = protectedFolders;
         _confirm = confirm;
-        _open = open;
         foreach (var category in categories)
-            Items.Add(new CleanItem(category));
-        foreach (var tool in tools)
-            Tools.Add(new ToolItem(tool, open));
+        {
+            var item = new CleanItem(category);
+            item.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(CleanItem.IsSelected))
+                    OnSelectionChanged();
+            };
+            Items.Add(item);
+        }
+
+        OnSelectionChanged();
         RefreshMemory();
+        RefreshSpaceSaver();
     }
 
     public ObservableCollection<CleanItem> Items { get; } = new();
 
-    public ObservableCollection<ToolItem> Tools { get; } = new();
+    /// <summary>"Select all" while some kind is unticked; "Select none" once every kind is ticked.</summary>
+    [ObservableProperty]
+    private string _selectAllText = "Select all";
+
+    /// <summary>Ticks every kind of clutter, or - when they are all ticked already - unticks them all.</summary>
+    [RelayCommand]
+    private void ToggleSelectAll()
+    {
+        var tick = !Items.All(i => i.IsSelected);
+        foreach (var item in Items)
+            item.IsSelected = tick;
+    }
+
+    private void OnSelectionChanged()
+    {
+        SelectAllText = Items.Count > 0 && Items.All(i => i.IsSelected) ? "Select none" : "Select all";
+
+        // What would be cleared follows the ticks, once there is a scan to go by.
+        if (!IsBusy && HasStorageBar)
+        {
+            StorageText = SelectedSummary();
+            StorageBarFraction = Items.Any(i => i.IsSelected && i.Bytes > 0) ? 1 : 0;
+        }
+    }
+
+    /// <summary>Big games not played for a while, biggest first (see <see cref="SpaceSaver"/>).</summary>
+    public ObservableCollection<SpaceSaverRow> SpaceSaverRows { get; } = new();
+
+    /// <summary>False when the page was opened without a library (the card is hidden then).</summary>
+    public bool HasSpaceSaver => _games is not null;
+
+    [ObservableProperty]
+    private string _spaceSaverSummary = "";
 
     [ObservableProperty]
     private string _memoryText = "";
@@ -104,6 +151,26 @@ public sealed partial class OptimizeViewModel : ObservableObject
         var status = _memory.GetStatus();
         MemoryText = status.Describe();
         MemoryUsedFraction = status.UsedFraction;
+    }
+
+    /// <summary>Works the list out again from the library as it is now: sizes are measured in the background, so it fills in over a minute or two.</summary>
+    [RelayCommand]
+    private void RefreshSpaceSaver()
+    {
+        SpaceSaverRows.Clear();
+        if (_games is null)
+            return;
+
+        var all = _games();
+        var suggestions = SpaceSaver.Suggest(all, DateTime.UtcNow, runningGameId: _runningGameId);
+        foreach (var suggestion in suggestions)
+            SpaceSaverRows.Add(new SpaceSaverRow(suggestion, game => _uninstall?.Invoke(game)));
+
+        var waiting = SpaceSaver.Unmeasured(all);
+        var measuring = waiting > 0 ? $" {waiting:N0} {(waiting == 1 ? "game is" : "games are")} still being measured - check again in a moment." : "";
+        SpaceSaverSummary = suggestions.Count == 0
+            ? $"Nothing found: no big game has gone {SpaceSaver.UnplayedDays} days unplayed.{measuring}"
+            : $"Uninstalling all of these would free {ByteFormat.Size(suggestions.Sum(x => x.Bytes))}.{measuring}";
     }
 
     private bool CanRun() => !IsBusy;
@@ -285,25 +352,27 @@ public sealed partial class OptimizeViewModel : ObservableObject
     }
 }
 
-/// <summary>One "other tool" row with its button.</summary>
-public sealed partial class ToolItem
+/// <summary>One row of the Space saver list: a big game that has not been played for a while, with a button that starts its uninstall.</summary>
+public sealed partial class SpaceSaverRow
 {
-    private readonly Action<string> _open;
+    private readonly Action<GameEntry> _uninstall;
 
-    public ToolItem(OptimizeTool tool, Action<string> open)
+    public SpaceSaverRow(SpaceSaverSuggestion suggestion, Action<GameEntry> uninstall)
     {
-        Tool = tool;
-        _open = open;
+        Game = suggestion.Game;
+        SizeText = ByteFormat.Size(suggestion.Bytes);
+        LastPlayedText = suggestion.LastPlayedText;
+        _uninstall = uninstall;
     }
 
-    public OptimizeTool Tool { get; }
+    public GameEntry Game { get; }
 
-    public string Name => Tool.Name;
+    public string Name => Game.Name;
 
-    public string Description => Tool.Description;
+    public string SizeText { get; }
 
-    public string ActionText => Tool.ActionText;
+    public string LastPlayedText { get; }
 
     [RelayCommand]
-    private void Open() => _open(Tool.Target);
+    private void Uninstall() => _uninstall(Game);
 }

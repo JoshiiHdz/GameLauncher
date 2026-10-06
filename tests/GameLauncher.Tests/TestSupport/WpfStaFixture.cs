@@ -52,6 +52,7 @@ public sealed class WpfStaFixture : IDisposable
                 // unexpectedly - exactly the failure mode a test run needs to report, not freeze on.
                 app.Resources.MergedDictionaries.Add(new ThemesDictionary { Theme = ApplicationTheme.Dark });
                 app.Resources.MergedDictionaries.Add(new ControlsDictionary());
+                GameLauncher.Services.ThemeManager.Apply(GameLauncher.Services.ThemeId.Axis); // the theme's tokens and control styles, as the real app has them
             }
 
             ready.Set();

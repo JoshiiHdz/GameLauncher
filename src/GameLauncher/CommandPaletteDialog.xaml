@@ -5,80 +5,184 @@
              xmlns:local="clr-namespace:GameLauncher"
              xmlns:beh="clr-namespace:GameLauncher.Behaviors"
              xmlns:conv="clr-namespace:GameLauncher.Converters"
-             Width="620"
+             xmlns:services="clr-namespace:GameLauncher.Services"
+             Width="{DynamicResource ActivePaletteWidth}"
              local:AppShell.Chromeless="True"
              local:AppShell.LightDismiss="True">
 
+    <!-- The command palette (spec 03 section 3.7, 04 section 4.8, 05 section 5.7): a search row, then GAMES and COMMANDS. It draws its own card; the window decides
+         where it sits (centred under the title bar in Axis, a dropdown from the search field in Console-tile, centred and lower in Console-ribbon). -->
+
     <UserControl.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Resources/DesignTokens.xaml" />
-            </ResourceDictionary.MergedDictionaries>
+            <!-- A result row. Axis: a soft accent fill and ring when active. Console-tile: a solid green row with dark text. Console-ribbon: a lit blue pill. -->
+            <Style x:Key="PaletteRowStyle" TargetType="ListBoxItem">
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Padding" Value="8,0" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <EventSetter Event="PreviewMouseLeftButtonUp" Handler="Item_Click" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <StackPanel>
+                                <TextBlock x:Name="Head" Text="{Binding Header}" Visibility="Collapsed" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" Padding="8,10,8,4" />
+                                <Grid>
+                                    <Border x:Name="Fill" beh:ThemeRadius.Key="RadiusPalRow" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" />
+                                    <Grid Height="38" x:Name="Row" Margin="{TemplateBinding Padding}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border x:Name="Thumb" Width="20" Height="26" Margin="0,0,12,0" CornerRadius="4" Background="{DynamicResource Surface2}" VerticalAlignment="Center" ClipToBounds="True">
+                                            <Image Source="{Binding Cover}" Stretch="UniformToFill" />
+                                        </Border>
+                                        <TextBlock x:Name="Title" Grid.Column="1" Text="{Binding Title}" FontSize="13" Foreground="{DynamicResource Ink}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="Sub" Grid.Column="2" Text="{Binding Detail}" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                    </Grid>
+                                </Grid>
+                            </StackPanel>
+                            <ControlTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Header, Converter={x:Static conv:HasValueVisibilityConverter.Instance}}" Value="Visible">
+                                    <Setter TargetName="Head" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Fill" Property="Background" Value="{DynamicResource Surface2}" />
+                                </Trigger>
+                                <!-- Active row, per theme -->
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
+                                        <Condition Binding="{Binding IsAxis, Source={x:Static services:ThemeState.Instance}}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter TargetName="Fill" Property="Background" Value="{DynamicResource AccentSoftFill}" />
+                                    <Setter TargetName="Fill" Property="BorderBrush" Value="{DynamicResource AccentSoftStroke}" />
+                                </MultiDataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
+                                        <Condition Binding="{Binding IsTile, Source={x:Static services:ThemeState.Instance}}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter TargetName="Fill" Property="Background" Value="{DynamicResource Accent}" />
+                                    <Setter TargetName="Title" Property="Foreground" Value="{DynamicResource AccentInk}" />
+                                    <Setter TargetName="Sub" Property="Foreground" Value="{DynamicResource AccentInk}" />
+                                </MultiDataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
+                                        <Condition Binding="{Binding IsRibbon, Source={x:Static services:ThemeState.Instance}}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter TargetName="Fill" Property="Background" Value="#2960A5FA" />
+                                    <Setter TargetName="Fill" Property="BorderBrush" Value="#8060A5FA" />
+                                </MultiDataTrigger>
+                                <!-- Row sizes per theme -->
+                                <DataTrigger Binding="{Binding IsTile, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                                    <Setter TargetName="Row" Property="Height" Value="40" />
+                                    <Setter TargetName="Row" Property="Margin" Value="14,0" />
+                                    <Setter TargetName="Title" Property="FontSize" Value="14" />
+                                    <Setter TargetName="Title" Property="FontWeight" Value="Medium" />
+                                    <Setter TargetName="Thumb" Property="Width" Value="22" />
+                                    <Setter TargetName="Thumb" Property="Height" Value="28" />
+                                    <Setter TargetName="Thumb" Property="CornerRadius" Value="2" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsRibbon, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                                    <Setter TargetName="Row" Property="Height" Value="46" />
+                                    <Setter TargetName="Row" Property="Margin" Value="10,0" />
+                                    <Setter TargetName="Title" Property="FontSize" Value="14" />
+                                    <Setter TargetName="Thumb" Property="Width" Value="26" />
+                                    <Setter TargetName="Thumb" Property="Height" Value="34" />
+                                    <Setter TargetName="Thumb" Property="CornerRadius" Value="6" />
+                                </DataTrigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="PaletteInputStyle" TargetType="TextBox">
+                <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="CaretBrush" Value="{DynamicResource Ink}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TextBox">
+                            <Grid>
+                                <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center" />
+                                <TextBlock x:Name="Hint" Text="{Binding SearchHint, Source={x:Static services:ThemeState.Instance}}" Foreground="{DynamicResource Muted}" FontSize="{TemplateBinding FontSize}"
+                                           FontWeight="{TemplateBinding FontWeight}" VerticalAlignment="Center" IsHitTestVisible="False" Visibility="Collapsed" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="Text" Value="">
+                                    <Setter TargetName="Hint" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                                <DataTrigger Binding="{Binding IsConsole, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                                    <Setter TargetName="Hint" Property="Text" Value="Search your library or type a command" />
+                                </DataTrigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsTile, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                        <Setter Property="FontWeight" Value="Medium" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsRibbon, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                        <Setter Property="FontSize" Value="19" />
+                        <Setter Property="FontWeight" Value="Light" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <!-- Its own card (no title bar or close button): the window puts it in the upper-middle of the dimmed layer. -->
-    <Border CornerRadius="14" Background="{StaticResource DesignSurface}" TextElement.Foreground="{StaticResource DesignInk}"
-            BorderBrush="{StaticResource DesignStroke}" BorderThickness="1"
-            beh:Motion.FadeIn="True">
+    <Border x:Name="Card" beh:ThemeRadius.Key="RadiusPalette" Background="{DynamicResource PaletteFill}" TextElement.Foreground="{DynamicResource Ink}"
+            BorderBrush="{DynamicResource PaletteStroke}" BorderThickness="1">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.5" Color="Black" />
+            <DropShadowEffect BlurRadius="40" ShadowDepth="16" Opacity="0.7" Color="Black" />
         </Border.Effect>
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <ui:TextBox x:Name="QueryBox" Grid.Row="0" Margin="14,14,14,10" FontSize="16" Padding="12,10"
-                        PlaceholderText="Search games and commands..."
-                        Icon="{ui:SymbolIcon Search24}"
-                        Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}" />
-
-            <ListBox x:Name="ResultList" Grid.Row="1" Margin="8,0,8,10" MaxHeight="370" BorderThickness="0" Background="Transparent"
-                     ItemsSource="{Binding Results}" SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                        <Setter Property="Padding" Value="10,8" />
-                        <EventSetter Event="PreviewMouseLeftButtonUp" Handler="Item_Click" />
+            <!-- Search row -->
+            <Border x:Name="InputRow" Grid.Row="0" Height="50" BorderBrush="{DynamicResource PaletteLine}" BorderThickness="0,0,0,1" Padding="14,0">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsTile, Source={x:Static services:ThemeState.Instance}}" Value="True"><Setter Property="Height" Value="48" /></DataTrigger>
+                            <DataTrigger Binding="{Binding IsRibbon, Source={x:Static services:ThemeState.Instance}}" Value="True"><Setter Property="Height" Value="60" /><Setter Property="Padding" Value="20,0" /></DataTrigger>
+                        </Style.Triggers>
                     </Style>
-                </ListBox.ItemContainerStyle>
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <ui:SymbolIcon Grid.Column="0" Width="30" FontSize="17" VerticalAlignment="Center" Opacity="0.75">
-                                <ui:SymbolIcon.Style>
-                                    <Style TargetType="ui:SymbolIcon">
-                                        <Setter Property="Symbol" Value="Flash24" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Kind}" Value="Game">
-                                                <Setter Property="Symbol" Value="Games24" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </ui:SymbolIcon.Style>
-                            </ui:SymbolIcon>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock Text="{Binding Title}" FontSize="14" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Subtitle}" FontSize="11.5" Foreground="{StaticResource DesignMuted}" TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                        </Grid>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-
-            <TextBlock Grid.Row="1" Text="{Binding EmptyText}" Margin="22,0,22,16" FontSize="12.5" Opacity="0.6"
-                       Visibility="{Binding HasNoResults, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-
-            <Border Grid.Row="2" BorderBrush="{StaticResource DesignStroke}" BorderThickness="0,1,0,0" Padding="16,8">
-                <TextBlock Text="Up/Down to move   Enter to choose   Esc to close" FontSize="11" Foreground="{StaticResource DesignMuted}" />
+                </Border.Style>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ui:SymbolIcon Symbol="Search24" FontSize="18" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <TextBox x:Name="QueryBox" Grid.Column="1" Style="{StaticResource PaletteInputStyle}" Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" />
+                    <Border Grid.Column="2" Padding="6,2" CornerRadius="4" Background="{DynamicResource ChipFill}" VerticalAlignment="Center" Margin="12,0,0,0"
+                            Visibility="{Binding ShortcutsEnabled, Source={x:Static services:ThemeState.Instance}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <TextBlock Text="Esc" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
+                    </Border>
+                </Grid>
             </Border>
+
+            <Grid Grid.Row="1">
+                <ListBox x:Name="ResultList" Margin="6,4,6,8" MaxHeight="{DynamicResource ActivePaletteListHeight}" BorderThickness="0" Background="Transparent"
+                         ItemsSource="{Binding Results}" SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}" ItemContainerStyle="{StaticResource PaletteRowStyle}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Hidden" />
+
+                <TextBlock Text="No games or commands match that search." Margin="18" FontSize="13" Foreground="{DynamicResource Muted}"
+                           Visibility="{Binding HasNoResults, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+            </Grid>
         </Grid>
     </Border>
 </UserControl>

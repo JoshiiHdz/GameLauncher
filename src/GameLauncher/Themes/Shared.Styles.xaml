@@ -1,0 +1,335 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                    xmlns:beh="clr-namespace:GameLauncher.Behaviors">
+
+    <!--
+        Control templates shared by all three themes. Nothing in here is a literal colour, radius or size: everything is read from the
+        active theme's tokens with DynamicResource, and the animations read their durations and easing from the same tokens through
+        ThemeTiming (ThemeManager loads this file again on every theme switch, so those are current). One set of templates, three looks.
+
+        Every control draws its own focus ring (FocusVisualStyle is switched off) from FocusInk / FocusRingBorder / FocusRingMargin.
+    -->
+
+    <!-- ===== Button (ui:Button): secondary by default; Appearance picks Primary, Danger (solid), Caution (soft danger) or Transparent ===== -->
+    <Style TargetType="ui:Button">
+        <Setter Property="Appearance" Value="Secondary" />
+        <Setter Property="Background" Value="{DynamicResource ChipFill}" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ChipStroke}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="MinHeight" Value="{DynamicResource ButtonHeight}" />
+        <Setter Property="Padding" Value="16,0" />
+        <Setter Property="FontSize" Value="{DynamicResource FontSizeBody}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ui:Button">
+                    <Grid x:Name="Root" SnapsToDevicePixels="True">
+                        <Border x:Name="Body" beh:ThemeRadius.Key="RadiusButton" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" />
+                        <Border x:Name="HoverFill" beh:ThemeRadius.Key="RadiusButton" Background="{DynamicResource ChipFillHover}"
+                                Opacity="0" IsHitTestVisible="False" />
+                        <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusButton" Margin="{DynamicResource FocusRingMargin}"
+                                BorderBrush="{DynamicResource FocusInk}" BorderThickness="{DynamicResource FocusRingBorder}"
+                                Visibility="Collapsed" IsHitTestVisible="False" />
+                        <StackPanel Orientation="Horizontal" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}">
+                            <ContentPresenter x:Name="IconHost" Content="{TemplateBinding Icon}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                            <ContentPresenter x:Name="TextHost" VerticalAlignment="Center" RecognizesAccessKey="True" />
+                        </StackPanel>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Icon" Value="{x:Null}">
+                            <Setter TargetName="IconHost" Property="Visibility" Value="Collapsed" />
+                        </Trigger>
+                        <Trigger Property="Content" Value="{x:Null}">
+                            <Setter TargetName="IconHost" Property="Margin" Value="0" />
+                        </Trigger>
+                        <Trigger Property="Appearance" Value="Primary">
+                            <Setter Property="Foreground" Value="{DynamicResource AccentInk}" />
+                            <Setter TargetName="Body" Property="Background" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="HoverFill" Property="Background" Value="{DynamicResource AccentHover}" />
+                            <Setter TargetName="Root" Property="Effect" Value="{DynamicResource PrimaryGlowEffect}" />
+                        </Trigger>
+                        <Trigger Property="Appearance" Value="Danger">
+                            <Setter Property="Foreground" Value="White" />
+                            <Setter TargetName="Body" Property="Background" Value="{DynamicResource DangerSolid}" />
+                            <Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource DangerSolid}" />
+                            <Setter TargetName="HoverFill" Property="Background" Value="#33FFFFFF" />
+                        </Trigger>
+                        <Trigger Property="Appearance" Value="Caution">
+                            <Setter Property="Foreground" Value="{DynamicResource Danger}" />
+                            <Setter TargetName="Body" Property="Background" Value="{DynamicResource DangerFill}" />
+                            <Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource DangerStroke}" />
+                            <Setter TargetName="HoverFill" Property="Background" Value="{DynamicResource DangerFill}" />
+                        </Trigger>
+                        <Trigger Property="Appearance" Value="Transparent">
+                            <Setter TargetName="Body" Property="Background" Value="Transparent" />
+                            <Setter TargetName="Body" Property="BorderBrush" Value="Transparent" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="HoverFill" Storyboard.TargetProperty="Opacity" To="1"
+                                                         Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="HoverFill" Storyboard.TargetProperty="Opacity" To="0"
+                                                         Duration="{x:Static beh:ThemeTiming.Hover}" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.85" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Toggle switch: the label, then "On"/"Off" as text (so state never rests on colour alone), then the switch. The whole row clicks. ===== -->
+    <Style TargetType="ui:ToggleSwitch">
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Padding" Value="0,6" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ui:ToggleSwitch">
+                    <Grid x:Name="Root" SnapsToDevicePixels="True" Background="Transparent">
+                        <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" Margin="-4,0" BorderBrush="{DynamicResource FocusInk}"
+                                BorderThickness="{DynamicResource FocusRingBorder}" Visibility="Collapsed" IsHitTestVisible="False" />
+                        <DockPanel Margin="{TemplateBinding Padding}" LastChildFill="True">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                                <TextBlock x:Name="State" Text="Off" Width="24" TextAlignment="Right" Margin="0,0,8,0" VerticalAlignment="Center"
+                                           FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
+                                <Grid Width="40" Height="22" VerticalAlignment="Center">
+                                    <Border x:Name="Track" CornerRadius="11" Background="{DynamicResource ToggleOffTrack}" />
+                                    <Ellipse x:Name="Knob" Width="16" Height="16" HorizontalAlignment="Left" Margin="3,0,0,0"
+                                             Fill="{DynamicResource ToggleOffKnob}">
+                                        <Ellipse.RenderTransform>
+                                            <TranslateTransform x:Name="KnobMove" X="0" />
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
+                                </Grid>
+                            </StackPanel>
+                            <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" />
+                        </DockPanel>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="State" Property="Text" Value="On" />
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="Track" Property="Effect" Value="{DynamicResource ToggleGlowEffect}" />
+                            <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentInk}" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="KnobMove" Storyboard.TargetProperty="X" To="18"
+                                                         Duration="{x:Static beh:ThemeTiming.Focus}" EasingFunction="{x:Static beh:ThemeTiming.EaseFocus}" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="KnobMove" Storyboard.TargetProperty="X" To="0"
+                                                         Duration="{x:Static beh:ThemeTiming.Focus}" EasingFunction="{x:Static beh:ThemeTiming.EaseFocus}" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+
+    <!-- ===== Check box: a tick in a box (a circle in Console-ribbon, by RadiusCheck); the whole row clicks ===== -->
+    <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Grid x:Name="Root" Background="Transparent" SnapsToDevicePixels="True">
+                        <Border x:Name="Row" beh:ThemeRadius.Key="RadiusMenuRow" Background="{DynamicResource Surface2}" Opacity="0" IsHitTestVisible="False" />
+                        <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusCheck" Margin="{DynamicResource FocusRingMargin}"
+                                BorderBrush="{DynamicResource FocusInk}" BorderThickness="{DynamicResource FocusRingBorder}"
+                                Visibility="Collapsed" IsHitTestVisible="False" HorizontalAlignment="Left" Width="28" Height="28" />
+                        <DockPanel Margin="{TemplateBinding Padding}" LastChildFill="True">
+                            <Border x:Name="Box" DockPanel.Dock="Left" Width="20" Height="20" Margin="0,0,12,0" VerticalAlignment="Center"
+                                    beh:ThemeRadius.Key="RadiusCheck" BorderThickness="2" BorderBrush="{DynamicResource CheckOffStroke}">
+                                <ui:SymbolIcon x:Name="Tick" Symbol="Checkmark24" FontSize="14" Visibility="Collapsed"
+                                               Foreground="{DynamicResource AccentInk}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" />
+                        </DockPanel>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Row" Property="Opacity" Value="1" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Popover menus (spec 03 section 3.6): a 250 px card, rows 32 high with a soft hover fill, destructive rows in the danger colour ===== -->
+    <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{DynamicResource Surface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Stroke}" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Padding" Value="5" />
+        <Setter Property="MinWidth" Value="{DynamicResource MenuWidth}" />
+        <Setter Property="HasDropShadow" Value="False" />
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" beh:ThemeRadius.Key="RadiusMenu"
+                            Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="MenuItem">
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Height" Value="{DynamicResource MenuRowHeight}" />
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="MenuItem">
+                    <Border x:Name="Row" beh:ThemeRadius.Key="RadiusMenuRow" Background="Transparent" Padding="10,0" SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter x:Name="IconHost" ContentSource="Icon" Margin="0,0,10,0" VerticalAlignment="Center" />
+                            <ContentPresenter Grid.Column="1" ContentSource="Header" VerticalAlignment="Center" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Foreground}" />
+                            <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Margin="16,0,0,0" FontSize="11" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Icon" Value="{x:Null}">
+                            <Setter TargetName="IconHost" Property="Visibility" Value="Collapsed" />
+                        </Trigger>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource Surface2}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsHighlighted" Value="True" />
+                                <Condition Property="Tag" Value="Destructive" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource DangerFill}" />
+                        </MultiTrigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="Separator">
+        <Setter Property="Margin" Value="6,4" />
+        <Setter Property="Height" Value="1" />
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Height="1" Background="{DynamicResource Stroke}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Page cards: the group card (fill, border and radius from the theme) and its heading ===== -->
+    <Style x:Key="GroupCard" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource GroupCardFill}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource GroupCardStroke}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="beh:ThemeRadius.Key" Value="RadiusPanel" />
+        <Setter Property="Padding" Value="18" />
+        <Setter Property="Margin" Value="0,0,0,12" />
+    </Style>
+    <Style x:Key="GroupHeading" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FontSizeGroupTitle}" />
+        <Setter Property="FontWeight" Value="{DynamicResource FontWeightGroupTitle}" />
+        <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+
+    <!-- ===== Progress bar: a track and an accent fill, both rounded by RadiusBar (the glow, in Console-ribbon, by BarGlowEffect) ===== -->
+    <Style TargetType="ProgressBar">
+        <Setter Property="Height" Value="6" />
+        <Setter Property="Foreground" Value="{DynamicResource Accent}" />
+        <Setter Property="Background" Value="{DynamicResource TrackFill}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Grid x:Name="TemplateRoot">
+                        <Border x:Name="PART_Track" Background="{TemplateBinding Background}" beh:ThemeRadius.Key="RadiusBar" />
+                        <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}"
+                                beh:ThemeRadius.Key="RadiusBar" Effect="{DynamicResource BarGlowEffect}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

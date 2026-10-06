@@ -398,7 +398,7 @@ public sealed class BigScreenTests(WpfStaFixture sta) : IDisposable
     }
 
     [Fact]
-    public void UntilItIsSwitchedOn_ControllerMode_IsComingSoon_FromEveryWayIn() => sta.RunAsync(async () =>
+    public void UntilItIsSwitchedOn_ControllerMode_HasNoWayIn_AndF11OnlySaysComingSoon() => sta.RunAsync(async () =>
     {
         GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
         var vm = Library(Game("a", "Apex"));
@@ -411,20 +411,13 @@ public sealed class BigScreenTests(WpfStaFixture sta) : IDisposable
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             window.UpdateLayout();
 
-            // The sidebar entry is listed, greyed out and marked, not hidden.
+            // No way in is offered while it is not open: no sidebar entry (not even a greyed one) and no palette command.
             Assert.False(vm.ShowBigScreenCommand.CanExecute(null));
-            Assert.False(window.ControllerModeButton.IsEnabled);
-            Assert.True(window.ControllerModeButton.IsVisible);
-            Assert.Contains("Soon", Descendants<TextBlock>(window.ControllerModeButton).Select(t => t.Text));
-            Assert.Equal("Controller mode - coming soon", window.ControllerModeButton.ToolTip);
+            Assert.Null(window.FindName("ControllerModeButton"));
+            Assert.DoesNotContain(vm.BuildPaletteItems().Select(i => i.Title), t => t.StartsWith("Controller mode", StringComparison.Ordinal));
 
-            // F11 and the palette run the command without asking CanExecute: they get the explanation, never the screen.
+            // F11 runs the command without asking CanExecute: it gets the explanation, never the screen.
             vm.ShowBigScreenCommand.Execute(null);
-            Assert.False(opened);
-            Assert.Equal("Controller mode is coming soon.", vm.StatusText);
-            Assert.Contains("Controller mode (coming soon)", vm.BuildPaletteItems().Select(i => i.Title));
-            vm.StatusText = "";
-            vm.BuildPaletteItems().Single(i => i.Title == "Controller mode (coming soon)").Execute();
             Assert.False(opened);
             Assert.Equal("Controller mode is coming soon.", vm.StatusText);
 

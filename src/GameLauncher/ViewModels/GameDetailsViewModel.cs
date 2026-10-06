@@ -13,9 +13,13 @@ public sealed partial class GameDetailsViewModel : ObservableObject, IDisposable
 
     private readonly string _originalNotes;
 
-    public GameDetailsViewModel(GameEntry game, string? notes)
+    private readonly bool _originalRaisePriority;
+
+    public GameDetailsViewModel(GameEntry game, string? notes, bool raisePriority = false)
     {
         Game = game;
+        _originalRaisePriority = raisePriority;
+        _raiseGamePriority = raisePriority;
         _originalNotes = notes ?? "";
         _notes = _originalNotes;
         game.PropertyChanged += OnGamePropertyChanged;
@@ -32,6 +36,12 @@ public sealed partial class GameDetailsViewModel : ObservableObject, IDisposable
 
     partial void OnNotesChanged(string value) => OnPropertyChanged(nameof(NotesChanged));
 
+    /// <summary>Focus play, for this game: run it at High priority while it is open. Saved by the library when the page closes, like the notes.</summary>
+    [ObservableProperty]
+    private bool _raiseGamePriority;
+
+    public bool RaiseGamePriorityChanged => RaiseGamePriority != _originalRaisePriority;
+
     /// <summary>Set by the window's Play button; a page that is closed any other way launches nothing.</summary>
     public bool PlayRequested { get; set; }
 
@@ -44,13 +54,44 @@ public sealed partial class GameDetailsViewModel : ObservableObject, IDisposable
     /// <summary>Raised when the user asks to uninstall; the library hands it to the game's launcher.</summary>
     public event Action? UninstallRequested;
 
+    /// <summary>Raised when the user asks for the Play time page (today, the last 7 days and all time); the library opens it.</summary>
+    public event Action? PlayTimeRequested;
+
+    public void RequestPlayTime() => PlayTimeRequested?.Invoke();
+
     public void RequestOpenInstallLocation() => OpenInstallLocationRequested?.Invoke();
 
     public void RequestUninstall() => UninstallRequested?.Invoke();
 
     public void RequestEditCollections() => EditCollectionsRequested?.Invoke();
 
-    public string SourceText => GameSourceDisplayConverter.Name(Game.Source);
+    public string SourceText => LauncherText.Name(Game.Source);
+
+    /// <summary>"Steam · C: · 14 GB · 1.5 h tracked · Today": the facts that fit on one line under the title.</summary>
+    public string MetaLine => Meta();
+
+    /// <summary>The pieces of that line for the PlayStation layout, which shows the launcher as a chip and the drive with an icon: the play time, the drive letter, and
+    /// (from <see cref="GameEntry.InstallSizeDisplay"/>) the size.</summary>
+    public string PlayMetaText => Game.HasPlayTime ? $"{Game.PlayTimeDisplay} · {Game.LastPlayedDisplay}" : "Not played yet";
+
+    public string DriveLetter => System.IO.Path.GetPathRoot(Game.InstallDir)?.TrimEnd('\\') ?? string.Empty;
+
+    public bool HasDriveLetter => DriveLetter.Length > 0;
+
+    private string Meta()
+    {
+        var parts = new List<string> { SourceText };
+
+        var drive = System.IO.Path.GetPathRoot(Game.InstallDir)?.TrimEnd('\\');
+        if (!string.IsNullOrEmpty(drive))
+            parts.Add(drive);
+
+        if (Game.HasInstallSize)
+            parts.Add(Game.InstallSizeDisplay);
+
+        parts.Add(Game.HasPlayTime ? $"{Game.PlayTimeDisplay} · {Game.LastPlayedDisplay}" : "Not played yet");
+        return string.Join(" · ", parts);
+    }
 
     public string SizeText => Game.HasInstallSize ? Game.InstallSizeDisplay : "Not measured yet";
 
@@ -66,12 +107,18 @@ public sealed partial class GameDetailsViewModel : ObservableObject, IDisposable
     {
         switch (e.PropertyName)
         {
+            case nameof(GameEntry.HasPlayTime):
+            case nameof(GameEntry.PlayTimeDisplay):
+            case nameof(GameEntry.LastPlayedDisplay):
+                OnPropertyChanged(nameof(PlayMetaText));
+                break;
             case nameof(GameEntry.Collections):
                 OnPropertyChanged(nameof(CollectionsText));
                 break;
             case nameof(GameEntry.InstallSizeBytes):
             case nameof(GameEntry.InstallSizeDisplay):
                 OnPropertyChanged(nameof(SizeText));
+                OnPropertyChanged(nameof(MetaLine));
                 break;
         }
     }

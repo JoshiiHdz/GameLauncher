@@ -7,13 +7,17 @@ namespace GameLauncher.ViewModels;
 /// <summary>One tick-box row in the Collections dialog.</summary>
 public sealed partial class CollectionChoice : ObservableObject
 {
-    public CollectionChoice(string name, bool isMember)
+    public CollectionChoice(string name, bool isMember, int count = 0)
     {
         Name = name;
         _isMember = isMember;
+        CountText = count == 1 ? "1 game" : $"{count} games";
     }
 
     public string Name { get; }
+
+    /// <summary>"2 games", for the right-hand side of the row.</summary>
+    public string CountText { get; }
 
     [ObservableProperty]
     private bool _isMember;
@@ -23,12 +27,12 @@ public sealed partial class CollectionChoice : ObservableObject
 /// persistence - the library applies ChosenNames() only when the dialog was saved.</summary>
 public sealed partial class CollectionsViewModel : ObservableObject
 {
-    public CollectionsViewModel(string gameName, IEnumerable<string> existing, IEnumerable<string> memberOf)
+    public CollectionsViewModel(string gameName, IEnumerable<string> existing, IEnumerable<string> memberOf, IReadOnlyDictionary<string, int>? counts = null)
     {
         GameName = gameName;
         var member = new HashSet<string>(memberOf, StringComparer.OrdinalIgnoreCase);
         foreach (var name in existing)
-            Choices.Add(new CollectionChoice(name, member.Contains(name)));
+            Choices.Add(new CollectionChoice(name, member.Contains(name), counts is not null && counts.TryGetValue(name, out var count) ? count : 0));
     }
 
     public string GameName { get; }

@@ -25,7 +25,29 @@ public partial class LibraryViewModel
     }
 
     private static PaletteItem Command(string title, string keywords, Action run, string subtitle = "Command", bool showWhenEmpty = false) =>
-        new(title, subtitle, keywords, PaletteKind.Command, run, ShowWhenEmpty: showWhenEmpty);
+        new(title, subtitle, keywords, PaletteKind.Command, run, ShowWhenEmpty: showWhenEmpty, Detail: "Command");
+
+    /// <summary>The settings the palette can find by name: title, words people might type, the Settings section that holds it (its place in the list) and that section's name.</summary>
+    private static readonly (string Title, string Keywords, int Section, string SectionName)[] SettingsPaletteEntries =
+    [
+        ("Start with Windows", "startup boot login sign in autostart", GeneralSettingsCategory, "General"),
+        ("Open maximized", "full screen window size start maximize", GeneralSettingsCategory, "General"),
+        ("Check for updates on startup", "updates automatic version", GeneralSettingsCategory, "General"),
+        ("Hide to tray while gaming", "tray minimize system tray background", GeneralSettingsCategory, "General"),
+        ("Track games opened outside the launcher", "play time external track detect", GeneralSettingsCategory, "General"),
+        ("Global shortcut (Ctrl+Alt+Space)", "hotkey command palette anywhere shortcut keyboard", GeneralSettingsCategory, "General"),
+        ("Watched folders", "add folder scan manual games", LibrarySettingsCategory, "Library"),
+        ("Drives to search", "drives disk ignore stop searching", LibrarySettingsCategory, "Library"),
+        ("Desktop shortcut and cover art", "desktop shortcut covers artwork scanning", LibrarySettingsCategory, "Library"),
+        ("Change theme", "theme look style axis playstation xbox appearance dark colors", AppearanceSettingsCategory, "Appearance"),
+        ("Vibrant background", "background accent color glow", AppearanceSettingsCategory, "Appearance"),
+        ("Focus play (high performance power plan)", "power plan performance ultimate high priority battery plugged in game boost", PerformanceSettingsCategory, "Performance"),
+        ("Free up memory before launching a game", "memory ram optimize trim clean", PerformanceSettingsCategory, "Performance"),
+        ("Clear cache and refresh covers", "cache covers artwork reset images", BackupSettingsCategory, "Data and backup"),
+        ("Reset all settings and cache", "reset factory defaults clear everything start over", BackupSettingsCategory, "Data and backup"),
+        ("Check for updates now", "update version upgrade new release", AboutSettingsCategory, "About and support"),
+        ("Open logs folder", "log diagnostics troubleshoot support problem", AboutSettingsCategory, "About and support"),
+    ];
 
     /// <summary>Everything the palette can find: every visible game, and the app's own commands.</summary>
     internal IReadOnlyList<PaletteItem> BuildPaletteItems()
@@ -43,13 +65,30 @@ public partial class LibraryViewModel
             var launcher = GameSourceDisplayConverter.Name(game.Source);
             var captured = game;
             items.Add(new PaletteItem(game.Name, $"{launcher} - {played}", string.Join(' ', game.Collections.Append(launcher)), PaletteKind.Game,
-                () => Launch(captured), Bonus: (recent ? 40 : 0) + (game.Favorite ? 20 : 0),
-                ShowWhenEmpty: recentIds.Contains(game.Id)));
+                // Axis plays the game straight away; the Xbox style opens its details; the PlayStation style, whose home shows the details, brings the game up there with Play highlighted.
+                () =>
+                {
+                    if (IsAxisTheme)
+                        Launch(captured);
+                    else if (IsConsoleRibbonTheme && ShowGameOnRibbonHome is { } showOnHome)
+                        showOnHome(captured);
+                    else
+                        ShowGameDetailsCommand.Execute(captured);
+                },
+                Bonus: (recent ? 40 : 0) + (game.Favorite ? 20 : 0), ShowWhenEmpty: recentIds.Contains(game.Id),
+                Cover: game.IsCoverArt ? game.Icon : null, Detail: LauncherText.Name(game.Source)));
         }
 
+        // Commands (and the settings you can type to find) are an Axis feature. In the console themes the palette is only a way to find a game, since everything
+        // else is a button on screen.
+        if (!ThemeState.Instance.ShortcutsEnabled)
+            return items;
+
         items.Add(Command("Pick a game for me", "random shuffle suggest surprise", () => PickGameCommand.Execute(null), showWhenEmpty: true));
-        items.Add(Command(ControllerModeAvailable ? "Controller mode" : "Controller mode (coming soon)", "big screen controller gamepad couch tv fullscreen full screen", () => ShowBigScreenCommand.Execute(null), showWhenEmpty: true));
+        if (ControllerModeAvailable)
+            items.Add(Command("Controller mode", "big screen controller gamepad couch tv fullscreen full screen", () => ShowBigScreenCommand.Execute(null), showWhenEmpty: true));
         items.Add(Command("Show stats", "statistics playtime play time most played charts", () => ShowStatsCommand.Execute(null), showWhenEmpty: true));
+        items.Add(Command("My PC: specs, motherboard, BIOS and Secure Boot", "computer hardware cpu processor gpu graphics ram memory motherboard mobo bios uefi tpm system information", () => ShowMyPcCommand.Execute(null), showWhenEmpty: true));
         items.Add(Command("Optimize: free up memory and storage", "ram clean cleanup temp cache speed boost", () => ShowOptimizeCommand.Execute(null), showWhenEmpty: true));
         items.Add(Command("Rescan library", "refresh scan find games", () => RescanCommand.Execute(null)));
         items.Add(Command("Go to all games", "home library view", () => SelectViewCommand.Execute("all")));
@@ -59,6 +98,14 @@ public partial class LibraryViewModel
         if (HasDuplicates)
             items.Add(Command("Go to games installed twice", "duplicates copies view", () => SelectViewCommand.Execute("duplicates")));
         items.Add(Command("Open settings", "preferences options configuration", () => ShowSettingsCommand.Execute(null)));
+
+        // Each setting can be found by name and takes you to the section that holds it.
+        foreach (var (title, keywords, section, sectionName) in SettingsPaletteEntries)
+        {
+            var category = section;
+            items.Add(new PaletteItem("Settings: " + title, "Opens Settings > " + sectionName, keywords, PaletteKind.Command, () => OpenSettingsAt(category), Detail: "Setting"));
+        }
+
         items.Add(Command("Export library data...", "backup save settings favorites notes", () => ExportLibraryDataCommand.Execute(null)));
         items.Add(Command("Import library data...", "restore backup load settings favorites notes", () => ImportLibraryDataCommand.Execute(null)));
         items.Add(Command("Send feedback or report a bug", "bug issue problem report idea", () => ReportBugCommand.Execute(null)));

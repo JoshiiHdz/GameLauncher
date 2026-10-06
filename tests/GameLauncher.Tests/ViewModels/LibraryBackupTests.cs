@@ -24,6 +24,7 @@ public class LibraryBackupTests : IDisposable
         IgdbClientId = "SECRET-IGDB-ID",
         DetectGog = false,
         OptimizeBeforeLaunch = true,
+        MinimizeToTrayOnMinimize = true,
         WatchedFolders = [new WatchedFolder { Path = @"D:\MyGames" }],
         Overrides =
         {
@@ -53,6 +54,7 @@ public class LibraryBackupTests : IDisposable
         Assert.Equal(7200, game.Value.TotalPlaySeconds);
         Assert.False(file.Settings.DetectGog);
         Assert.True(file.Settings.OptimizeBeforeLaunch);
+        Assert.True(file.Settings.MinimizeToTrayOnMinimize);
         Assert.Equal("1.20.0", file.AppVersion);
     }
 

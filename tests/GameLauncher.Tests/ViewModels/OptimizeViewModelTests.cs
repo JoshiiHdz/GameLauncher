@@ -51,8 +51,8 @@ public class OptimizeViewModelTests : IDisposable
     }
 
     private static OptimizeViewModel Page(FakeMemory memory, List<CleanCategory> categories, Func<string, bool>? confirm = null,
-        Action<string>? open = null, IReadOnlyList<string>? protectedFolders = null, IReadOnlyList<OptimizeTool>? tools = null) =>
-        new(memory, categories, protectedFolders ?? [], tools ?? [], confirm ?? (_ => true), open ?? (_ => { }));
+        IReadOnlyList<string>? protectedFolders = null) =>
+        new(memory, categories, protectedFolders ?? [], confirm ?? (_ => true));
 
     // ---- memory ------------------------------------------------------------------------------------
 
@@ -258,19 +258,72 @@ public class OptimizeViewModelTests : IDisposable
         Assert.Equal("Freed 1 GB.", page.StorageResultText);
     }
 
-    // ---- other tools -------------------------------------------------------------------------------
+    // ---- Select all ----------------------------------------------------------------------------------
 
     [Fact]
-    public void AToolsButton_OpensItsTarget()
+    public void SelectAll_TicksEveryKind_AndThenReadsSelectNoneAndUntickes()
     {
-        var opened = new List<string>();
-        var page = Page(new FakeMemory(), [], open: opened.Add,
-            tools: [new OptimizeTool("BleachBit", "d", "Open BleachBit", @"C:\BleachBit\bleachbit.exe", true)]);
+        var log = new List<string>();
+        var page = Page(new FakeMemory(), [Fake("temp", Gb, 10, true, log), Fake("browser", 2 * Gb, 20, false, log), Fake("bin", Gb / 2, 2, false, log)]);
+        Assert.Equal("Select all", page.SelectAllText);              // only some are ticked
 
-        page.Tools.Single().OpenCommand.Execute(null);
+        page.ToggleSelectAllCommand.Execute(null);
 
-        Assert.Equal([@"C:\BleachBit\bleachbit.exe"], opened);
-        Assert.Equal("Open BleachBit", page.Tools.Single().ActionText);
+        Assert.All(page.Items, i => Assert.True(i.IsSelected));
+        Assert.Equal("Select none", page.SelectAllText);
+
+        page.ToggleSelectAllCommand.Execute(null);
+
+        Assert.All(page.Items, i => Assert.False(i.IsSelected));
+        Assert.Equal("Select all", page.SelectAllText);
+    }
+
+    [Fact]
+    public void TickingTheLastBoxByHand_FlipsTheButtonToSelectNone()
+    {
+        var log = new List<string>();
+        var page = Page(new FakeMemory(), [Fake("a", Gb, 1, true, log), Fake("b", Gb, 1, false, log)]);
+
+        page.Items[1].IsSelected = true;
+
+        Assert.Equal("Select none", page.SelectAllText);
+    }
+
+    [Fact]
+    public async Task SelectAll_AfterAScan_UpdatesWhatWouldBeCleared_AndClearsExactlyWhatIsTicked()
+    {
+        var log = new List<string>();
+        string? asked = null;
+        var page = Page(new FakeMemory(), [Fake("temp", Gb, 10, true, log), Fake("browser", 2 * Gb, 20, false, log)], confirm: q => { asked = q; return true; });
+        await page.ScanCommand.ExecuteAsync(null);
+        Assert.Equal("1 GB selected to clear.", page.StorageText);
+
+        page.ToggleSelectAllCommand.Execute(null);
+        Assert.Equal("3 GB selected to clear.", page.StorageText);
+
+        await page.CleanCommand.ExecuteAsync(null);
+
+        Assert.Equal(["temp", "browser"], log);
+        Assert.Contains("browser", asked);
+    }
+
+    [Fact]
+    public async Task NothingIsTickedForYou_BeyondTheUsualDefaults_AndClearSelectedStillAsksFirst()
+    {
+        var log = new List<string>();
+        var asked = false;
+        var page = Page(new FakeMemory(), [Fake("browser", 2 * Gb, 20, false, log)], confirm: _ => { asked = true; return false; });
+        await page.ScanCommand.ExecuteAsync(null);
+
+        await page.CleanCommand.ExecuteAsync(null);              // nothing ticked: it says so rather than asking
+        Assert.False(asked);
+        Assert.Equal("Tick at least one kind of clutter to clear.", page.StorageResultText);
+
+        page.Items[0].IsSelected = true;
+        await page.CleanCommand.ExecuteAsync(null);
+
+        Assert.True(asked);
+        Assert.Empty(log);                                       // refused: nothing deleted
     }
 
     // ---- in the library ----------------------------------------------------------------------------
@@ -324,21 +377,6 @@ public class OptimizeViewModelTests : IDisposable
 
         SpinWait.SpinUntil(() => memory.Trims.Count == 1, 3000);
         Assert.Empty(Assert.Single(memory.Trims));
-    }
-
-    [Fact]
-    public void TheToolsOnThePage_AreStartedThroughTheLibrary()
-    {
-        var vm = Library(new FakeMemory());
-        var opened = new List<string>();
-        vm.OpenOptimizeToolForTest = opened.Add;
-        OptimizeViewModel? shown = null;
-        vm.OptimizeDialogForTest = page => shown = page;
-
-        vm.ShowOptimizeCommand.Execute(null);
-        shown!.Tools.Single(t => t.Name == "Disk Cleanup").OpenCommand.Execute(null);
-
-        Assert.Equal(["cleanmgr.exe"], opened);
     }
 
     [Fact]

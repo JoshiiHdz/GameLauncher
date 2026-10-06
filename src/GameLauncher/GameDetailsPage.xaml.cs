@@ -25,4 +25,13 @@ public partial class GameDetailsPage : UserControl
     private void Uninstall_Click(object sender, RoutedEventArgs e) => ViewModel?.RequestUninstall();
 
     private void EditCollections_Click(object sender, RoutedEventArgs e) => ViewModel?.RequestEditCollections();
+
+    private void PlayTime_Click(object sender, RoutedEventArgs e) => ViewModel?.RequestPlayTime();
+
+    /// <summary>The ribbon's "..." button: the More menu (Play, install folder, Uninstall) docked at the right edge.</summary>
+    private void More_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is { } viewModel && Window.GetWindow(this) is MainWindow window && sender is FrameworkElement button)
+            window.Shell.OpenMoreMenu(viewModel.Game, ShellGeometry.RectOf(button, window), onDetailsPage: true);
+    }
 }

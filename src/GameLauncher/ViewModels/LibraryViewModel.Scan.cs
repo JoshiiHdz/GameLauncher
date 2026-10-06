@@ -125,6 +125,7 @@ public partial class LibraryViewModel
             // Both sides are the SAME install, so their tracked time is time spent on one game - summed,
             // not "whichever side had more". Last-played takes the later of the two for the same reason.
             winnerOverride.TotalPlaySeconds += loserOverride.TotalPlaySeconds;
+            PlayHistory.Merge(winnerOverride, loserOverride.Sessions);
             if (loserOverride.LastPlayedUtc is { } loserLastPlayed
                 && (winnerOverride.LastPlayedUtc is not { } winnerLastPlayed || loserLastPlayed > winnerLastPlayed))
             {

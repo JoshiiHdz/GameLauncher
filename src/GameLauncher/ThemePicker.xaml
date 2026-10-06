@@ -1,0 +1,103 @@
+<UserControl x:Class="GameLauncher.ThemePicker"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:beh="clr-namespace:GameLauncher.Behaviors"
+             xmlns:conv="clr-namespace:GameLauncher.Converters">
+
+    <!-- Settings > Appearance > Theme: three option cards, each with a small schematic of its theme. Picking one changes the whole window at once
+         (the library, collections and settings stay as they are). The DataContext is the LibraryViewModel. -->
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <!-- One option: the swatch, its name (with "· current" on the chosen one) and a short description. -->
+            <Style x:Key="ThemeCard" TargetType="RadioButton">
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Margin" Value="0,0,12,0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <StackPanel>
+                                <Grid Height="84">
+                                    <Border x:Name="Glow" beh:ThemeRadius.Key="RadiusPanel" Background="{DynamicResource Bg}" Opacity="0" IsHitTestVisible="False" Effect="{DynamicResource ToggleGlowEffect}" />
+                                    <Border x:Name="Frame" beh:ThemeRadius.Key="RadiusPanel" BorderBrush="#1FFFFFFF" BorderThickness="1" ClipToBounds="True" Background="#0B0D13">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusPanel" BorderBrush="{DynamicResource Accent}" BorderThickness="2" Opacity="0" IsHitTestVisible="False" />
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <TextBlock Text="{TemplateBinding Tag}" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" />
+                                    <TextBlock x:Name="Current" Text=" · current" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" Visibility="Collapsed" />
+                                </StackPanel>
+                                <TextBlock Text="{TemplateBinding ToolTip}" FontSize="12" Foreground="{DynamicResource Muted}" />
+                            </StackPanel>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                    <Setter TargetName="Glow" Property="Opacity" Value="1" />
+                                    <Setter TargetName="Current" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Frame" Property="BorderBrush" Value="#55FFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <UniformGrid x:Name="Cards" Columns="3">
+        <!-- Axis: a dark sidebar with a coral bar, a hero block and three covers -->
+        <RadioButton x:Name="AxisCard" Style="{StaticResource ThemeCard}" Tag="Axis" ToolTip="Sidebar · calm · coral"
+                     Command="{Binding ChangeThemeCommand}" CommandParameter="Axis" IsChecked="{Binding IsAxisTheme, Mode=OneWay}">
+            <Viewbox Stretch="Fill">
+                <Canvas Width="200" Height="84" Background="#0B0D13">
+                    <Rectangle Canvas.Left="0" Canvas.Top="0" Width="46" Height="84" Fill="#070910" />
+                    <Rectangle Canvas.Left="8" Canvas.Top="12" Width="30" Height="6" RadiusX="3" RadiusY="3" Fill="#1B2030" />
+                    <Rectangle Canvas.Left="8" Canvas.Top="24" Width="30" Height="6" RadiusX="3" RadiusY="3" Fill="#FF6B86" />
+                    <Rectangle Canvas.Left="8" Canvas.Top="36" Width="30" Height="6" RadiusX="3" RadiusY="3" Fill="#1B2030" />
+                    <Rectangle Canvas.Left="56" Canvas.Top="10" Width="134" Height="30" RadiusX="6" RadiusY="6" Fill="#141822" Stroke="#262C3A" />
+                    <Rectangle Canvas.Left="56" Canvas.Top="48" Width="40" Height="28" RadiusX="4" RadiusY="4" Fill="#C8322F" />
+                    <Rectangle Canvas.Left="102" Canvas.Top="48" Width="40" Height="28" RadiusX="4" RadiusY="4" Fill="#7A3FB8" />
+                    <Rectangle Canvas.Left="148" Canvas.Top="48" Width="40" Height="28" RadiusX="4" RadiusY="4" Fill="#4F9DA6" />
+                </Canvas>
+            </Viewbox>
+        </RadioButton>
+
+        <!-- Console-tile: white header bars, a green bar, a row of squares with the first one lit -->
+        <RadioButton x:Name="TileCard" Style="{StaticResource ThemeCard}" Tag="Xbox style" ToolTip="Tiles · Guide · fast"
+                     Command="{Binding ChangeThemeCommand}" CommandParameter="ConsoleTile" IsChecked="{Binding IsConsoleTileTheme, Mode=OneWay}">
+            <Viewbox Stretch="Fill">
+                <Canvas Width="200" Height="84" Background="#07080B">
+                    <Rectangle Canvas.Left="12" Canvas.Top="10" Width="36" Height="6" Fill="#FFFFFF" />
+                    <Rectangle Canvas.Left="54" Canvas.Top="10" Width="36" Height="6" Fill="#3A3D4A" />
+                    <Rectangle Canvas.Left="12" Canvas.Top="26" Width="60" Height="8" Fill="#22C55E" />
+                    <Rectangle Canvas.Left="12" Canvas.Top="46" Width="34" Height="30" Fill="#FFFFFF" />
+                    <Rectangle Canvas.Left="52" Canvas.Top="46" Width="34" Height="30" Fill="#2A2D3A" />
+                    <Rectangle Canvas.Left="92" Canvas.Top="46" Width="34" Height="30" Fill="#2A2D3A" />
+                    <Rectangle Canvas.Left="132" Canvas.Top="46" Width="34" Height="30" Fill="#2A2D3A" />
+                </Canvas>
+            </Viewbox>
+        </RadioButton>
+
+        <!-- Console-ribbon: one big blue square and three small grey ones, a white line and a blue pill -->
+        <RadioButton x:Name="RibbonCard" Style="{StaticResource ThemeCard}" Tag="PlayStation style" ToolTip="Ribbon · glow · depth" Margin="0"
+                     Command="{Binding ChangeThemeCommand}" CommandParameter="ConsoleRibbon" IsChecked="{Binding IsConsoleRibbonTheme, Mode=OneWay}">
+            <Viewbox Stretch="Fill">
+                <Canvas Width="200" Height="84" Background="#0F1117">
+                    <Rectangle Canvas.Left="12" Canvas.Top="8" Width="34" Height="34" RadiusX="8" RadiusY="8" Fill="#2563EB" />
+                    <Rectangle Canvas.Left="54" Canvas.Top="14" Width="22" Height="22" RadiusX="6" RadiusY="6" Fill="#3A3D4A" />
+                    <Rectangle Canvas.Left="82" Canvas.Top="14" Width="22" Height="22" RadiusX="6" RadiusY="6" Fill="#3A3D4A" />
+                    <Rectangle Canvas.Left="110" Canvas.Top="14" Width="22" Height="22" RadiusX="6" RadiusY="6" Fill="#3A3D4A" />
+                    <Rectangle Canvas.Left="12" Canvas.Top="52" Width="70" Height="6" RadiusX="3" RadiusY="3" Fill="#FFFFFF" />
+                    <Rectangle Canvas.Left="12" Canvas.Top="64" Width="48" Height="12" RadiusX="6" RadiusY="6" Fill="#2563EB" />
+                </Canvas>
+            </Viewbox>
+        </RadioButton>
+    </UniformGrid>
+</UserControl>

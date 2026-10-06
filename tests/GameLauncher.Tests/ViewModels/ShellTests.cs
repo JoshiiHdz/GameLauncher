@@ -134,13 +134,13 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
             Assert.Same(vm.AddFolderCommand, window.AddFolderButton.Command);
             Assert.Contains("TOOLS", Descendants<TextBlock>(window.SidebarPanel).Where(t => t.IsVisible).Select(t => t.Text));
 
-            // Add folder is in the Tools section (so it folds away with it); Rescan is not - it sits right under "Not played yet",
-            // above the Launchers section; Shut down is not either.
+            // Add folder is in the Tools section (so it folds away with it); Rescan is not - it is the icon on the LIBRARY header, above the
+            // views and the Launchers section; Shut down is not either.
             Assert.False(window.RescanToolButton.IsDescendantOf(window.ToolsBody));
             Assert.True(window.AddFolderButton.IsDescendantOf(window.ToolsBody));
-            var notPlayed = radios.Single(r => Equals(r.ToolTip, "Games with no tracked play time yet"));
-            Assert.True(BottomOf(notPlayed, window) <= window.RescanToolButton.TransformToAncestor(window).Transform(new Point(0, 0)).Y + 1);
-            Assert.True(BottomOf(window.RescanToolButton, window) <= window.LaunchersHeader.TransformToAncestor(window).Transform(new Point(0, 0)).Y + 1);
+            var allGames = radios.Single(r => Equals(r.ToolTip, "All games"));
+            Assert.True(BottomOf(window.RescanToolButton, window) <= allGames.TransformToAncestor(window).Transform(new Point(0, 0)).Y + 1);
+            Assert.True(BottomOf(allGames, window) <= window.LaunchersHeader.TransformToAncestor(window).Transform(new Point(0, 0)).Y + 1);
             Assert.False(Plain("Shut down this PC (asks first)").IsDescendantOf(window.ToolsBody));
 
             // Settings sits at the very bottom of the sidebar, Shut down PC below it.
@@ -271,7 +271,7 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
     // ---- Settings, grouped -------------------------------------------------------------------------
 
     [Fact]
-    public void Settings_HasSevenCategories_ShowsOneAtATime_AndRemembersWhereYouWere() => sta.RunAsync(async () =>
+    public void Settings_HasSixCategories_ShowsOneAtATime_AndRemembersWhereYouWere() => sta.RunAsync(async () =>
     {
         var vm = CreateModel();
         var window = await Open(vm);
@@ -281,13 +281,13 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
             await ShellTestSupport.SettleAsync();
             var page = Descendants<SettingsPage>(window.PageContent).Single();
 
-            Assert.Equal(["General", "Library", "Appearance", "Performance", "Integrations", "Data and backup", "About and support"],
+            Assert.Equal(["General", "Library", "Appearance", "Performance", "Data and backup", "About and support"],
                 page.CategoryList.Items.OfType<ListBoxItem>().Select(i => (string)System.Windows.Automation.AutomationProperties.GetName(i)));
             Assert.Equal(0, page.CategoryList.SelectedIndex);
 
             var sections = new FrameworkElement[]
             {
-                page.GeneralSection, page.LibrarySection, page.AppearanceSection, page.PerformanceSection, page.IntegrationsSection,
+                page.GeneralSection, page.LibrarySection, page.AppearanceSection, page.PerformanceSection,
                 page.BackupSection, page.AboutSection,
             };
             for (var i = 0; i < sections.Length; i++)
@@ -306,8 +306,30 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
             await ShellTestSupport.SettleAsync();
             window.UpdateLayout();
             var again = Descendants<SettingsPage>(window.PageContent).Single();
-            Assert.Equal(6, again.CategoryList.SelectedIndex);
+            Assert.Equal(5, again.CategoryList.SelectedIndex);
             Assert.True(again.AboutSection.IsVisible);
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public void OptimizeShortcut_OpensSettingsOnThePerformanceCategory_EvenWhenSettingsWasLastLeftElsewhere() => sta.RunAsync(async () =>
+    {
+        var vm = CreateModel();
+        var window = await Open(vm);
+        try
+        {
+            vm.SettingsCategory = 6; // last left on About
+
+            vm.ShowOptimizeSettingsCommand.Execute(null);
+            await ShellTestSupport.SettleAsync();
+            window.UpdateLayout();
+
+            var page = Descendants<SettingsPage>(window.PageContent).Single();
+            Assert.True(vm.IsSettingsPageOpen);
+            Assert.Equal(3, page.CategoryList.SelectedIndex);
+            Assert.True(page.PerformanceSection.IsVisible);
+            Assert.Equal("Performance", System.Windows.Automation.AutomationProperties.GetName((ListBoxItem)page.CategoryList.Items[LibraryViewModel.PerformanceSettingsCategory]));
         }
         finally { window.Close(); }
     });
@@ -340,10 +362,10 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
 
             string[] expected =
             [
-                "Add Folder", "Re-scan Library", "Start with Windows", "Check for updates on startup", "Hide to tray while gaming",
+                "Add folder", "Rescan library", "Start with Windows", "Check for updates on startup", "Hide to tray while gaming",
                 "Track games opened outside the launcher", "Vibrant background", "Open maximized",
                 "Open the command palette from anywhere with Ctrl+Alt+Space", "Open Optimize", "Free up memory before launching a game",
-                "Open controller mode", "Export library data...", "Import library data...", "Clear cache and refresh covers", "Reset all settings and cache...", "Check for Updates Now", "Open Logs Folder",
+                "Export library data...", "Import library data...", "Clear cache and refresh covers", "Reset all settings and cache...", "Check for Updates Now", "Open Logs Folder",
                 "Send Feedback or Report a Bug",
             ];
             Assert.Empty(expected.Except(labels));
@@ -354,7 +376,7 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
     });
 
     [Fact]
-    public void Settings_ControllerModeIsLabelledComingSoon_AndItsButtonIsOff() => sta.RunAsync(async () =>
+    public void Settings_HasNoControllerModeCard_UntilTheFeatureExists() => sta.RunAsync(async () =>
     {
         var vm = CreateModel();
         var window = await Open(vm);
@@ -363,13 +385,9 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
             vm.ShowSettingsCommand.Execute(null);
             await ShellTestSupport.SettleAsync();
             var page = Descendants<SettingsPage>(window.PageContent).Single();
-            page.CategoryList.SelectedItem = page.IntegrationsCategory;
-            await ShellTestSupport.SettleAsync();
-            window.UpdateLayout();
 
-            Assert.Contains("COMING SOON", Descendants<TextBlock>(page.IntegrationsSection).Select(t => t.Text));
-            var open = Descendants<Wpf.Ui.Controls.Button>(page.IntegrationsSection).Single(b => Equals(b.Content, "Open controller mode"));
-            Assert.False(open.IsEnabled);
+            Assert.DoesNotContain("Integrations", page.CategoryList.Items.OfType<ListBoxItem>().Select(i => i.Content as string));
+            Assert.DoesNotContain(Descendants<Wpf.Ui.Controls.Button>(page), b => Equals(b.Content, "Open controller mode"));
         }
         finally { window.Close(); }
     });
@@ -450,7 +468,7 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
 
             var palette = new CommandPaletteDialog(new CommandPaletteViewModel([]));
             var paletteShown = await ShellTestSupport.ShowDialogAsync(window, "Command palette", palette);
-            Assert.Equal(620, palette.ActualWidth, precision: 0);
+            Assert.Equal(560, palette.ActualWidth, precision: 0); // the theme's palette width (the spec: 560, and 460 in a small window)
             Assert.False(window.ModalHeader.IsVisible); // it draws its own card
             await paletteShown.CloseAsync();
 
@@ -806,7 +824,7 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
     [Fact]
     public void AGameWithNoLauncher_GetsAFolderIcon_OnItsBadge() => sta.RunAsync(async () =>
     {
-        Assert.Equal(Wpf.Ui.Controls.SymbolRegular.Folder24,
+        Assert.Equal(Wpf.Ui.Controls.SymbolRegular.Games24,
             GameLauncher.Converters.GameSourceToFallbackSymbolConverter.Instance.Convert(GameSource.Manual, typeof(object), null!, System.Globalization.CultureInfo.InvariantCulture));
         Assert.Equal(Wpf.Ui.Controls.SymbolRegular.Question24,
             GameLauncher.Converters.GameSourceToFallbackSymbolConverter.Instance.Convert(GameSource.Steam, typeof(object), null!, System.Globalization.CultureInfo.InvariantCulture));
@@ -846,7 +864,7 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
             Assert.Equal(["Apex", "Indie"], vm.Games.Select(g => g.Name).OrderBy(n => n));
 
             // The row is on screen, drawn with the folder glyph rather than a letter.
-            var folders = Descendants<Wpf.Ui.Controls.SymbolIcon>(window.ExpandedLaunchers).Where(i => i.IsVisible && i.Symbol == Wpf.Ui.Controls.SymbolRegular.Folder24).ToList();
+            var folders = Descendants<Wpf.Ui.Controls.SymbolIcon>(window.ExpandedLaunchers).Where(i => i.IsVisible && i.Symbol == Wpf.Ui.Controls.SymbolRegular.Games24).ToList();
             Assert.Single(folders);
 
             // Its switch hides and shows those games, like any launcher's.
@@ -885,7 +903,7 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
     };
 
     [Fact]
-    public void BothRecentlyPlayedLists_ShowHoursAndWhen_AndNoOtherListDoes() => sta.RunAsync(async () =>
+    public void EveryCard_ShowsItsLauncherHoursAndWhen() => sta.RunAsync(async () =>
     {
         var vm = CreateModel(Played("Apex", 12.5, 1), Played("Hades", 3, 4), new GameEntry
         {
@@ -894,29 +912,20 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
         var window = await Open(vm);
         try
         {
-            List<TextBlock> Details() => Descendants<TextBlock>(window).Where(t => t.Name == "PlayDetail" && t.IsVisible).ToList();
-            static string Plain(TextBlock t) => new System.Windows.Documents.TextRange(t.ContentStart, t.ContentEnd).Text;
+            // Every card now carries its meta line: "Launcher · hours · when" once played, "Launcher · Not played yet" otherwise.
+            List<string> Metas() => Descendants<TextBlock>(window).Where(t => t.Name == "CardMeta" && t.IsVisible).Select(t => t.Text).ToList();
 
-            // Home: the Recently played strip has them (two played games); the big grid below does not.
             Assert.True(vm.HasRecentlyPlayed);
-            var onHome = Details();
-            Assert.Equal(2, onHome.Count);
-            Assert.All(onHome, t => Assert.Contains("·", Plain(t)));
-            Assert.Contains(onHome, t => Plain(t).StartsWith("12.5 h"));
-            Assert.Contains(onHome, t => Plain(t).StartsWith("3 h"));
+            var onHome = Metas();
+            Assert.Contains(onHome, t => t.Contains("12.5 h") && t.Contains("·"));
+            Assert.Contains(onHome, t => t.Contains("3 h") && t.Contains("·"));
+            Assert.Contains(onHome, t => t.EndsWith("Not played yet"));
 
-            // The Recently played view: every played game's card carries them (the unplayed one has nothing to say).
             vm.SelectViewCommand.Execute("recent");
             await ShellTestSupport.SettleAsync();
             window.UpdateLayout();
             Assert.Equal(2, vm.Games.Count);
-            Assert.Equal(2, Details().Count);
-
-            // Another view: none.
-            vm.SelectViewCommand.Execute("all");
-            await ShellTestSupport.SettleAsync();
-            window.UpdateLayout();
-            Assert.Equal(2, Details().Count); // only the strip's two, not the three cards of the grid
+            Assert.DoesNotContain(Metas().Where(t => t.Contains(" h ")), t => t.Contains("Not played yet"));
         }
         finally { window.Close(); }
     });
@@ -957,10 +966,10 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
             await ShellTestSupport.WaitForModalAsync(window);
             Assert.Equal("Collections", window.ModalTitle.Text);
 
-            var box = Descendants<Wpf.Ui.Controls.TextBox>(window.ModalContent).Single();
+            var box = Descendants<System.Windows.Controls.TextBox>(window.ModalContent).Single(b => b.Name == "NewNameBox");
             box.Text = "Backlog";
-            await Invoke(Descendants<Wpf.Ui.Controls.Button>(window.ModalContent).Single(b => Equals(b.Content, "Add")));
-            await Invoke(Descendants<Wpf.Ui.Controls.Button>(window.ModalContent).Single(b => Equals(b.Content, "Save")));
+            await Invoke(Descendants<Wpf.Ui.Controls.Button>(window.ModalContent).Single(b => b.IsVisible && Equals(b.Content, "Add")));
+            await Invoke(Descendants<Wpf.Ui.Controls.Button>(window.ModalContent).Single(b => b.IsVisible && Equals(b.Content, "Save")));
             await opened;
 
             Assert.False(window.IsModalOpen);

@@ -63,6 +63,9 @@ public sealed partial class DriveSpaceInfo : ObservableObject
 
     public bool HasWarning => Level != DriveSpaceLevel.Ok;
 
+    /// <summary>"380 GB free of 1000 GB".</summary>
+    public string FreeText => $"{FormatGb(FreeBytes)} free of {FormatGb(TotalBytes)}";
+
     /// <summary>0-1, for a ScaleTransform on the used-space bar.</summary>
     public double UsedFraction => TotalBytes <= 0 ? 0 : (double)UsedBytes / TotalBytes;
 

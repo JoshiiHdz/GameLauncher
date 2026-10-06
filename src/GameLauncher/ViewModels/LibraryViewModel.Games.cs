@@ -62,16 +62,20 @@ public partial class LibraryViewModel
         if (game is null)
             return;
 
+        var switchedPowerPlan = false;
         try
         {
             Logger.Info($"Launching '{game.Name}' ({game.Source}) - {game.LaunchUri ?? game.ExecutablePath}");
             if (OptimizeBeforeLaunch)
                 FreeMemoryBeforeLaunch();
+            switchedPowerPlan = BeginFocusPlay();
             var started = GameLauncherService.Launch(game);
             GameLaunched?.Invoke(game, started);
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or System.IO.IOException)
         {
+            if (switchedPowerPlan)
+                EndFocusPlay(); // the game never started: do not leave the PC on the fast plan (a switch made for another running game is left alone)
             Logger.Error($"Failed to launch '{game.Name}'.", ex);
             StatusText = $"Failed to launch {game.Name}: {ex.Message}";
         }

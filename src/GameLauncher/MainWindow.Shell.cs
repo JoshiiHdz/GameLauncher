@@ -4,6 +4,7 @@ using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using GameLauncher.Behaviors;
+using GameLauncher.Services;
 using GameLauncher.ViewModels;
 
 namespace GameLauncher;
@@ -75,10 +76,12 @@ public partial class MainWindow : IModalHost
         {
             ModalLayer.Visibility = Visibility.Collapsed;
             ModalContent.Content = null;
+            NotifyModalChanged();
             SearchBox.IsEnabled = true;
             return;
         }
 
+        NotifyModalChanged();
         var top = _modals.Peek();
         var bare = AppShell.GetChromeless(top.Content);
 
@@ -92,11 +95,12 @@ public partial class MainWindow : IModalHost
         ModalCard.Margin = bare ? new Thickness(24, Math.Max(24, (RootGrid.ActualHeight - WindowDragBar.ActualHeight) * 0.14), 24, 24) : new Thickness(24);
 
         ModalContent.Content = top.Content;
+        StyleModalForTheme(bare, top.Title);
         FitModalToWindow();
         ModalLayer.Visibility = Visibility.Visible;
         SearchBox.IsEnabled = false;
 
-        if (animate && !bare)
+        if (animate && !bare && ThemeManager.Current == ThemeId.Axis)
             Motion.PlayFade(ModalCard);
 
         Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
@@ -176,6 +180,19 @@ public partial class MainWindow : IModalHost
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
+        // Ctrl+K and F11 are Axis shortcuts. In the console themes they do nothing at all (swallowed here, before the window's key bindings see them).
+        if (!ThemeState.Instance.ShortcutsEnabled && (e.Key == Key.F11 || (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (ThemeKeyDown(e))
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Behind a dialog the shortcuts that would open another one stay quiet.
         if (IsModalOpen && (e.Key == Key.F11 || (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)))
         {
@@ -192,8 +209,8 @@ public partial class MainWindow : IModalHost
 
         // Esc is the way out of whatever is on top: a dialog first, otherwise the open page. A control that wants Esc for itself (an
         // open dropdown) handles it first, and then it never gets here.
-        if (e.Handled || e.Key != Key.Escape)
-            return;
+        if (e.Handled || e.Key != Key.Escape || !ThemeState.Instance.ShortcutsEnabled)
+            return; // Esc as the way back is an Axis shortcut; the console themes have their own back and close buttons
 
         if (IsModalOpen)
         {

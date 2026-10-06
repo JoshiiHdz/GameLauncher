@@ -6,134 +6,428 @@
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:beh="clr-namespace:GameLauncher.Behaviors"
              xmlns:conv="clr-namespace:GameLauncher.Converters"
+             xmlns:controls="clr-namespace:GameLauncher.Controls"
+             xmlns:services="clr-namespace:GameLauncher.Services"
              mc:Ignorable="d">
+
+    <!-- One page, three layouts (spec 04/05/06): Axis - cover on the left, facts card, notes, actions underneath; Console-tile - a title over action
+         tiles, a facts panel and a cover with a white ring on the right; Console-ribbon - a capsule, a light title, pill buttons, fact cards and a
+         glowing cover. The content and bindings are the same in all three; only the variant for the active theme is visible. -->
 
     <UserControl.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Resources/DesignTokens.xaml" />
-            </ResourceDictionary.MergedDictionaries>
-
-            <Style x:Key="FactLabelStyle" TargetType="TextBlock">
+            <Style x:Key="FactLabel" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12" />
-                <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+                <Setter Property="Foreground" Value="{DynamicResource Muted}" />
                 <Setter Property="VerticalAlignment" Value="Top" />
                 <Setter Property="Margin" Value="0,0,0,8" />
             </Style>
-            <Style x:Key="FactValueStyle" TargetType="TextBlock">
+            <Style x:Key="FactValue" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12.5" />
                 <Setter Property="TextWrapping" Value="Wrap" />
                 <Setter Property="VerticalAlignment" Value="Top" />
                 <Setter Property="Margin" Value="0,0,0,8" />
             </Style>
+
+            <!-- Notes: a plain multi-line box whose frame each variant sets (fill, border, radius). -->
+            <Style x:Key="NotesTextBox" TargetType="TextBox">
+                <Setter Property="AcceptsReturn" Value="True" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+                <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+                <Setter Property="FontSize" Value="13.5" />
+                <Setter Property="Padding" Value="12,10" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TextBox">
+                            <Grid>
+                                <Border x:Name="Frame" beh:ThemeRadius.Key="RadiusInput" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}">
+                                    <Grid>
+                                        <ScrollViewer x:Name="PART_ContentHost" Padding="{TemplateBinding Padding}" />
+                                        <TextBlock x:Name="Placeholder" Text="{TemplateBinding Tag}" Margin="{TemplateBinding Padding}" IsHitTestVisible="False" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource Muted}" FontSize="{TemplateBinding FontSize}" Visibility="Collapsed" />
+                                    </Grid>
+                                </Border>
+                                <Border x:Name="FocusRing" beh:ThemeRadius.Key="RadiusInput" BorderBrush="{DynamicResource Accent}" BorderThickness="2" Margin="-1" Opacity="0" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="Text" Value="">
+                                    <Setter TargetName="Placeholder" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="FocusRing" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Console-tile: square action tiles (124 x 96) with a white ring on hover. -->
+            <Style x:Key="ActionTile" TargetType="Button">
+                <Setter Property="Width" Value="124" />
+                <Setter Property="Height" Value="96" />
+                <Setter Property="Margin" Value="0,0,8,8" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusPanel" Background="{TemplateBinding Background}" Padding="12">
+                                    <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusPanel" BorderBrush="White" BorderThickness="3" Opacity="0" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Console-ribbon: a clickable fact card (Collections) lights on hover; the others are plain panels. -->
+            <Style x:Key="FactCardButton" TargetType="Button">
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <Border x:Name="Glow" beh:ThemeRadius.Key="RadiusPanel" Background="{DynamicResource Bg}" Opacity="0" IsHitTestVisible="False" Effect="{DynamicResource ToggleGlowEffect}" />
+                                <Border beh:ThemeRadius.Key="RadiusPanel" Background="#CC22252F" BorderBrush="#0FFFFFFF" BorderThickness="1" Padding="14,12">
+                                    <ContentPresenter />
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusPanel" BorderBrush="White" BorderThickness="2" Opacity="0" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                    <Setter TargetName="Glow" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="ThemeVariant" TargetType="Grid">
+                <Setter Property="Visibility" Value="Collapsed" />
+            </Style>
+
+            <Style x:Key="CoverBorder" TargetType="Border">
+                <Setter Property="Background" Value="{DynamicResource Bg2}" />
+                <Setter Property="ClipToBounds" Value="True" />
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid MaxWidth="1000" HorizontalAlignment="Center">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <Grid Grid.Row="0" Margin="28,8,28,22" beh:Motion.FadeIn="True">
+    <!-- The page scrolls when the window is too short for it (a small laptop screen), so Play, the notes and the switches are never cut off. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+    <Grid>
+        <!-- ===================== Axis ===================== -->
+        <Grid x:Name="AxisLayout" HorizontalAlignment="Left" MaxWidth="{DynamicResource PageBodyMaxWidth}" beh:Motion.FadeIn="True">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsAxis, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Width="170" Height="255" CornerRadius="10" Margin="0,0,26,0" VerticalAlignment="Top"
-                    Background="{StaticResource DesignBg2}" ClipToBounds="True">
+            <Border Grid.Column="0" Width="180" Height="234" beh:ThemeRadius.Key="RadiusPanel" Margin="0,0,26,0" VerticalAlignment="Top" BorderBrush="{DynamicResource Stroke}" BorderThickness="1"
+                    Style="{StaticResource CoverBorder}">
                 <Grid DataContext="{Binding Game}">
-                    <ui:SymbolIcon Symbol="Games24" FontSize="30" Opacity="0.35"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                    <ui:SymbolIcon Symbol="Games24" FontSize="30" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Visibility="{Binding Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
                     <Border Visibility="{Binding IsCoverArt, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                         <Border.Background>
-                            <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill"
-                                        AlignmentX="Center" AlignmentY="Center"
-                                        RenderOptions.BitmapScalingMode="HighQuality" />
+                            <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center" RenderOptions.BitmapScalingMode="HighQuality" />
                         </Border.Background>
                     </Border>
                     <Image Source="{Binding Icon}" Width="56" Height="56" Stretch="Uniform"
-                           Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}"
-                           RenderOptions.BitmapScalingMode="HighQuality" />
+                           Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" RenderOptions.BitmapScalingMode="HighQuality" />
                 </Grid>
             </Border>
 
-            <Grid Grid.Column="1">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+            <StackPanel Grid.Column="1">
+                <TextBlock Text="{Binding Game.Name}" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="72" />
+                <TextBlock Text="{Binding MetaLine}" FontSize="13" Foreground="{DynamicResource Muted}" Margin="0,6,0,14" TextWrapping="Wrap" />
 
-                <TextBlock Grid.Row="0" Text="{Binding Game.Name}" FontSize="26" FontWeight="Bold"
-                           TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="72" Margin="0,0,0,14" />
+                <Border beh:ThemeRadius.Key="RadiusPanel" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Stroke}" BorderThickness="1" Padding="16,16,16,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="96" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Launcher" Style="{StaticResource FactLabel}" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SourceText}" Style="{StaticResource FactValue}" />
+                        <TextBlock Grid.Row="1" Text="Installed in" Style="{StaticResource FactLabel}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Game.InstallDir}" Style="{StaticResource FactValue}" />
+                        <TextBlock Grid.Row="2" Text="Size on disk" Style="{StaticResource FactLabel}" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SizeText}" Style="{StaticResource FactValue}" />
+                        <TextBlock Grid.Row="3" Text="Play time" Style="{StaticResource FactLabel}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding PlayTimeText}" Style="{StaticResource FactValue}" VerticalAlignment="Center" />
+                        <ui:Button Grid.Row="3" Grid.Column="2" Content="Breakdown..." Click="PlayTime_Click" Padding="12,0" MinHeight="28" Margin="0,0,0,8"
+                                   ToolTip="Today, the last 7 days and all time" />
+                        <TextBlock Grid.Row="4" Text="Added" Style="{StaticResource FactLabel}" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding AddedText}" Style="{StaticResource FactValue}" />
+                        <TextBlock Grid.Row="5" Text="Collections" Style="{StaticResource FactLabel}" VerticalAlignment="Center" Margin="0,0,0,8" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding CollectionsText}" Style="{StaticResource FactValue}" VerticalAlignment="Center" Margin="0,0,0,8" />
+                        <ui:Button Grid.Row="5" Grid.Column="2" Content="Edit..." Click="EditCollections_Click" Padding="12,0" MinHeight="28" Margin="0,0,0,8" />
+                    </Grid>
+                </Border>
 
-                <Grid Grid.Row="1">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="96" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
+                <TextBlock Text="Your notes" FontSize="13" FontWeight="SemiBold" Margin="0,16,0,6" />
+                <TextBox x:Name="NotesBox" Style="{StaticResource NotesTextBox}" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding NotesLimit}" Height="90"
+                         Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Stroke}" BorderThickness="1" VerticalContentAlignment="Top"
+                         Tag="Where you left off, mods you use, settings that work... saved when you close this page." />
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Launcher" Style="{StaticResource FactLabelStyle}" />
-                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SourceText}" Style="{StaticResource FactValueStyle}" />
+                <ui:ToggleSwitch Content="Raise this game's priority (Focus play)" IsChecked="{Binding RaiseGamePriority}" Margin="0,14,0,0"
+                                 ToolTip="Part of Focus play: runs this game at High priority while it plays. Needs Focus play on in Settings > Performance. Some games refuse it." />
 
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Installed in" Style="{StaticResource FactLabelStyle}" />
-                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Game.InstallDir}" Style="{StaticResource FactValueStyle}" />
+                <WrapPanel Margin="0,16,0,0">
+                    <ui:Button Content="Play" Icon="{ui:SymbolIcon Play24}" Appearance="Primary" Padding="20,0" Margin="0,0,10,8" Click="Play_Click" />
+                    <ui:Button Content="Open install location" Icon="{ui:SymbolIcon FolderOpen24}" Margin="0,0,10,8" Click="OpenFolder_Click" />
+                    <ui:Button Content="Uninstall..." Icon="{ui:SymbolIcon Delete24}" Appearance="Caution" Margin="0,0,10,8" Click="Uninstall_Click"
+                               ToolTip="Opens this game's launcher so you can uninstall it there." />
+                </WrapPanel>
+            </StackPanel>
+        </Grid>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Size on disk" Style="{StaticResource FactLabelStyle}" />
-                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SizeText}" Style="{StaticResource FactValueStyle}" />
-
-                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Play time" Style="{StaticResource FactLabelStyle}" />
-                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding PlayTimeText}" Style="{StaticResource FactValueStyle}" />
-
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Added" Style="{StaticResource FactLabelStyle}" />
-                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding AddedText}" Style="{StaticResource FactValueStyle}" />
-                </Grid>
-
-                <Grid Grid.Row="2" Margin="0,0,0,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="96" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Collections" Style="{StaticResource FactLabelStyle}" Margin="0" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="1" Text="{Binding CollectionsText}" Style="{StaticResource FactValueStyle}" Margin="0" VerticalAlignment="Center" />
-                    <ui:Button Grid.Column="2" Content="Edit..." Click="EditCollections_Click" Padding="12,4" />
-                </Grid>
-
-                <!-- Notes: the user's own words about the game. Saved when this page closes. -->
-                <Grid Grid.Row="3">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="Your notes" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6" />
-                    <ui:TextBox Grid.Row="1" x:Name="NotesBox" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}"
-                                PlaceholderText="Where you left off, mods you use, settings that work... saved when you close this page."
-                                AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                VerticalContentAlignment="Top" MaxLength="{Binding NotesLimit}" MinHeight="90" />
-                </Grid>
-
-                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,16,0,0">
-                    <ui:Button Content="Play" Icon="{ui:SymbolIcon Play24}" Appearance="Primary"
-                               Padding="20,9" FontWeight="SemiBold" Click="Play_Click" />
-                    <ui:Button Content="Open install location" Icon="{ui:SymbolIcon FolderOpen24}" Margin="10,0,0,0" Padding="16,9"
-                               Click="OpenFolder_Click" />
-                    <ui:Button Content="Uninstall..." Icon="{ui:SymbolIcon Delete24}" Margin="10,0,0,0" Padding="16,9"
-                               ToolTip="Opens this game's launcher so you can uninstall it there."
-                               Click="Uninstall_Click" />
+        <!-- ===================== Console-tile ===================== -->
+        <Grid x:Name="TileLayout" beh:Motion.FadeIn="True">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsTile, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+            <StackPanel HorizontalAlignment="Left" MaxWidth="560">
+                <StackPanel Orientation="Horizontal">
+                    <Border Background="#F1F3F9" CornerRadius="2" Padding="6,3" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Game.Source, Converter={x:Static conv:LauncherUpperConverter.Instance}}" FontSize="10" FontWeight="ExtraBold" Foreground="#07080B" />
+                    </Border>
+                    <TextBlock Text="GAME DETAILS" Margin="10,0,0,0" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AccentText}" VerticalAlignment="Center" />
                 </StackPanel>
-            </Grid>
+                <TextBlock Text="{Binding Game.Name}" Margin="0,8,0,0" FontSize="{DynamicResource ActiveFontSizeDisplay}" FontWeight="ExtraBold" Foreground="White" LineHeight="47"
+                           LineStackingStrategy="BlockLineHeight" TextWrapping="Wrap" MaxHeight="96" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding MetaLine}" Margin="0,8,0,16" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource InkSoft}" TextWrapping="Wrap" />
+
+                <WrapPanel>
+                    <Button Style="{StaticResource ActionTile}" Background="{DynamicResource Accent}" Foreground="{DynamicResource AccentInk}" Click="Play_Click">
+                        <Grid><ui:SymbolIcon Symbol="Play24" Filled="True" FontSize="22" HorizontalAlignment="Left" VerticalAlignment="Top" /><TextBlock Text="Play" FontSize="13" FontWeight="Bold" HorizontalAlignment="Left" VerticalAlignment="Bottom" /></Grid>
+                    </Button>
+                    <Button Style="{StaticResource ActionTile}" Background="#E61A1D27" Click="EditCollections_Click">
+                        <Grid><ui:SymbolIcon Symbol="Album24" FontSize="22" HorizontalAlignment="Left" VerticalAlignment="Top" /><TextBlock Text="Collections..." FontSize="13" FontWeight="Bold" HorizontalAlignment="Left" VerticalAlignment="Bottom" /></Grid>
+                    </Button>
+                    <Button Style="{StaticResource ActionTile}" Background="#E61A1D27" Click="OpenFolder_Click">
+                        <Grid><ui:SymbolIcon Symbol="FolderOpen24" FontSize="22" HorizontalAlignment="Left" VerticalAlignment="Top" /><TextBlock Text="Open install location" FontSize="13" FontWeight="Bold" TextWrapping="Wrap" HorizontalAlignment="Left" VerticalAlignment="Bottom" /></Grid>
+                    </Button>
+                    <Button Style="{StaticResource ActionTile}" Background="#E61A1D27" Foreground="{DynamicResource Danger}" Click="Uninstall_Click" ToolTip="Opens this game's launcher so you can uninstall it there.">
+                        <Grid><ui:SymbolIcon Symbol="Delete24" FontSize="22" HorizontalAlignment="Left" VerticalAlignment="Top" /><TextBlock Text="Uninstall..." FontSize="13" FontWeight="Bold" HorizontalAlignment="Left" VerticalAlignment="Bottom" /></Grid>
+                    </Button>
+                </WrapPanel>
+
+                <Border Background="#DB12141B" CornerRadius="4" Padding="16,16,16,6" Margin="0,6,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Launcher" Style="{StaticResource FactLabel}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SourceText}" Style="{StaticResource FactValue}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="1" Text="Installed in" Style="{StaticResource FactLabel}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Game.InstallDir}" Style="{StaticResource FactValue}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="2" Text="Size on disk" Style="{StaticResource FactLabel}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SizeText}" Style="{StaticResource FactValue}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="3" Text="Play time" Style="{StaticResource FactLabel}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding PlayTimeText}" Style="{StaticResource FactValue}" FontSize="13" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,0,10" />
+                        <ui:Button Grid.Row="3" Grid.Column="2" Content="Breakdown..." Click="PlayTime_Click" Padding="12,0" MinHeight="26" Margin="0,0,0,10"
+                                   ToolTip="Today, the last 7 days and all time" />
+                        <TextBlock Grid.Row="4" Text="Added" Style="{StaticResource FactLabel}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding AddedText}" Style="{StaticResource FactValue}" FontSize="13" FontWeight="Medium" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="5" Text="Collections" Style="{StaticResource FactLabel}" FontSize="13" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding CollectionsText}" Style="{StaticResource FactValue}" FontSize="13" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,0,10" />
+                        <ui:Button Grid.Row="5" Grid.Column="2" Content="Edit..." Click="EditCollections_Click" Padding="12,0" MinHeight="26" Margin="0,0,0,10" />
+                    </Grid>
+                </Border>
+
+                <TextBlock Text="Your notes" FontSize="13" FontWeight="Bold" Margin="0,16,0,6" Foreground="White" />
+                <TextBox x:Name="NotesBoxTile" Style="{StaticResource NotesTextBox}" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding NotesLimit}" Height="96"
+                         Background="#B307080B" BorderBrush="#24FFFFFF" BorderThickness="1" VerticalContentAlignment="Top"
+                         Tag="Where you left off, mods you use, settings that work... saved when you close this page." />
+                <ui:ToggleSwitch Content="Raise this game's priority (Focus play)" IsChecked="{Binding RaiseGamePriority}" Margin="0,14,0,0" Foreground="White"
+                                 ToolTip="Part of Focus play: runs this game at High priority while it plays. Needs Focus play on in Settings > Performance. Some games refuse it." />
+            </StackPanel>
+
+            <Border Width="220" Height="286" Margin="0,8,0,0" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="4" BorderBrush="White" BorderThickness="3" Background="{DynamicResource Bg2}">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="60" ShadowDepth="30" Direction="270" Color="#000000" Opacity="0.8" />
+                </Border.Effect>
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSmall, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Border DataContext="{Binding Game}">
+                    <Border.Background>
+                        <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                    </Border.Background>
+                </Border>
+            </Border>
+        </Grid>
+
+        <!-- ===================== Console-ribbon ===================== -->
+        <Grid x:Name="RibbonLayout" beh:Motion.FadeIn="True">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsRibbon, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+            <StackPanel HorizontalAlignment="Left" MaxWidth="640">
+                <TextBlock Text="{Binding Game.Name}" Margin="0,8,0,0" FontSize="{DynamicResource ActiveFontSizeDisplay}" FontWeight="Light" Foreground="White" LineHeight="48"
+                           LineStackingStrategy="BlockLineHeight" TextWrapping="Wrap" MaxHeight="100" TextTrimming="CharacterEllipsis" />
+                <!-- The facts line: the launcher chip, play time, the drive (with its icon) and the size. -->
+                <WrapPanel Margin="0,10,0,16">
+                    <Border VerticalAlignment="Center" Height="24" Padding="10,0" Margin="0,0,10,0" beh:ThemeRadius.Key="Pill" Background="#0DFFFFFF" BorderBrush="#1FFFFFFF" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <controls:LauncherIcon DataContext="{Binding Game}" Width="16" Height="16" />
+                            <TextBlock Text="{Binding Game.Source, Converter={x:Static conv:LauncherNameConverter.Instance}}" Margin="7,0,0,0" FontSize="12" FontWeight="Medium" Foreground="#E5E7EB" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="{Binding PlayMetaText}" FontSize="14" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Visibility="{Binding HasDriveLetter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <TextBlock Text=" · " FontSize="14" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" />
+                        <ui:SymbolIcon Symbol="Storage24" FontSize="16" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding DriveLetter}" Margin="5,0,0,0" FontSize="14" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding Game.InstallSizeDisplay, StringFormat=' · {0}'}" FontSize="14" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"
+                               Visibility="{Binding Game.HasInstallSize, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                </WrapPanel>
+
+                <StackPanel Orientation="Horizontal">
+                    <ui:Button Content="Play" Appearance="Primary" Height="48" MinWidth="170" Padding="28,0" FontSize="15" Click="Play_Click" Effect="{DynamicResource HeroGlowEffect}" />
+                    <ui:Button Content="Open install location" Height="48" Margin="10,0,0,0" Padding="22,0" FontWeight="Medium" Click="OpenFolder_Click" />
+                    <Button x:Name="RibbonMore" Width="48" Height="48" Margin="10,0,0,0" Click="More_Click" ToolTip="More" Cursor="Hand" FocusVisualStyle="{x:Null}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Grid>
+                                    <Border x:Name="Ring" beh:ThemeRadius.Key="Pill" BorderBrush="White" BorderThickness="2" Opacity="0" Effect="{DynamicResource ToggleGlowEffect}" IsHitTestVisible="False" />
+                                    <Border beh:ThemeRadius.Key="Pill" Background="#12FFFFFF" BorderBrush="#29FFFFFF" BorderThickness="1">
+                                        <ui:SymbolIcon Symbol="MoreHorizontal24" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Ring" Property="Opacity" Value="1" /></Trigger>
+                                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Ring" Property="Opacity" Value="1" /></Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+
+                <UniformGrid Columns="3" Margin="0,18,0,0">
+                    <Border Margin="0,0,10,10" beh:ThemeRadius.Key="RadiusPanel" Background="#CC22252F" BorderBrush="#0FFFFFFF" BorderThickness="1" Padding="14,12">
+                        <StackPanel><TextBlock Text="LAUNCHER" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" /><TextBlock Text="{Binding SourceText}" FontSize="14" Foreground="White" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" /></StackPanel>
+                    </Border>
+                    <Border Margin="0,0,10,10" beh:ThemeRadius.Key="RadiusPanel" Background="#CC22252F" BorderBrush="#0FFFFFFF" BorderThickness="1" Padding="14,12">
+                        <StackPanel><TextBlock Text="INSTALLED IN" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" /><TextBlock Text="{Binding Game.InstallDir}" FontSize="14" Foreground="White" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" ToolTip="{Binding Game.InstallDir}" /></StackPanel>
+                    </Border>
+                    <Border Margin="0,0,0,10" beh:ThemeRadius.Key="RadiusPanel" Background="#CC22252F" BorderBrush="#0FFFFFFF" BorderThickness="1" Padding="14,12">
+                        <StackPanel><TextBlock Text="SIZE ON DISK" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" /><TextBlock Text="{Binding SizeText}" FontSize="14" Foreground="White" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" /></StackPanel>
+                    </Border>
+                    <Button Style="{StaticResource FactCardButton}" Margin="0,0,10,10" Click="PlayTime_Click" ToolTip="Today, the last 7 days and all time">
+                        <StackPanel>
+                            <TextBlock Text="PLAY TIME ›" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
+                            <TextBlock Text="{Binding PlayTimeText}" FontSize="14" Foreground="White" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" ToolTip="{Binding PlayTimeText}" />
+                        </StackPanel>
+                    </Button>
+                    <Border Margin="0,0,10,10" beh:ThemeRadius.Key="RadiusPanel" Background="#CC22252F" BorderBrush="#0FFFFFFF" BorderThickness="1" Padding="14,12">
+                        <StackPanel><TextBlock Text="ADDED" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" /><TextBlock Text="{Binding AddedText}" FontSize="14" Foreground="White" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" /></StackPanel>
+                    </Border>
+                    <Button Style="{StaticResource FactCardButton}" Margin="0,0,0,10" Click="EditCollections_Click" ToolTip="Edit this game's collections">
+                        <StackPanel>
+                            <TextBlock Text="COLLECTIONS ›" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
+                            <TextBlock Text="{Binding CollectionsText}" FontSize="14" Foreground="White" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Button>
+                </UniformGrid>
+
+                <Border beh:ThemeRadius.Key="RadiusPanel" Background="#CC22252F" BorderBrush="#0FFFFFFF" BorderThickness="1" Padding="14" Margin="0,6,0,0">
+                    <StackPanel>
+                        <TextBlock Text="YOUR NOTES" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" Margin="0,0,0,6" />
+                        <TextBox x:Name="NotesBoxRibbon" Style="{StaticResource NotesTextBox}" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding NotesLimit}" Height="72"
+                                 Background="Transparent" BorderThickness="0" Padding="0" FontSize="14" VerticalContentAlignment="Top"
+                                 Tag="Where you left off, mods you use, settings that work... saved when you close this page." />
+                    </StackPanel>
+                </Border>
+                <ui:ToggleSwitch Content="Raise this game's priority (Focus play)" IsChecked="{Binding RaiseGamePriority}" Margin="0,14,0,0" Foreground="White"
+                                 ToolTip="Part of Focus play: runs this game at High priority while it plays. Needs Focus play on in Settings > Performance. Some games refuse it." />
+            </StackPanel>
+
+            <Border Width="236" Height="307" Margin="0,30,0,0" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="18" BorderBrush="#1AFFFFFF" BorderThickness="1" Background="{DynamicResource Bg2}"
+                    beh:MotionExtensions.Enter="Rise" beh:MotionExtensions.EnterDelay="120" beh:MotionExtensions.EnterDurationKey="DurDialog">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="70" ShadowDepth="0" Color="#60A5FA" Opacity="0.45" />
+                </Border.Effect>
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSmall, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Border DataContext="{Binding Game}" CornerRadius="17">
+                    <Border.Background>
+                        <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                    </Border.Background>
+                </Border>
+            </Border>
         </Grid>
     </Grid>
+    </ScrollViewer>
 </UserControl>

@@ -70,7 +70,7 @@ public sealed class DiscoveryWindowTests(WpfStaFixture sta) : IDisposable
         Descendants<TextBlock>(root).Where(t => t.IsVisible).Select(t => t.Text).ToList();
 
     private static Wpf.Ui.Controls.Button ButtonNamed(DependencyObject root, string content) =>
-        Descendants<Wpf.Ui.Controls.Button>(root).Single(b => b.Content as string == content);
+        Descendants<Wpf.Ui.Controls.Button>(root).Single(b => b.IsVisible && b.Content as string == content); // the page holds one layout per theme: only the showing one counts
 
     private static async Task Invoke(Window window, UIElement element)
     {
@@ -247,7 +247,7 @@ public sealed class DiscoveryWindowTests(WpfStaFixture sta) : IDisposable
             Assert.Equal("Game details", window.PageTitleText.Text);
             var texts = Texts(window.PageContent);
             Assert.Contains("Apex", texts);
-            Assert.Contains("Manual", texts);
+            Assert.Contains("No launcher", texts); // a game with no launcher reads "No launcher", as in the sidebar and the themes
             Assert.Contains("12 GB", texts);
             Assert.Contains("Backlog, Co-op", texts);
             Assert.Contains(texts, t => t.StartsWith("1.5 h tracked"));

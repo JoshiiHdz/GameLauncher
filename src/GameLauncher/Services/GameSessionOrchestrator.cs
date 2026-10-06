@@ -54,21 +54,21 @@ public sealed class GameSessionOrchestrator
     /// <summary>Same contract as GameSessionWatcher.WaitForExitAsync(GameEntry, Process?, ...) - `sessionId`
     /// is the same id MainWindow already tracks for the "Running" badge/restore logic, used here purely to
     /// correlate this session's diagnostic log lines, never to affect behavior.</summary>
-    public Task<bool> WaitForExitAsync(int sessionId, GameEntry game, Process? launched, CancellationToken ct) =>
-        WaitForExitAsyncCore(sessionId, game, ct,
+    public Task<bool> WaitForExitAsync(int sessionId, GameEntry game, Process? launched, CancellationToken ct, Action<IReadOnlySet<int>>? onProcesses = null) =>
+        WaitForExitAsyncCore(sessionId, game, ct, onProcesses,
             onProcessBatchChanged => _sessionWatcher.WaitForExitAsync(game, launched, ct, onProcessBatchChanged));
 
     /// <summary>Same contract as above, but against the IGameProcess seam directly - this is the one
     /// GameLauncher.Tests calls, with a fake `launched` (or none) instead of a real OS process.</summary>
     internal Task<bool> WaitForExitAsync(int sessionId, GameEntry game, IGameProcess? launched, CancellationToken ct) =>
-        WaitForExitAsyncCore(sessionId, game, ct,
+        WaitForExitAsyncCore(sessionId, game, ct, null,
             onProcessBatchChanged => _sessionWatcher.WaitForExitAsync(game, launched, ct, onProcessBatchChanged));
 
     private async Task<bool> WaitForExitAsyncCore(
-        int sessionId, GameEntry game, CancellationToken ct, Func<Action<IReadOnlySet<int>>?, Task<bool>> runSessionWatch)
+        int sessionId, GameEntry game, CancellationToken ct, Action<IReadOnlySet<int>>? onProcesses, Func<Action<IReadOnlySet<int>>?, Task<bool>> runSessionWatch)
     {
         if (!_diagnosticsEnabled())
-            return await runSessionWatch(null);
+            return await runSessionWatch(onProcesses);
 
         var snapshot = new ProcessIdSnapshotPublisher();
 
@@ -85,7 +85,11 @@ public sealed class GameSessionOrchestrator
 
         try
         {
-            return await runSessionWatch(snapshot.Publish);
+            return await runSessionWatch(ids =>
+            {
+                snapshot.Publish(ids);
+                onProcesses?.Invoke(ids);
+            });
         }
         finally
         {

@@ -12,7 +12,14 @@ public enum PaletteKind
 /// <param name="Execute">Run after the palette has closed.</param>
 /// <param name="Bonus">Nudges a likely choice (a game played yesterday) above an equally good match.</param>
 /// <param name="ShowWhenEmpty">Offered before anything is typed.</param>
-public sealed record PaletteItem(string Title, string Subtitle, string Keywords, PaletteKind Kind, Action Execute, int Bonus = 0, bool ShowWhenEmpty = false);
+/// <param name="Cover">A game's cover, shown as a small thumbnail (null for commands and games without art).</param>
+/// <param name="Detail">The short label at the right of the row: the launcher's name for a game, "Command" for a command.</param>
+public sealed record PaletteItem(string Title, string Subtitle, string Keywords, PaletteKind Kind, Action Execute, int Bonus = 0, bool ShowWhenEmpty = false,
+    object? Cover = null, string Detail = "")
+{
+    /// <summary>"GAMES" or "COMMANDS" on the first row of each kind; null on the others. Set when the list is built.</summary>
+    public string? Header { get; set; }
+}
 
 /// <summary>Ranks palette entries for a typed query. Every word typed must appear (in the title or the hidden keywords), in any order -
 /// "ring elden" finds "Elden Ring". Better matches score higher: the exact title, then a title that starts with the text, then one with a

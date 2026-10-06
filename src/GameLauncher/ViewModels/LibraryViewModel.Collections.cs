@@ -155,7 +155,8 @@ public partial class LibraryViewModel
         var (gameId, gameName) = (game.Id, game.Name);
         try
         {
-            var dialog = new CollectionsViewModel(gameName, DialogCollectionNames(), game.Collections);
+            var dialog = new CollectionsViewModel(gameName, DialogCollectionNames(), game.Collections,
+                Collections.ToDictionary(c => c.Name, c => c.Count, StringComparer.OrdinalIgnoreCase));
             IReadOnlyList<string>? chosen;
             if (CollectionsDialogForTest is { } seam)
                 chosen = seam(dialog);

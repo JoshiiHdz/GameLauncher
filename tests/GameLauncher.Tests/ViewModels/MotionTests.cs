@@ -203,7 +203,7 @@ public sealed class MotionTests(WpfStaFixture sta) : IDisposable
         window.UpdateLayout();
         try
         {
-            var power = Descendants<System.Windows.Controls.Button>(window).Single(b => Equals(b.ToolTip, "Shut down this PC (asks first)"));
+            var power = Descendants<System.Windows.Controls.Button>(window).Single(b => b.IsVisible && Equals(b.ToolTip, "Shut down this PC (asks first)")); // the window also holds the console themes' own shut down buttons, hidden under Axis
             var cancel = Descendants<Wpf.Ui.Controls.Button>(window).Single(b => b.Content as string == "Cancel shutdown");
             Assert.Same(vm.ShutdownPcCommand, power.Command);
             Assert.Same(vm.CancelShutdownCommand, cancel.Command);

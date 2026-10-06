@@ -22,7 +22,7 @@ public sealed class GameSourceToFallbackSymbolConverter : IValueConverter
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value switch
         {
-            GameSource.Manual => SymbolRegular.Folder24,
+            GameSource.Manual => SymbolRegular.Games24,
             _ => SymbolRegular.Question24,
         };
 

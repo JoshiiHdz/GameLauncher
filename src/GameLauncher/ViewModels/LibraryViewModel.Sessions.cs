@@ -1,4 +1,5 @@
 using GameLauncher.Models;
+using GameLauncher.Services;
 
 namespace GameLauncher.ViewModels;
 
@@ -97,6 +98,7 @@ public partial class LibraryViewModel
 
         over.TotalPlaySeconds += seconds;
         over.LastPlayedUtc = lastPlayedUtc;
+        PlayHistory.Record(over, lastPlayedUtc, seconds);
         _settingsService.Save(_settings);
 
         if (_allGames.FirstOrDefault(g => g.Id == trackedId) is { } entry)

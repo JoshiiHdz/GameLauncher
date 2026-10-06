@@ -2,6 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:conv="clr-namespace:GameLauncher.Converters"
                     xmlns:beh="clr-namespace:GameLauncher.Behaviors"
+                    xmlns:controls="clr-namespace:GameLauncher.Controls"
                     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
@@ -13,10 +14,8 @@
 
     <!-- Compact card geometry, shared by all library views. Portrait art fills this frame;
          automatic artwork selection prefers an actual portrait rather than zooming a landscape banner. -->
-    <sys:Double x:Key="GameCardWidth">200</sys:Double>
-    <sys:Double x:Key="GameCardArtHeight">260</sys:Double>
-    <!-- Art only: the rounded clip applies to the artwork, not to art-plus-caption. -->
-    <Rect x:Key="GameCardClipRect">0,0,200,260</Rect>
+    <!-- (The card's size comes from the theme: ActiveCardWidth x ActiveCardHeight, 156 x 203 in Axis and 120 x 156 in a small window. The rounded clip on
+         the artwork is sized to the artwork by ThemeRadius.RoundClip.) -->
 
     <!-- The one card definition shared by MainWindow's Favorites section, main library grid, and Hidden
          section - and, via this standalone dictionary, by LibraryViewModelGameCardWiringTests, which
@@ -39,123 +38,80 @@
          the placement target carries the ViewModel across that gap, and PlacementTarget.DataContext
          supplies that card's own GameEntry as the command parameter. -->
     <ContextMenu x:Key="GameCardContextMenu" x:Shared="False">
-        <!-- Name header: the card behind this menu loses its own hover highlight the moment the mouse
-             moves onto the (separately-rooted) popup, so this is the one thing in the menu itself that
-             still says which game is about to be acted on. No Command - clicking the row (including the
-             "x") just closes the menu, like any other plain MenuItem click; Tag="MenuHeader" is only so
-             tests can find this row without matching on its game-specific text. -->
+        <!-- Name header with a close X: the card behind this menu loses its hover highlight the moment the mouse reaches the (separately rooted) popup,
+             so this row still says which game is about to be acted on. No Command: clicking the row (the X included) just closes the menu like any other
+             plain item; Tag="MenuHeader" lets tests find it without matching the game's name. -->
         <MenuItem Tag="MenuHeader" FontWeight="SemiBold">
             <MenuItem.Template>
                 <ControlTemplate TargetType="MenuItem">
-                    <Border x:Name="Row" Background="Transparent" CornerRadius="4" Margin="1,0" Padding="12,0,0,0">
+                    <Border x:Name="Row" Background="Transparent" beh:ThemeRadius.Key="RadiusMenuRow" Padding="10,0,0,0">
                         <ContentPresenter ContentSource="Header" HorizontalAlignment="Stretch" VerticalAlignment="Center" />
                     </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsHighlighted" Value="True">
-                            <Setter TargetName="Row" Property="Background" Value="{StaticResource DesignSurface2}" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
+                    <!-- No row highlight: only the X lights up (below), so the header reads as a label with a close button, not as a menu row. -->
                 </ControlTemplate>
             </MenuItem.Template>
             <MenuItem.Header>
-                <Grid MinWidth="220" Height="32">
+                <Grid MinWidth="220" Height="34">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="MenuHeaderName" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0"
-                               TextTrimming="CharacterEllipsis"
+                    <TextBlock x:Name="MenuHeaderName" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0" TextTrimming="CharacterEllipsis"
                                Text="{Binding PlacementTarget.DataContext.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                    <Border Grid.Column="1" Width="1" Margin="0,7" Background="{StaticResource DesignMuted}" Opacity="0.4" />
-                    <Border Grid.Column="2" Width="30" ToolTip="Close menu">
-                        <ui:SymbolIcon Symbol="Dismiss24" FontSize="12" Opacity="0.75"
-                                       HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0" />
+                    <Border Grid.Column="1" Width="1" Margin="0,8" Background="{DynamicResource Muted}" Opacity="0.4" />
+                    <Border Grid.Column="2" Width="30" Height="26" Margin="0,0,4,0" beh:ThemeRadius.Key="RadiusMenuRow" ToolTip="Close menu">
+                        <ui:SymbolIcon Symbol="Dismiss24" FontSize="13" Opacity="0.8" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource Surface2}" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                     </Border>
                 </Grid>
             </MenuItem.Header>
         </MenuItem>
         <Separator />
-
-        <MenuItem Header="Play" InputGestureText="Enter"
+        <MenuItem Header="Play"
                   Command="{Binding PlacementTarget.Tag.LaunchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="Play24" FontSize="15" Foreground="{StaticResource DesignAccent}" />
-            </MenuItem.Icon>
-        </MenuItem>
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
         <MenuItem Header="Game details..."
                   Command="{Binding PlacementTarget.Tag.ShowGameDetailsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="Info24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
-        <MenuItem Header="Open install location"
-                  Command="{Binding PlacementTarget.Tag.OpenInstallLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="FolderOpen24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
-
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
         <Separator />
-
         <MenuItem Header="{Binding PlacementTarget.DataContext.Favorite, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={x:Static conv:FavoriteToMenuTextConverter.Instance}}"
                   Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="Star24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
-        <MenuItem Header="Collections..."
-                  Command="{Binding PlacementTarget.Tag.EditCollectionsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="FolderAdd24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
-        <MenuItem Header="Change Cover Manually"
-                  Command="{Binding PlacementTarget.Tag.ChangeCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="Image24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
-        <!-- Identity and artwork are two separate decisions: "Identify game" says WHICH game this is,
-             the cover rows above pick an IMAGE and never change identity. -->
-        <MenuItem Header="Identify game..."
-                  Command="{Binding PlacementTarget.Tag.IdentifyGameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="ScanType24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
-        <MenuItem Header="Reset cover to automatic"
-                  Command="{Binding PlacementTarget.Tag.ResetCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="ArrowCounterclockwise24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
-
-        <Separator />
-
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
         <MenuItem Header="{Binding PlacementTarget.DataContext.Hidden, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={x:Static conv:HiddenToMenuTextConverter.Instance}}"
                   Command="{Binding PlacementTarget.Tag.ToggleHiddenCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="EyeOff24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+        <MenuItem Header="Collections..."
+                  Command="{Binding PlacementTarget.Tag.EditCollectionsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+        <Separator />
+        <MenuItem Header="Change Cover Manually"
+                  Command="{Binding PlacementTarget.Tag.ChangeCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+        <MenuItem Header="Reset cover to automatic"
+                  Command="{Binding PlacementTarget.Tag.ResetCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+        <!-- Identity and artwork are two separate decisions: "Identify game" says WHICH game this is, the cover rows above pick an IMAGE and never change identity. -->
+        <MenuItem Header="Identify game..."
+                  Command="{Binding PlacementTarget.Tag.IdentifyGameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+        <Separator />
+        <MenuItem Header="Open install location"
+                  Command="{Binding PlacementTarget.Tag.OpenInstallLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
         <!-- Hands off to the game's own launcher; Axis never deletes game files itself. -->
-        <MenuItem Header="Uninstall..."
+        <MenuItem Header="Uninstall..." Tag="Destructive" Foreground="{DynamicResource Danger}"
                   Command="{Binding PlacementTarget.Tag.UninstallGameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-            <MenuItem.Icon>
-                <ui:SymbolIcon Symbol="Delete24" FontSize="15" />
-            </MenuItem.Icon>
-        </MenuItem>
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
     </ContextMenu>
 
     <!-- Hover motion is a short, one-shot render transform; it never changes layout or loops. -->
@@ -197,14 +153,14 @@
     <Style x:Key="FavoriteStarStyle" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Padding" Value="4" />
-        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FontSize" Value="12" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Foreground" Value="#E6FFFFFF" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                    <Border Width="22" Height="22" CornerRadius="11" Background="{DynamicResource ArtPlate}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                 </ControlTemplate>
@@ -212,7 +168,7 @@
         </Setter>
         <Style.Triggers>
             <DataTrigger Binding="{Binding Favorite}" Value="True">
-                <Setter Property="Foreground" Value="#FFC83D" />
+                <Setter Property="Foreground" Value="{DynamicResource Star}" />
             </DataTrigger>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Foreground" Value="#FFFFFF" />
@@ -220,200 +176,143 @@
         </Style.Triggers>
     </Style>
 
-    <!-- One card definition shared by the Favorites section and the main library grid -->
+    <!-- One card definition shared by the Favorites section and the main library grid (the Axis card, spec 03 section 3.3): a poster with the favourite star at the top
+         right and a launcher pill at the bottom left, then the name and "Steam · 1.5 h · Today" underneath. Hovering lifts it 2 px; keyboard focus draws a ring around
+         the art. Everything the card could do before still works: a click plays the game (the Axis way of opening a game), the hover overlay, the menu button, the
+         star and the right-click menu. -->
     <DataTemplate x:Key="GameCardTemplate">
-        <Button Style="{StaticResource GameCardStyle}"
-                   Margin="0,0,12,16" Width="{StaticResource GameCardWidth}"
+        <Button x:Name="CardButton" Style="{StaticResource GameCardStyle}"
+                   Margin="0,0,16,22" Width="{DynamicResource ActiveCardWidth}"
                    Command="{Binding DataContext.LaunchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                    CommandParameter="{Binding}"
                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
-            <!-- ContextMenu is a separate visual-tree root (a Popup), so bindings inside it can't
-                 walk up to the Window the way the card's own elements do above - PlacementTarget is
-                 the only link back. Tag carries the ViewModel across that gap (set via the normal
-                 AncestorType=Window walk, which still works here since Tag itself lives on the
-                 Button, inside the ordinary visual tree) and PlacementTarget.DataContext supplies
-                 this card's own GameEntry as the command parameter, the same value `{Binding}` above
-                 resolves to. -->
+            <!-- ContextMenu is a separate visual-tree root (a Popup), so bindings inside it can't walk up to the Window the way the card's own elements do -
+                 PlacementTarget is the only link back. Tag carries the ViewModel across that gap and PlacementTarget.DataContext supplies this card's own GameEntry. -->
             <Button.ContextMenu>
                 <StaticResource ResourceKey="GameCardContextMenu" />
             </Button.ContextMenu>
-            <!-- The tile is the ART plus text underneath it, not a panel containing both: the design has
-                 no card surface or border at all, so anything drawn here besides the artwork itself
-                 reads as a box the design doesn't have. CardRoot stays as the hover source (it spans
-                 art AND text, so hovering the name reveals the overlay too) but paints nothing. -->
+            <!-- CardRoot is the hover source (it spans art AND text) but paints nothing; CardMotion is what lifts. -->
             <Border x:Name="CardRoot" Background="Transparent">
-                <!-- Keep CardRoot stationary so the hover target cannot move out from under the pointer. -->
                 <StackPanel x:Name="CardMotion">
                     <StackPanel.RenderTransform><TranslateTransform /></StackPanel.RenderTransform>
-                    <Border CornerRadius="10">
-                        <!-- Rounds the artwork itself; CornerRadius alone does not clip children. -->
-                        <Border.Clip>
-                            <RectangleGeometry Rect="{StaticResource GameCardClipRect}" RadiusX="10" RadiusY="10" />
-                        </Border.Clip>
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="6" ShadowDepth="2" Opacity="0.33" Color="Black" />
-                        </Border.Effect>
-                    <Grid Width="{StaticResource GameCardWidth}" Height="{StaticResource GameCardArtHeight}">
-                        <Border Background="{StaticResource DesignBg2}">
-                            <Grid>
-                                <ui:SymbolIcon Symbol="Games24" FontSize="34" Opacity="0.35"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                    <Grid>
+                        <!-- Keyboard focus: a 2 px ring with a 2 px gap, around the art -->
+                        <Border x:Name="FocusRing" Margin="-4" beh:ThemeRadius.Key="RadiusCard" BorderBrush="{DynamicResource FocusInk}" BorderThickness="2"
+                                Visibility="Collapsed" IsHitTestVisible="False" />
+                        <Border x:Name="ArtFrame" beh:ThemeRadius.Key="RadiusCard" beh:ThemeRadius.RoundClip="True">
+                            <Grid Width="{DynamicResource ActiveCardWidth}" Height="{DynamicResource ActiveCardHeight}">
+                                <Border Background="{DynamicResource Bg2}">
+                                    <Grid>
+                                        <!-- Real cover art fills the frame with a centred crop; portrait-source selection is the resolver's job, not stretching. -->
+                                        <Border x:Name="CoverFill"
+                                                Visibility="{Binding IsCoverArt, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                            <Border.Background>
+                                                <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center"
+                                                            RenderOptions.BitmapScalingMode="HighQuality" />
+                                            </Border.Background>
+                                        </Border>
 
-                                <!-- Fill the compact frame with centred artwork, preserving proportions.
-                                     Portrait-source selection is handled by the resolver, not by stretching. -->
-                                <Border x:Name="CoverFill"
-                                        Visibility="{Binding IsCoverArt, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                    <Border.Background>
-                                        <ImageBrush ImageSource="{Binding Icon}"
-                                                    Stretch="UniformToFill"
-                                                    AlignmentX="Center" AlignmentY="Center"
-                                                    RenderOptions.BitmapScalingMode="HighQuality" />
-                                    </Border.Background>
+                                        <!-- No cover: a gradient plate with the launcher's initials and a note. -->
+                                        <Border x:Name="FallbackArt" BorderBrush="{DynamicResource Stroke}" BorderThickness="1"
+                                                Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}">
+                                            <Border.Background>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0.2,1">
+                                                    <GradientStop Color="#262A36" Offset="0" />
+                                                    <GradientStop Color="#181B24" Offset="1" />
+                                                </LinearGradientBrush>
+                                            </Border.Background>
+                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                <Border Width="48" Height="48" CornerRadius="12" Background="{DynamicResource ChipFill}" BorderBrush="{DynamicResource Stroke}" BorderThickness="1">
+                                                    <controls:LauncherIcon Width="28" Height="28" HorizontalAlignment="Center" />
+                                                </Border>
+                                                <TextBlock Text="No cover found" Margin="0,8,0,0" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
                                 </Border>
 
-                                <!-- Fallback exe icon: only when there's no real cover to fill with. -->
-                                <Image Source="{Binding Icon}"
-                                       Style="{StaticResource GameArtImageStyle}"
-                                       Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
-                            </Grid>
-                        </Border>
+                                <!-- Identity badge (top left): shown only when automatic identification could not settle which game this is. It invites the
+                                     user to identify it; it says nothing about the cover being displayed. -->
+                                <Border HorizontalAlignment="Left" VerticalAlignment="Top"
+                                        Margin="8,8,0,0" Padding="4,2" CornerRadius="6"
+                                        Background="{DynamicResource ArtPlate}"
+                                        ToolTip="{Binding IdentityBadgeText}"
+                                        Visibility="{Binding NeedsIdentity, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                    <ui:SymbolIcon Symbol="QuestionCircle24" FontSize="12" Foreground="#CCFFFFFF" />
+                                </Border>
 
-                        <!-- Platform badge: the launcher's own icon, or a small muted glyph when the source
-                             is unknown - kept subtle so it marks the cover rather than blotting it out. -->
-                        <Border HorizontalAlignment="Left" VerticalAlignment="Top"
-                                Margin="6,6,0,0" Padding="2" CornerRadius="4"
-                                Background="{StaticResource DesignArtChipFill}"
-                                ToolTip="{Binding Source, Converter={x:Static conv:GameSourceDisplayConverter.Instance}}">
-                            <Grid Width="14" Height="14">
-                                <Image Source="{Binding PlatformIcon}"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
-                                <!-- Hardcoded Xbox logo: its MSIX package icon can never be
-                                     extracted, so PlatformIcon is always null for an Xbox game -
-                                     this fills that same slot with the real logo instead of the
-                                     generic fallback glyph below. -->
-                                <Image Source="/Assets/XboxLogo.png" RenderOptions.BitmapScalingMode="HighQuality">
-                                    <Image.Visibility>
-                                        <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForXboxLogo}">
-                                            <Binding Path="Source" />
-                                            <Binding Path="PlatformIcon" />
-                                        </MultiBinding>
-                                    </Image.Visibility>
-                                </Image>
-                                <ui:SymbolIcon Symbol="{Binding Source, Converter={x:Static conv:GameSourceToFallbackSymbolConverter.Instance}}"
-                                               FontSize="11" Foreground="#E6FFFFFF"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <ui:SymbolIcon.Visibility>
-                                        <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForFallbackSymbol}">
-                                            <Binding Path="Source" />
-                                            <Binding Path="PlatformIcon" />
-                                        </MultiBinding>
-                                    </ui:SymbolIcon.Visibility>
-                                </ui:SymbolIcon>
-                            </Grid>
-                        </Border>
+                                <!-- Favourite (top right) and Running (below it): a round plate with the star - always there once favourited, otherwise on hover. -->
+                                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0" Panel.ZIndex="1">
+                                    <Button x:Name="FavoriteButton" Style="{StaticResource FavoriteStarStyle}"
+                                               Content="{Binding Favorite, Converter={StaticResource BoolToStarConverter}}"
+                                               ToolTip="Favorite" Visibility="Collapsed"
+                                               Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                               CommandParameter="{Binding}" />
 
-                        <!-- Favorite (top) and Running (below it) share this corner, stacked rather than
-                             overlapping - both independently visible, so the rare case of a running
-                             favorite shows both at once instead of one hiding the other. Favorite itself
-                             is a real button (toggles on click, same as before - just relocated off the
-                             caption strip), permanently visible once favorited, otherwise only on hover
-                             (see the hover trigger below) so the quiet, unfavorited default matches the
-                             rest of the art's restraint. -->
-                        <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,4,0" Panel.ZIndex="1">
-                            <Button x:Name="FavoriteButton" Style="{StaticResource FavoriteStarStyle}"
-                                       Content="{Binding Favorite, Converter={StaticResource BoolToStarConverter}}"
-                                       ToolTip="Favorite" Visibility="Collapsed"
-                                       Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                       CommandParameter="{Binding}" />
-
-                            <Border Padding="6,3" CornerRadius="4" Margin="0,2,0,0"
-                                    Background="{StaticResource DesignArtChipFill}" HorizontalAlignment="Right"
-                                    Visibility="{Binding IsRunning, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse Width="6" Height="6" Fill="{StaticResource DesignAccent}"
-                                             VerticalAlignment="Center" />
-                                    <TextBlock Text="Running" FontSize="9" FontWeight="SemiBold" Foreground="White"
-                                               Margin="4,0,0,0" />
+                                    <Border Padding="6,3" CornerRadius="999" Margin="0,4,0,0"
+                                            Background="{DynamicResource ArtPlate}" HorizontalAlignment="Right"
+                                            Visibility="{Binding IsRunning, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Width="6" Height="6" Fill="{DynamicResource Accent}" VerticalAlignment="Center" />
+                                            <TextBlock Text="Running" FontSize="9" FontWeight="SemiBold" Foreground="White" Margin="4,0,0,0" />
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
-                            </Border>
-                        </StackPanel>
 
-                        <!-- Identity badge: shown only when automatic identification could not settle which game this is.
-                             It invites the user to identify it; it says nothing about the cover being displayed. -->
-                        <Border HorizontalAlignment="Left" VerticalAlignment="Bottom"
-                                Margin="6,0,0,6" Padding="4,2" CornerRadius="4"
-                                Background="{StaticResource DesignArtChipFill}"
-                                ToolTip="{Binding IdentityBadgeText}"
-                                Visibility="{Binding NeedsIdentity, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                            <ui:SymbolIcon Symbol="QuestionCircle24" FontSize="12" Foreground="#CCFFFFFF" />
-                        </Border>
+                                <!-- The launcher pill (bottom left): an initials chip and the launcher's name on a dark plate, readable on any art. -->
+                                <Border x:Name="LauncherPill" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8" Height="22" Padding="3,0,8,0"
+                                        beh:ThemeRadius.Key="Pill" Background="{DynamicResource ArtPlate}">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <controls:LauncherIcon Width="16" Height="16" />
+                                        <TextBlock Text="{Binding Source, Converter={x:Static conv:LauncherNameConverter.Instance}}" Margin="5,0,0,0" FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource Ink}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Border>
 
-                        <!-- Hover reveal: a dimming overlay, a centered circular Play button, and the "..."
-                             overflow button - all three toggled by the SAME CardRoot hover trigger below,
-                             so they can never drift out of sync with each other. Purely decorative (the
-                             whole card is already the Launch button, same as before); only CardMenuButton
-                             below is itself interactive. -->
-                        <Border x:Name="HoverOverlay" Background="#A6000000" Visibility="Collapsed" IsHitTestVisible="False" />
+                                <!-- Hover reveal: a dimming overlay, a centred round Play button, and the "..." overflow button - all toggled by the SAME CardRoot hover
+                                     trigger below, so they can never drift out of sync. Only CardMenuButton is itself interactive. -->
+                                <Border x:Name="HoverOverlay" Background="#A6000000" Visibility="Collapsed" IsHitTestVisible="False" />
 
-                        <Border x:Name="HoverPlayButton" Width="40" Height="40" CornerRadius="20"
-                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Background="{StaticResource DesignAccent}" Visibility="Collapsed" IsHitTestVisible="False">
-                            <ui:SymbolIcon Symbol="Play24" FontSize="16" Foreground="White"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
+                                <Border x:Name="HoverPlayButton" Width="40" Height="40" CornerRadius="20"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        Background="{DynamicResource Accent}" Visibility="Collapsed" IsHitTestVisible="False">
+                                    <ui:SymbolIcon Symbol="Play24" FontSize="16" Foreground="{DynamicResource AccentInk}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
 
-                        <!-- Overflow "..." menu: the same actions already on the right-click menu above, just
-                             discoverable on hover without knowing to right-click. A Border, not a nested Button
-                             (see ContextMenuButtonBehavior's remarks) - Tag/ContextMenu bindings mirror the
-                             card's own right-click menu exactly, since PlacementTarget here is this Border,
-                             not the outer card Button. -->
-                        <Border x:Name="CardMenuButton" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                Margin="0,0,8,8" Width="32" Height="32" CornerRadius="8" Background="{StaticResource DesignArtMoreFill}"
-                                Cursor="Hand" Visibility="Collapsed" ToolTip="More options"
-                                Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-                                beh:ContextMenuButtonBehavior.OpensContextMenuOnClick="True">
-                            <ui:SymbolIcon Symbol="MoreVertical24" FontSize="14" Foreground="White"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            <Border.ContextMenu>
-                                <StaticResource ResourceKey="GameCardContextMenu" />
-                            </Border.ContextMenu>
+                                <!-- Overflow "..." menu: the same actions as the right-click menu, discoverable on hover. A Border, not a nested Button (see
+                                     ContextMenuButtonBehavior's remarks); Tag/ContextMenu mirror the card's own right-click menu since PlacementTarget here is this Border. -->
+                                <Border x:Name="CardMenuButton" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                        Margin="0,0,8,8" Width="32" Height="32" CornerRadius="8" Background="{StaticResource DesignArtMoreFill}"
+                                        Cursor="Hand" Visibility="Collapsed" ToolTip="More options"
+                                        Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        beh:ContextMenuButtonBehavior.OpensContextMenuOnClick="True">
+                                    <ui:SymbolIcon Symbol="MoreVertical24" FontSize="14" Foreground="White"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <Border.ContextMenu>
+                                        <StaticResource ResourceKey="GameCardContextMenu" />
+                                    </Border.ContextMenu>
+                                </Border>
+                            </Grid>
                         </Border>
                     </Grid>
-                    </Border>
 
-                    <!-- Name and platform sit directly on the page background beneath the art, with no
-                         panel behind them - .tile-name { margin-top: 9 } / .tile-meta { margin-top: 2 }
-                         in the design. The name is held at two lines' height so the rows of a grid stay
-                         aligned whether a title wraps or not. -->
-                    <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="Medium"
-                               Margin="0,8,0,0" MaxHeight="34" LineHeight="16.5" LineStackingStrategy="BlockLineHeight"
+                    <!-- Name and "Steam · 1.5 h · Today" sit directly on the page background beneath the art, with no panel behind them. The name is held at two
+                         lines' height so the rows of a grid stay aligned whether a title wraps or not. -->
+                    <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                               Margin="0,9,0,0" MaxHeight="40" LineHeight="18" LineStackingStrategy="BlockLineHeight"
                                TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
                                ToolTip="{Binding Name}"
-                               Foreground="{StaticResource DesignInk}" />
-                    <TextBlock FontSize="11" Foreground="{StaticResource DesignMuted}" Margin="0,1,0,0"
-                               TextTrimming="CharacterEllipsis"
-                               Text="{Binding Source, Converter={x:Static conv:GameSourceDisplayConverter.Instance}}" />
-                    <!-- "Recently played" detail: hours and when. Shown only when the list holding the card says so (its Tag is True: the
-                         Recently played strip on Home, and the Recently played view) and the game has been played from here. -->
-                    <TextBlock x:Name="PlayDetail" FontSize="10.5" Foreground="{StaticResource DesignMuted}" Margin="0,2,0,0"
-                               TextTrimming="CharacterEllipsis">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <MultiDataTrigger>
-                                        <MultiDataTrigger.Conditions>
-                                            <Condition Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="True" />
-                                            <Condition Binding="{Binding HasPlayTime}" Value="True" />
-                                        </MultiDataTrigger.Conditions>
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </MultiDataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                        <Run Text="{Binding PlayTimeDisplay, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding LastPlayedDisplay, Mode=OneWay}" />
+                               Foreground="{DynamicResource Ink}" />
+                    <TextBlock x:Name="CardMeta" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis">
+                        <TextBlock.Text>
+                            <MultiBinding Converter="{x:Static conv:GameMetaConverter.Instance}" ConverterParameter="card">
+                                <Binding />
+                                <Binding Path="TotalPlaySeconds" />
+                                <Binding Path="LastPlayedDisplay" />
+                                <Binding Path="Source" />
+                            </MultiBinding>
+                        </TextBlock.Text>
                     </TextBlock>
                     <!-- Same title installed through another launcher too: a quiet amber line, so the duplicate is noticed without shouting. -->
                     <TextBlock FontSize="10.5" Foreground="#F5A524" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
@@ -421,13 +320,13 @@
                                Visibility="{Binding HasDuplicate, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                     <!-- Storage information belongs to the selected-drive view, never on the artwork. -->
                     <Border x:Name="InstallSizePanel" Margin="0,5,0,0" Padding="8,3" CornerRadius="5"
-                            Background="{StaticResource DesignSurface}" BorderBrush="{StaticResource DesignStroke}" BorderThickness="1"
+                            Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Stroke}" BorderThickness="1"
                             ToolTip="Approximate installed file size. Shared files and compression can affect actual disk usage."
                             Visibility="{Binding DataContext.HasSelectedDriveFilter, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                            <TextBlock Text="On disk" FontSize="11" Foreground="{StaticResource DesignMuted}" VerticalAlignment="Center" />
-                            <TextBlock x:Name="InstallSizeValue" Grid.Column="1" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource DesignInk}">
+                            <TextBlock Text="On disk" FontSize="11" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="InstallSizeValue" Grid.Column="1" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Ink}">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Text" Value="{Binding InstallSizeDisplay}" />
@@ -444,6 +343,7 @@
         </Button>
 
         <DataTemplate.Triggers>
+            <!-- Hover: the card rises 2 px (150 ms, ease-out) and settles back on leave. Skipped when Windows animations are off. -->
             <MultiDataTrigger>
                 <MultiDataTrigger.Conditions>
                     <Condition Binding="{Binding IsMouseOver, ElementName=CardRoot}" Value="True" />
@@ -452,19 +352,9 @@
                 <MultiDataTrigger.EnterActions>
                     <BeginStoryboard>
                         <Storyboard>
-                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="CardMotion"
+                            <DoubleAnimation Storyboard.TargetName="CardMotion"
                                     Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
-                                    Duration="0:0:0.3">
-                                <EasingDoubleKeyFrame KeyTime="0:0:0.12" Value="-6">
-                                    <EasingDoubleKeyFrame.EasingFunction><QuadraticEase EasingMode="EaseOut" /></EasingDoubleKeyFrame.EasingFunction>
-                                </EasingDoubleKeyFrame>
-                                <EasingDoubleKeyFrame KeyTime="0:0:0.22" Value="-3">
-                                    <EasingDoubleKeyFrame.EasingFunction><QuadraticEase EasingMode="EaseInOut" /></EasingDoubleKeyFrame.EasingFunction>
-                                </EasingDoubleKeyFrame>
-                                <EasingDoubleKeyFrame KeyTime="0:0:0.3" Value="-4">
-                                    <EasingDoubleKeyFrame.EasingFunction><QuadraticEase EasingMode="EaseOut" /></EasingDoubleKeyFrame.EasingFunction>
-                                </EasingDoubleKeyFrame>
-                            </DoubleAnimationUsingKeyFrames>
+                                    To="-2" Duration="{x:Static beh:ThemeTiming.Hover}" EasingFunction="{x:Static beh:ThemeTiming.EaseStandard}" />
                         </Storyboard>
                     </BeginStoryboard>
                 </MultiDataTrigger.EnterActions>
@@ -473,9 +363,7 @@
                         <Storyboard>
                             <DoubleAnimation Storyboard.TargetName="CardMotion"
                                     Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
-                                    To="0" Duration="0:0:0.16">
-                                <DoubleAnimation.EasingFunction><QuadraticEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
-                            </DoubleAnimation>
+                                    To="0" Duration="{x:Static beh:ThemeTiming.Hover}" EasingFunction="{x:Static beh:ThemeTiming.EaseStandard}" />
                         </Storyboard>
                     </BeginStoryboard>
                 </MultiDataTrigger.ExitActions>
@@ -485,6 +373,12 @@
                 <Setter TargetName="HoverPlayButton" Property="Visibility" Value="Visible" />
                 <Setter TargetName="CardMenuButton" Property="Visibility" Value="Visible" />
                 <Setter TargetName="FavoriteButton" Property="Visibility" Value="Visible" />
+            </Trigger>
+            <Trigger SourceName="CardButton" Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="FocusRing" Property="Visibility" Value="Visible" />
+            </Trigger>
+            <Trigger SourceName="CardButton" Property="IsPressed" Value="True">
+                <Setter TargetName="ArtFrame" Property="Opacity" Value="0.85" />
             </Trigger>
             <DataTrigger Binding="{Binding Favorite}" Value="True">
                 <Setter TargetName="FavoriteButton" Property="Visibility" Value="Visible" />

@@ -62,8 +62,27 @@ public sealed class AppSettings
     /// When off, the launcher just minimizes to the taskbar as before.</summary>
     public bool MinimizeToTrayWhileGaming { get; set; } = true;
 
+    /// <summary>Hide to the system tray when the window's minimize button is pressed, instead of minimizing to the taskbar. Off by default.</summary>
+    public bool MinimizeToTrayOnMinimize { get; set; }
+
     /// <summary>Trim other apps' idle memory just before a game is launched from here (see MemoryOptimizer). Off by default.</summary>
     public bool OptimizeBeforeLaunch { get; set; }
+
+    /// <summary>Focus play: while a game launched from here runs, use a high performance power plan, then put the old one back. Off by default.</summary>
+    public bool FocusPlay { get; set; }
+
+    /// <summary>Focus play leaves the power plan alone while the PC runs on battery. On by default.</summary>
+    public bool FocusPlayOnlyWhenPluggedIn { get; set; } = true;
+
+    /// <summary>The plan to put back, written to disk BEFORE Focus play switches, so a crash or power cut cannot strand the PC on the fast plan
+    /// (the next start restores it). Null when no switch is in force. PC-specific, never exported in a backup.</summary>
+    public string? FocusPlayRestorePlan { get; set; }
+
+    /// <summary>The plan Focus play switched to; the restore only happens if the PC is still on it.</summary>
+    public string? FocusPlayAppliedPlan { get; set; }
+
+    /// <summary>A "Axis Focus play" plan made here on a PC that had no high performance plan, kept so it is reused rather than made again.</summary>
+    public string? FocusPlayOwnPlan { get; set; }
 
     /// <summary>Ctrl+Alt+Space from anywhere brings the launcher forward with the command palette open. On by default.</summary>
     public bool GlobalHotkeyEnabled { get; set; } = true;
@@ -78,6 +97,9 @@ public sealed class AppSettings
 
     /// <summary>Open the launcher maximized. On by default; Settings > General can turn it off.</summary>
     public bool StartMaximized { get; set; } = true;
+
+    /// <summary>The look of the launcher: "Axis" (the default), "ConsoleTile" or "ConsoleRibbon". Unknown values mean Axis.</summary>
+    public string AppearanceTheme { get; set; } = "Axis";
 
     /// <summary>Which sidebar sections are open (an accordion): Tools, Launchers and Drives. Remembered between runs.</summary>
     public bool SidebarToolsExpanded { get; set; } = true;

@@ -89,11 +89,23 @@ public sealed class ResetTests : IDisposable
     }
 
     [Fact]
+    public void MinimizeToTray_IsOffByDefault_AndTheChoiceIsSaved()
+    {
+        Assert.False(new AppSettings().MinimizeToTrayOnMinimize);
+        var vm = Library();
+        Assert.False(vm.MinimizeToTrayOnMinimize);
+
+        vm.MinimizeToTrayOnMinimize = true;
+
+        Assert.True(new SettingsService(_directory).Load().MinimizeToTrayOnMinimize);
+    }
+
+    [Fact]
     public void ResettingSettings_RestoresEveryDefault_AndKeepsTheLibraryData()
     {
         var settings = new AppSettings
         {
-            VibrantBackground = false, MinimizeToTrayWhileGaming = false, OptimizeBeforeLaunch = true, GlobalHotkeyEnabled = false,
+            VibrantBackground = false, MinimizeToTrayWhileGaming = false, MinimizeToTrayOnMinimize = true, OptimizeBeforeLaunch = true, GlobalHotkeyEnabled = false,
             TrackExternalGames = false, CheckForUpdates = false, StartMaximized = false, DetectSteam = false, DetectEa = false,
             DetectManual = false, SidebarExpanded = false, SidebarToolsExpanded = false, SidebarLaunchersExpanded = false,
         };
@@ -105,6 +117,7 @@ public sealed class ResetTests : IDisposable
         var saved = new SettingsService(_directory).Load();
         Assert.True(saved.VibrantBackground);
         Assert.True(saved.MinimizeToTrayWhileGaming);
+        Assert.False(saved.MinimizeToTrayOnMinimize);
         Assert.False(saved.OptimizeBeforeLaunch);
         Assert.True(saved.GlobalHotkeyEnabled);
         Assert.True(saved.TrackExternalGames);

@@ -17,8 +17,14 @@ public sealed class BackupGame
     public long TotalPlaySeconds { get; set; }
     public DateTime? LastPlayedUtc { get; set; }
 
+    /// <summary>Focus play: run this game at High priority.</summary>
+    public bool RaiseGamePriority { get; set; }
+
+    /// <summary>The play time as it happened, so "today" and "this week" survive a reinstall.</summary>
+    public List<PlaySessionRecord> Sessions { get; set; } = new();
+
     internal bool HasAnything => !string.IsNullOrWhiteSpace(CustomName) || Hidden || Favorite || Collections.Count > 0
-        || !string.IsNullOrWhiteSpace(Notes) || TotalPlaySeconds > 0 || LastPlayedUtc is not null;
+        || !string.IsNullOrWhiteSpace(Notes) || TotalPlaySeconds > 0 || LastPlayedUtc is not null || RaiseGamePriority || Sessions.Count > 0;
 }
 
 /// <summary>The few plain preferences a backup carries. Nothing PC-specific (watched folders, start-with-Windows) and no keys or secrets.</summary>
@@ -37,9 +43,12 @@ public sealed class BackupSettings
     public bool SidebarExpanded { get; set; } = true;
     public bool VibrantBackground { get; set; } = true;
     public bool MinimizeToTrayWhileGaming { get; set; } = true;
+    public bool MinimizeToTrayOnMinimize { get; set; }
     public bool TrackExternalGames { get; set; } = true;
     public bool CheckForUpdates { get; set; } = true;
     public bool OptimizeBeforeLaunch { get; set; }
+    public bool FocusPlay { get; set; }
+    public bool FocusPlayOnlyWhenPluggedIn { get; set; } = true;
 }
 
 public sealed class BackupFile
@@ -89,8 +98,9 @@ public static class LibraryBackup
                 DetectBattleNet = settings.DetectBattleNet, DetectRockstar = settings.DetectRockstar,
                 DetectAmazonGames = settings.DetectAmazonGames, DetectManual = settings.DetectManual, SidebarExpanded = settings.SidebarExpanded,
                 VibrantBackground = settings.VibrantBackground, MinimizeToTrayWhileGaming = settings.MinimizeToTrayWhileGaming,
+                MinimizeToTrayOnMinimize = settings.MinimizeToTrayOnMinimize,
                 TrackExternalGames = settings.TrackExternalGames, CheckForUpdates = settings.CheckForUpdates,
-                OptimizeBeforeLaunch = settings.OptimizeBeforeLaunch,
+                OptimizeBeforeLaunch = settings.OptimizeBeforeLaunch, FocusPlay = settings.FocusPlay, FocusPlayOnlyWhenPluggedIn = settings.FocusPlayOnlyWhenPluggedIn,
             },
         };
 
@@ -100,6 +110,8 @@ public static class LibraryBackup
             {
                 CustomName = over.CustomName, Hidden = over.Hidden, Favorite = over.Favorite, Collections = [.. over.Collections ?? []],
                 Notes = over.Notes, DateAdded = over.DateAdded, TotalPlaySeconds = over.TotalPlaySeconds, LastPlayedUtc = over.LastPlayedUtc,
+                RaiseGamePriority = over.RaiseGamePriority,
+                Sessions = over.Sessions.Select(s => new PlaySessionRecord { StartUtc = s.StartUtc, Seconds = s.Seconds }).ToList(),
             };
 
             if (game.HasAnything)
@@ -142,6 +154,13 @@ public static class LibraryBackup
 
         file.Games ??= new();
         file.Settings ??= new();
+        foreach (var game in file.Games.Values.Where(g => g is not null))
+        {
+            game.Collections ??= new();
+            game.Sessions ??= new();
+            game.Sessions.RemoveAll(s => s is null || s.Seconds <= 0);
+        }
+
         return (file, null);
     }
 
@@ -165,10 +184,12 @@ public static class LibraryBackup
             }
 
             var before = (over!.Favorite, over.Hidden, over.CustomName, over.Notes, over.TotalPlaySeconds, over.DateAdded, over.LastPlayedUtc,
-                Collections: string.Join('\u0001', over.Collections));
+                Collections: string.Join('\u0001', over.Collections), over.RaiseGamePriority, Sessions: over.Sessions.Count);
 
             over.Favorite |= incoming.Favorite;
             over.Hidden |= incoming.Hidden;
+            over.RaiseGamePriority |= incoming.RaiseGamePriority;
+            PlayHistory.Union(over, incoming.Sessions);
             if (string.IsNullOrWhiteSpace(over.CustomName) && !string.IsNullOrWhiteSpace(incoming.CustomName))
                 over.CustomName = incoming.CustomName.Trim();
             over.Collections = LibraryViewModel.MergeCollectionNames(over.Collections, incoming.Collections);
@@ -180,7 +201,7 @@ public static class LibraryBackup
                 over.LastPlayedUtc = last;
 
             var after = (over.Favorite, over.Hidden, over.CustomName, over.Notes, over.TotalPlaySeconds, over.DateAdded, over.LastPlayedUtc,
-                Collections: string.Join('\u0001', over.Collections));
+                Collections: string.Join('\u0001', over.Collections), over.RaiseGamePriority, Sessions: over.Sessions.Count);
             if (!existed)
                 added++;
             else if (before != after)

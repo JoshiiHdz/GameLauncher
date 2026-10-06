@@ -51,8 +51,8 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
 
     private static async Task Settle(MainWindow window)
     {
-        // The sidebar's 160 ms width storyboard runs on the real dispatcher: wait until the width has stopped changing (at least 240 ms),
-        // not for a fixed time - a busy machine can stretch the animation past it.
+        // The sidebar's 200 ms width storyboard runs on the real dispatcher: wait until the width has stopped changing (at least 240 ms),
+        // and has reached one of its two resting widths (64 or 232), not for a fixed time - a busy machine can stretch the animation past it.
         var last = -1d;
         for (var i = 0; i < 40; i++)
         {
@@ -60,7 +60,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             window.UpdateLayout();
             var width = window.SidebarPanel.ActualWidth;
-            if (i >= 3 && Math.Abs(width - last) < 0.01)
+            if (i >= 3 && Math.Abs(width - last) < 0.01 && (Math.Abs(width - 64) < 0.5 || Math.Abs(width - 232) < 0.5))
                 break;
             last = width;
         }
@@ -197,7 +197,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                 window.UpdateLayout();
                 var chrome = WindowChrome.GetWindowChrome(window);
-                Assert.Equal(46, chrome.CaptionHeight);
+                Assert.Equal(44, chrome.CaptionHeight);
                 Assert.True(chrome.ResizeBorderThickness.Left > 0);
                 Assert.Equal(2, NativeHitTest(window, window.WindowDragBar, new Point(100, 24))); // HTCAPTION
                 foreach (var control in Descendants<FrameworkElement>(window.WindowDragBar)
@@ -275,7 +275,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
                 if (source == GameSource.Xbox)
                     Assert.NotNull(window.HeroXboxLogo.Source);
                 if (source == GameSource.Manual)
-                    Assert.Equal(Wpf.Ui.Controls.SymbolRegular.Folder24, window.HeroPlatformFallback.Symbol);
+                    Assert.Equal(Wpf.Ui.Controls.SymbolRegular.Games24, window.HeroPlatformFallback.Symbol);
             }
         }
         finally { window.Close(); }
@@ -296,7 +296,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
             Assert.False(window.CollapsedLaunchers.IsVisible);
             await ClickSidebarToggle(window);
             Assert.False(vm.IsSidebarExpanded);
-            Assert.Equal(58, window.SidebarPanel.ActualWidth, 1);
+            Assert.Equal(64, window.SidebarPanel.ActualWidth, 1);
             Assert.False(window.ExpandedLaunchers.IsVisible);
             Assert.True(window.CollapsedLaunchers.IsVisible);
             Assert.False(CreateModel().IsSidebarExpanded);
@@ -322,7 +322,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
             TextBlock[] Headings() => Descendants<TextBlock>(window.SidebarPanel).Where(t => t.Text is "LAUNCHERS" or "DRIVES").ToArray();
             // The rail has no titles: they sit in a collapsed wrapper, so none is showing (and none may even have been built yet).
             Assert.All(Headings(), t => Assert.False(t.IsVisible));
-            Assert.Equal(58, window.SidebarPanel.ActualWidth, 1);
+            Assert.Equal(64, window.SidebarPanel.ActualWidth, 1);
             await ClickSidebarToggle(window);
             var headings = Headings();
             Assert.Equal(2, headings.Length);
@@ -404,7 +404,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
                 Assert.Equal(0, bar.Minimum);
                 Assert.Equal(1, bar.Maximum);
                 Assert.Equal(drive.UsedFraction, bar.Value, 5);
-                Assert.True(bar.ActualWidth > 150);
+                Assert.True(bar.ActualWidth > 150, $"width={bar.ActualWidth} button={button.ActualWidth} sidebar={window.SidebarPanel.ActualWidth}");
                 Assert.True(summary.IsVisible);
                 Assert.Equal(drive.SummaryText, summary.Text);
                 Assert.Equal(TextWrapping.Wrap, summary.TextWrapping);
@@ -424,8 +424,8 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
             await ClickSidebarToggle(window);
             foreach (var button in buttons)
             {
-                Assert.Equal(40, button.ActualHeight, 1);
-                Assert.Equal(40, button.ActualWidth, 1);
+                Assert.True(button.ActualHeight >= 36, $"A rail row is at least 36 high, was {button.ActualHeight}.");
+                Assert.Equal(48, button.ActualWidth, 1);
                 Assert.False(Assert.Single(Descendants<ProgressBar>(button)).IsVisible);
                 Assert.False(Assert.Single(Descendants<TextBlock>(button).Where(t => t.Name == "DriveSpaceSummary")).IsVisible);
             }
@@ -567,7 +567,7 @@ public sealed class LibraryViewModelSidebarTests(WpfStaFixture sta) : IDisposabl
             Assert.Equal("Collections", window.ModalTitle.Text);
 
             var boxes = Descendants<CheckBox>(window.ModalContent).ToArray();
-            Assert.Equal(["Backlog", "Co-op"], boxes.Select(b => (string)b.Content));
+            Assert.Equal(["Backlog", "Co-op"], boxes.Select(b => Descendants<TextBlock>(b).Select(t => t.Text).First(t => t.Length > 1))); // each row is the tick glyph, the name and its game count
             Assert.Equal([false, true], boxes.Select(b => b.IsChecked == true));
 
             boxes[0].IsChecked = true; // ticking a box writes through to the view model

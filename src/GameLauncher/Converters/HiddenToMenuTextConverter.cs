@@ -12,7 +12,7 @@ public sealed class HiddenToMenuTextConverter : IValueConverter
     public static readonly HiddenToMenuTextConverter Instance = new();
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is true ? "Show in library" : "Hide from library";
+        => value is true ? "Unhide" : "Hide";
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

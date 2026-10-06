@@ -16,12 +16,16 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid MaxWidth="820" HorizontalAlignment="Center">
+    <!-- Centred in its area in every theme: the Grid is held to the page width and a stretched element that is capped sits in the middle. -->
+    <Grid MaxWidth="{DynamicResource PageBodyMaxWidth}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="28,8,28,24" beh:Motion.FadeIn="True">
+        <Grid Grid.Row="0" Margin="0,8,0,24" beh:Motion.FadeIn="True">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -29,7 +33,7 @@
 
             <!-- Same 2:3 cover tile as the hero: real art fills it, a fallback exe icon stays small. -->
             <Border Grid.Column="0" Width="150" Height="225" CornerRadius="10" Margin="0,0,24,0" VerticalAlignment="Top"
-                    Background="{StaticResource DesignBg2}" ClipToBounds="True"
+                    Background="{DynamicResource Bg2}" ClipToBounds="True"
                     beh:Motion.Replay="{Binding Game}">
                 <Grid DataContext="{Binding Game}">
                     <ui:SymbolIcon Symbol="Games24" FontSize="28" Opacity="0.35"

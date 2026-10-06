@@ -278,8 +278,8 @@ public class IdentifyGameDialogTests
             window.UpdateLayout();
             try
             {
-                var width = (double)dict["GameCardWidth"];
-                var artHeight = (double)dict["GameCardArtHeight"];
+                var width = (double)System.Windows.Application.Current.Resources["ActiveCardWidth"]; // the theme's card size (156 normally, 120 in a small window)
+                var artHeight = (double)System.Windows.Application.Current.Resources["ActiveCardHeight"];
                 var button = Descendants<System.Windows.Controls.Button>(main).First(b => ReferenceEquals(b.DataContext, game));
                 var root = Descendants<Border>(button).First(b => b.Name == "CardRoot");
                 // The rounded clip lives on the ART border now, not on the whole tile: the design has no
@@ -287,7 +287,7 @@ public class IdentifyGameDialogTests
                 // inside it. CardRoot is the (unpainted) hover region spanning both.
                 var art = Descendants<Border>(button).First(b => b.Clip is not null);
 
-                Assert.True(width > 124);                                                    // wider than the old 124
+                Assert.True(width >= 120);
                 Assert.Equal(width, button.ActualWidth);                                     // the card really is that wide
                 Assert.Equal(width, art.Clip.Bounds.Width);                                  // the rounded-corner clip covers the whole width...
                 Assert.Equal(artHeight, art.Clip.Bounds.Height);                             // ...and exactly the artwork's height
@@ -333,8 +333,8 @@ public class IdentifyGameDialogTests
                 var coverFill = Descendants<Border>(button).First(b => b.Name == "CoverFill");
                 var brush = Assert.IsType<System.Windows.Media.ImageBrush>(coverFill.Background);
 
-                Assert.Equal(200d, coverFill.ActualWidth);
-                Assert.Equal(260d, coverFill.ActualHeight);
+                Assert.Equal((double)System.Windows.Application.Current.Resources["ActiveCardWidth"], coverFill.ActualWidth);
+                Assert.Equal((double)System.Windows.Application.Current.Resources["ActiveCardHeight"], coverFill.ActualHeight);
                 Assert.Equal(System.Windows.Media.Stretch.UniformToFill, brush.Stretch);
                 Assert.Equal(System.Windows.Media.AlignmentX.Center, brush.AlignmentX);       // ...and the crop comes evenly off both sides,
                 Assert.Equal(System.Windows.Media.AlignmentY.Center, brush.AlignmentY);       // not all off one edge

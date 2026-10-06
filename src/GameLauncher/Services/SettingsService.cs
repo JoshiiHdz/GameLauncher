@@ -92,6 +92,10 @@ public sealed class SettingsService
         // safe: it only ever discards a value that was already meaningless.
         foreach (var over in settings.Overrides.Values)
         {
+            // The play-session records get the same treatment as every other list: a null list, a null entry or a nonsense length is dropped.
+            over.Sessions ??= new();
+            over.Sessions.RemoveAll(s => s is null || s.Seconds <= 0);
+
             if (over.ArtworkRevision < 0 || over.ArtworkRevision > long.MaxValue - 1_000_000)
                 over.ArtworkRevision = 0;
 

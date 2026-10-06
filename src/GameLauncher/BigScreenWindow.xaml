@@ -19,7 +19,7 @@
                 <Setter Property="Width" Value="26" />
                 <Setter Property="Height" Value="26" />
                 <Setter Property="CornerRadius" Value="13" />
-                <Setter Property="Background" Value="{StaticResource DesignSurface2}" />
+                <Setter Property="Background" Value="{DynamicResource Surface2}" />
                 <Setter Property="Margin" Value="0,0,8,0" />
             </Style>
 
@@ -68,7 +68,7 @@
     </Window.Resources>
 
     <!-- A plain Window (not the themed FluentWindow) leaves text black, so the light ink is set once for everything inside. -->
-    <Grid Background="{StaticResource DesignBg}" TextElement.Foreground="{StaticResource DesignInk}" beh:Motion.FadeIn="True">
+    <Grid Background="{DynamicResource Bg}" TextElement.Foreground="{DynamicResource Ink}" beh:Motion.FadeIn="True">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -100,7 +100,7 @@
             </ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Border Width="230" Height="320" CornerRadius="14" Background="{StaticResource DesignBg2}" ClipToBounds="True"
+                    <Border Width="230" Height="320" CornerRadius="14" Background="{DynamicResource Bg2}" ClipToBounds="True"
                             BorderThickness="3" x:Name="Tile">
                         <Grid>
                             <ui:SymbolIcon Symbol="Games24" FontSize="44" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -115,7 +115,7 @@
                                    Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}"
                                    RenderOptions.BitmapScalingMode="HighQuality" />
                             <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10" Padding="7,4" CornerRadius="6"
-                                    Background="{StaticResource DesignArtChipFill}"
+                                    Background="{DynamicResource ArtPlate}"
                                     Visibility="{Binding Favorite, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                                 <ui:SymbolIcon Symbol="Star24" FontSize="16" Foreground="#FFC83D" />
                             </Border>
@@ -123,7 +123,7 @@
                     </Border>
                     <DataTemplate.Triggers>
                         <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
-                            <Setter TargetName="Tile" Property="BorderBrush" Value="{StaticResource DesignAccent}" />
+                            <Setter TargetName="Tile" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </DataTrigger>
                     </DataTemplate.Triggers>
                 </DataTemplate>

@@ -37,10 +37,12 @@
              the page's view model. Settings has no view model of its own - it binds to the library itself. -->
         <DataTemplate DataType="{x:Type vm:LibraryViewModel}"><local:SettingsPage /></DataTemplate>
         <DataTemplate DataType="{x:Type services:LibraryStatsSnapshot}"><local:StatsPage /></DataTemplate>
+        <DataTemplate DataType="{x:Type services:SystemInfoSnapshot}"><local:MyPcPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:OptimizeViewModel}"><local:OptimizePage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:StorageViewModel}"><local:StoragePage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:GameDetailsViewModel}"><local:GameDetailsPage /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:PickGameViewModel}"><local:PickGamePage /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:PlayTimeViewModel}"><local:PlayTimePage /></DataTemplate>
 
         <!-- Pill row for each source toggle - a soft hover highlight ties it to the same rounded,
              card-driven language as the game grid instead of a bare list of switches. -->
@@ -81,7 +83,7 @@
             <Setter Property="Height" Value="46" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+            <Setter Property="Foreground" Value="{DynamicResource Muted}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -90,8 +92,8 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
-                                <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface2}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Ink}" />
                             </Trigger>
                             <MultiTrigger>
                                 <MultiTrigger.Conditions>
@@ -111,19 +113,19 @@
              accent Play button beside it stays the obvious primary action. -->
         <Style x:Key="HeroGhostButtonStyle" TargetType="Button">
             <Setter Property="Padding" Value="16,9" />
-            <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+            <Setter Property="Foreground" Value="{DynamicResource Ink}" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Root" CornerRadius="8" Background="{StaticResource DesignGhostFill}"
+                        <Border x:Name="Root" CornerRadius="8" Background="{DynamicResource ChipFill}"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignGhostFillHover}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ChipFillHover}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -136,53 +138,38 @@
              goes through SelectViewCommand, so the selection can never diverge from what the grid is
              actually showing. The accent bar on the left edge is the active marker. -->
         <Style x:Key="RailNavButtonStyle" TargetType="RadioButton">
-            <Setter Property="Width" Value="40" />
+            <Setter Property="Width" Value="48" />
             <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="Height" Value="40" />
-            <Setter Property="Margin" Value="0,0,0,6" />
-            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+            <Setter Property="Foreground" Value="{DynamicResource InkSoft}" />
+            <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
                         <Grid>
-                            <Border x:Name="Indicator" Width="3" Height="18" CornerRadius="2"
-                                    HorizontalAlignment="Left" VerticalAlignment="Center"
-                                    Margin="-8,0,0,0" Background="Transparent" />
-                            <Border x:Name="Root" CornerRadius="11" Background="Transparent" RenderTransformOrigin="0.5,0.5">
-                                <Border.RenderTransform><ScaleTransform /></Border.RenderTransform>
-                                <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" />
+                            <Border x:Name="Root" beh:ThemeRadius.Key="RadiusNavItem" Background="Transparent" Padding="0,0">
+                                <ContentPresenter x:Name="Content" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" />
                             </Border>
+                            <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" Margin="-4" BorderBrush="{DynamicResource FocusInk}" BorderThickness="2" Visibility="Collapsed" IsHitTestVisible="False" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
-                                <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface2}" />
                             </Trigger>
+                            <!-- The open view or page: a soft fill and the accent on the icon and label - two cues, so it is never colour alone. -->
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
-                                <Setter TargetName="Indicator" Property="Background"
-                                        Value="{StaticResource DesignAccent}" />
-                                <Setter Property="Foreground"
-                                        Value="{StaticResource DesignAccent}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface2}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Accent}" />
                             </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="0.96" Duration="0:0:0.07" />
-                                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="0.96" Duration="0:0:0.07" />
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.14" />
-                                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.14" />
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -192,49 +179,42 @@
                 <DataTrigger Binding="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
                     <Setter Property="Width" Value="NaN" />
                     <Setter Property="HorizontalAlignment" Value="Stretch" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Padding" Value="13,0" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
 
         <!-- Plain round rail button (drives, Add folder, Rescan) - no checked state, same hover language. -->
         <Style x:Key="RailPlainButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="40" />
+            <Setter Property="Width" Value="48" />
             <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-            <Setter Property="Height" Value="40" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="MinHeight" Value="36" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+            <Setter Property="Foreground" Value="{DynamicResource InkSoft}" />
+            <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Root" CornerRadius="10" Background="Transparent" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform /></Border.RenderTransform>
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
-                        </Border>
+                        <Grid>
+                            <Border x:Name="Root" beh:ThemeRadius.Key="RadiusNavItem" Background="Transparent">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" />
+                            </Border>
+                            <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" Margin="-4" BorderBrush="{DynamicResource FocusInk}" BorderThickness="2" Visibility="Collapsed" IsHitTestVisible="False" />
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
-                                <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface2}" />
                             </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="0.96" Duration="0:0:0.07" />
-                                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="0.96" Duration="0:0:0.07" />
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.14" />
-                                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.14" />
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Ring" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -244,6 +224,8 @@
                 <DataTrigger Binding="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
                     <Setter Property="Width" Value="NaN" />
                     <Setter Property="HorizontalAlignment" Value="Stretch" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Padding" Value="13,0" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -267,16 +249,27 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <!-- The count on the right of a view row. -->
+        <Style x:Key="SidebarCountStyle" TargetType="TextBlock" BasedOn="{StaticResource ExpandedOnlyStyle}">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
         <Style x:Key="RailLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource ExpandedOnlyStyle}">
             <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Margin" Value="10,0,0,0" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
         <Style x:Key="RailSectionHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource ExpandedOnlyStyle}">
             <Setter Property="FontSize" Value="10" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
-            <Setter Property="Margin" Value="12,6,0,8" />
+            <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+            <Setter Property="Margin" Value="14,10,10,4" />
         </Style>
 
         <!-- Accordion sections in the sidebar (Tools, Launchers, Drives): the title is a button with a chevron. Shown only while the
@@ -294,7 +287,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface2}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -319,7 +312,7 @@
             <Setter Property="Margin" Value="0,0,0,4" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+            <Setter Property="Foreground" Value="{DynamicResource Muted}" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -329,8 +322,8 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
-                                <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface2}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Ink}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -373,7 +366,7 @@
 
     <!-- Opaque, in the design's own base colour: the acrylic backdrop let the desktop through and
          washed every surface toward grey, which is why the app never matched the preview's palette. -->
-    <Grid x:Name="RootGrid" Background="{StaticResource DesignBg}">
+    <Grid x:Name="RootGrid" Background="{DynamicResource Bg}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -397,9 +390,10 @@
         </tb:TaskbarIcon>
 
         <!-- Native caption region: Windows owns dragging, restore-drag, snapping and double-click. -->
-        <Border x:Name="WindowDragBar" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Height="46"
-                Background="{StaticResource DesignSurface}"
-                BorderThickness="0,0,0,1" BorderBrush="{StaticResource DesignStroke}">
+        <Border x:Name="WindowDragBar" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Height="44"
+                Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}"
+                Background="{DynamicResource Surface}"
+                BorderThickness="0,0,0,1" BorderBrush="{DynamicResource Stroke}">
             <Grid>
 
             <!-- DockPanel, not a 3-column Grid: with star columns the right-hand cluster collapsed to a
@@ -451,7 +445,7 @@
                     <Image Source="/Assets/AppIcon.png" Width="24" Height="24"
                            RenderOptions.BitmapScalingMode="HighQuality" />
                     <TextBlock Text="Axis Game Launcher" FontSize="12.5" FontWeight="SemiBold"
-                               Foreground="{StaticResource DesignInk}"
+                               Foreground="{DynamicResource Ink}"
                                VerticalAlignment="Center" Margin="9,0,0,0" />
                 </StackPanel>
 
@@ -462,9 +456,9 @@
                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                             Icon="{ui:SymbolIcon Search24}"
                             FontSize="12.5"
-                            Foreground="{StaticResource DesignInk}"
-                            Background="{StaticResource DesignBg2}"
-                            BorderThickness="1" BorderBrush="{StaticResource DesignStroke}" />
+                            Foreground="{DynamicResource Ink}"
+                            Background="{DynamicResource Bg2}"
+                            BorderThickness="1" BorderBrush="{DynamicResource Stroke}" />
             </DockPanel>
             </Grid>
         </Border>
@@ -475,18 +469,19 @@
              copy when switched off, so the rail itself says which are on. Width animates; the labels
              and rows that only exist when expanded are switched by ExpandedOnlyStyle/CollapsedOnlyStyle. -->
         <Border x:Name="SidebarPanel" Grid.Row="1" Grid.Column="0" HorizontalAlignment="Left" ClipToBounds="True"
-                Background="{StaticResource DesignBg2}"
-                BorderThickness="0,0,1,0" BorderBrush="{StaticResource DesignStroke}">
+                Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}"
+                Background="{DynamicResource Bg}"
+                BorderThickness="0,0,1,0" BorderBrush="{DynamicResource Stroke}">
             <Border.Style>
                 <Style TargetType="Border">
-                    <Setter Property="Width" Value="58" />
+                    <Setter Property="Width" Value="64" />
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsSidebarExpanded}" Value="True">
                             <Setter Property="Width" Value="232" />
                             <DataTrigger.EnterActions>
                                 <BeginStoryboard>
                                     <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="58" To="232" Duration="0:0:0.16">
+                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="64" To="232" Duration="0:0:0.20">
                                             <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
                                         </DoubleAnimation>
                                     </Storyboard>
@@ -495,7 +490,7 @@
                             <DataTrigger.ExitActions>
                                 <BeginStoryboard>
                                     <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="232" To="58" Duration="0:0:0.16">
+                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="232" To="64" Duration="0:0:0.20">
                                             <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
                                         </DoubleAnimation>
                                     </Storyboard>
@@ -510,7 +505,7 @@
                     <Button x:Name="SidebarToggleButton" Style="{StaticResource RailPlainButtonStyle}" Margin="0,0,0,10"
                             ToolTip="Expand or collapse the sidebar" Command="{Binding ToggleSidebarCommand}">
                         <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Navigation24" FontSize="17" Width="40" />
+                            <ui:SymbolIcon Symbol="Navigation24" FontSize="18" Width="18" />
                             <TextBlock Text="Collapse" Style="{StaticResource RailLabelStyle}" />
                         </StackPanel>
                     </Button>
@@ -520,7 +515,7 @@
                 <Button DockPanel.Dock="Bottom" Style="{StaticResource RailPlainButtonStyle}" Margin="0,0,0,0"
                         ToolTip="Shut down this PC (asks first)" Command="{Binding ShutdownPcCommand}">
                     <StackPanel Orientation="Horizontal">
-                        <ui:SymbolIcon Symbol="Power24" FontSize="17" Width="40" />
+                        <ui:SymbolIcon Symbol="Power24" FontSize="18" Width="18" />
                         <TextBlock Text="Shut down PC" Style="{StaticResource RailLabelStyle}" />
                     </StackPanel>
                 </Button>
@@ -528,7 +523,7 @@
                              IsChecked="{Binding IsSettingsPageOpen, Mode=OneWay}"
                              Command="{Binding ShowSettingsCommand}">
                     <StackPanel Orientation="Horizontal">
-                        <ui:SymbolIcon Symbol="Settings24" FontSize="17" Width="40" />
+                        <ui:SymbolIcon Symbol="Settings24" FontSize="18" Width="18" />
                         <TextBlock Text="Settings" Style="{StaticResource RailLabelStyle}" />
                     </StackPanel>
                 </RadioButton>
@@ -548,6 +543,17 @@
                     <StackPanel>
                         <!-- The views and Rescan scroll with everything else, so a short window (or a long library of launchers, collections and
                              drives) never pushes anything out of reach. Only Collapse (top) and Settings / Shut down (bottom) stay put. -->
+                    <!-- LIBRARY: the views, with the rescan icon on the header. -->
+                    <Border Style="{StaticResource ExpandedOnlyStyle}">
+                        <Grid Margin="0,0,0,2">
+                            <TextBlock Text="LIBRARY" Style="{StaticResource RailSectionHeaderStyle}" Margin="14,4,10,4" />
+                            <Button x:Name="RescanToolButton" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0" Width="22" Height="22" MinHeight="22" Padding="0"
+                                    Style="{StaticResource RailPlainButtonStyle}" ToolTip="Rescan library" Command="{Binding RescanCommand}"
+                                    IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}">
+                                <ui:SymbolIcon Symbol="ArrowSync24" FontSize="14" Width="14" />
+                            </Button>
+                        </Grid>
+                    </Border>
                     <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="All games"
                                  Command="{Binding SelectViewCommand}" CommandParameter="all">
                         <RadioButton.IsChecked>
@@ -556,10 +562,13 @@
                                 <Binding Path="IsPageOpen" />
                             </MultiBinding>
                         </RadioButton.IsChecked>
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Grid24" FontSize="17" Width="40" />
-                            <TextBlock Text="All games" Style="{StaticResource RailLabelStyle}" />
-                        </StackPanel>
+                        <Grid>
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Grid24" FontSize="18" Width="18" />
+                                <TextBlock Text="All games" Style="{StaticResource RailLabelStyle}" FontSize="14" Foreground="{DynamicResource Ink}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding AllGamesCount}" Style="{StaticResource SidebarCountStyle}" />
+                        </Grid>
                     </RadioButton>
                     <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Favorites"
                                  Command="{Binding SelectViewCommand}" CommandParameter="favorites">
@@ -569,10 +578,13 @@
                                 <Binding Path="IsPageOpen" />
                             </MultiBinding>
                         </RadioButton.IsChecked>
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Star24" FontSize="17" Width="40" />
-                            <TextBlock Text="Favorites" Style="{StaticResource RailLabelStyle}" />
-                        </StackPanel>
+                        <Grid>
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Star24" FontSize="18" Width="18" />
+                                <TextBlock Text="Favorites" Style="{StaticResource RailLabelStyle}" FontSize="14" Foreground="{DynamicResource Ink}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding FavoritesCount}" Style="{StaticResource SidebarCountStyle}" />
+                        </Grid>
                     </RadioButton>
                     <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Recently played"
                                  Command="{Binding SelectViewCommand}" CommandParameter="recent">
@@ -582,10 +594,13 @@
                                 <Binding Path="IsPageOpen" />
                             </MultiBinding>
                         </RadioButton.IsChecked>
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Clock24" FontSize="17" Width="40" />
-                            <TextBlock Text="Recently played" Style="{StaticResource RailLabelStyle}" />
-                        </StackPanel>
+                        <Grid>
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Clock24" FontSize="18" Width="18" />
+                                <TextBlock Text="Recently played" Style="{StaticResource RailLabelStyle}" FontSize="14" Foreground="{DynamicResource Ink}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding RecentCount}" Style="{StaticResource SidebarCountStyle}" />
+                        </Grid>
                     </RadioButton>
                     <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="The same game installed through more than one launcher"
                                  Visibility="{Binding HasDuplicates, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"
@@ -596,10 +611,13 @@
                                 <Binding Path="IsPageOpen" />
                             </MultiBinding>
                         </RadioButton.IsChecked>
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Copy24" FontSize="17" Width="40" />
-                            <TextBlock Text="Installed twice" Style="{StaticResource RailLabelStyle}" />
-                        </StackPanel>
+                        <Grid>
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Copy24" FontSize="18" Width="18" />
+                                <TextBlock Text="Installed twice" Style="{StaticResource RailLabelStyle}" FontSize="14" Foreground="{DynamicResource Ink}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding DuplicatesCount}" Style="{StaticResource SidebarCountStyle}" />
+                        </Grid>
                     </RadioButton>
                     <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Games with no tracked play time yet"
                                  Command="{Binding SelectViewCommand}" CommandParameter="unplayed">
@@ -609,21 +627,79 @@
                                 <Binding Path="IsPageOpen" />
                             </MultiBinding>
                         </RadioButton.IsChecked>
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Sparkle24" FontSize="17" Width="40" />
-                            <TextBlock Text="Not played yet" Style="{StaticResource RailLabelStyle}" />
-                        </StackPanel>
+                        <Grid>
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Sparkle24" FontSize="18" Width="18" />
+                                <TextBlock Text="Not played yet" Style="{StaticResource RailLabelStyle}" FontSize="14" Foreground="{DynamicResource Ink}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding UnplayedCount}" Style="{StaticResource SidebarCountStyle}" />
+                        </Grid>
                     </RadioButton>
-                    <!-- Rescan sits right under the views: it is the action people reach for most, so it is not folded away with Tools. -->
-                <Button x:Name="RescanToolButton" Style="{StaticResource RailPlainButtonStyle}" Margin="0,0,0,6"
-                        ToolTip="Scan your PC for games again" Command="{Binding RescanCommand}"
+                    <!-- The Rescan action is the LIBRARY header's own button in the wide sidebar (the header turns into a divider in the icon rail, so the rail
+                         keeps a plain icon for it). -->
+                <Button x:Name="RescanRailButton" Style="{StaticResource RailPlainButtonStyle}" Margin="0,0,0,2" ToolTip="Scan your PC for games again" Command="{Binding RescanCommand}"
                         IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}">
-                    <StackPanel Orientation="Horizontal">
-                        <ui:SymbolIcon Symbol="ArrowSync24" FontSize="17" Width="40" />
-                        <TextBlock Text="Rescan library" Style="{StaticResource RailLabelStyle}" />
-                    </StackPanel>
+                    <Button.Visibility>
+                        <Binding Path="IsSidebarExpanded" Converter="{x:Static conv:InverseBoolToVisibilityConverter.Instance}" />
+                    </Button.Visibility>
+                    <ui:SymbolIcon Symbol="ArrowSync24" FontSize="18" Width="18" />
                 </Button>
-                        <Border Height="1" Background="{StaticResource DesignStroke}" Margin="6,7,6,7"
+                        <Border Height="1" Background="{DynamicResource Stroke}" Margin="6,7,6,7"
+                                Visibility="{Binding HasCollections, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        <Border Style="{StaticResource ExpandedOnlyStyle}">
+                            <TextBlock Text="COLLECTIONS" Style="{StaticResource RailSectionHeaderStyle}"
+                                       Visibility="{Binding HasCollections, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        </Border>
+
+                        <!-- Collections: the user's own groups. Click filters the grid to one (click again to clear);
+                             right-click deletes it. Collapsed, each is just its initial. -->
+                        <ItemsControl ItemsSource="{Binding Collections}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button x:Name="CollectionButton" Style="{StaticResource RailPlainButtonStyle}"
+                                            Margin="0,0,0,4" HorizontalContentAlignment="Stretch"
+                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Command="{Binding DataContext.SelectCollectionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding Name}"
+                                            ToolTip="{Binding ToolTip}">
+                                        <Button.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Delete collection"
+                                                          Command="{Binding PlacementTarget.Tag.DeleteCollectionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                          CommandParameter="{Binding PlacementTarget.DataContext.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
+                                                    <MenuItem.Icon>
+                                                        <ui:SymbolIcon Symbol="Delete24" FontSize="15" />
+                                                    </MenuItem.Icon>
+                                                </MenuItem>
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="40" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="CollectionInitial" Grid.Column="0" Text="{Binding Initial}"
+                                                       FontSize="13" FontWeight="SemiBold" Opacity="0.8"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Style="{StaticResource RailLabelStyle}" />
+                                            <TextBlock Grid.Column="2" Text="{Binding Count}" FontSize="11" Margin="6,0,8,0"
+                                                       Foreground="{DynamicResource Muted}" VerticalAlignment="Center"
+                                                       Style="{StaticResource ExpandedOnlyStyle}" />
+                                        </Grid>
+                                    </Button>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter TargetName="CollectionInitial" Property="Opacity" Value="1" />
+                                            <Setter TargetName="CollectionInitial" Property="Foreground"
+                                                    Value="{DynamicResource Accent}" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border Height="1" Background="{DynamicResource Stroke}" Margin="6,7,6,7"
                                 Visibility="{Binding HasAnySourceGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
 
                         <!-- LAUNCHERS, expanded: the old sidebar's pill rows (badge, name, switch). A row
@@ -636,7 +712,7 @@
                                 <Grid>
                                     <TextBlock Text="LAUNCHERS" Style="{StaticResource RailSectionHeaderStyle}" Margin="12,6,0,6" />
                                     <!-- A single launcher has nothing to fold: no chevron, and the title is plain text. -->
-                                    <ui:SymbolIcon HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource DesignMuted}"
+                                    <ui:SymbolIcon HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource Muted}"
                                                    Visibility="{Binding HasMultipleLaunchers, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                                         <ui:SymbolIcon.Style>
                                             <Style TargetType="ui:SymbolIcon">
@@ -687,7 +763,7 @@
                                                     <TextBlock Text="{Binding Letter}" FontSize="11" FontWeight="Bold" Opacity="0.85"
                                                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                Visibility="{Binding ShowLetter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                                                    <ui:SymbolIcon Symbol="Folder24" FontSize="15" Opacity="0.9" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                    <ui:SymbolIcon Symbol="Games24" FontSize="15" Opacity="0.9" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                    Visibility="{Binding UsesGlyph, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                                                     <Image Source="{Binding DisplayIcon}" Width="16" Height="16"
                                                            RenderOptions.BitmapScalingMode="HighQuality" />
@@ -722,7 +798,7 @@
                                             <TextBlock Text="{Binding Letter}" FontSize="11" FontWeight="Bold"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                                        Visibility="{Binding ShowLetter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                                            <ui:SymbolIcon Symbol="Folder24" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            <ui:SymbolIcon Symbol="Games24" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                            Visibility="{Binding UsesGlyph, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                                             <Image Source="{Binding DisplayIcon}" Width="20" Height="20"
                                                    RenderOptions.BitmapScalingMode="HighQuality" />
@@ -739,153 +815,7 @@
 
                         </StackPanel>
 
-                        <!-- TOOLS: an accordion. Stats, Pick a game and Optimize are pages (the entry stays marked while its page is open);
-                             Rescan library and Add folder act at once; Controller mode is not open yet. -->
-                        <Border Height="1" Background="{StaticResource DesignStroke}" Margin="6,7,6,7" />
-                        <Button x:Name="ToolsHeader" Style="{StaticResource AccordionHeaderStyle}" Command="{Binding ToggleToolsCommand}"
-                                ToolTip="Show or hide the tools">
-                            <Grid>
-                                <TextBlock Text="TOOLS" Style="{StaticResource RailSectionHeaderStyle}" Margin="12,6,0,6" />
-                                <ui:SymbolIcon HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource DesignMuted}">
-                                    <ui:SymbolIcon.Style>
-                                        <Style TargetType="ui:SymbolIcon">
-                                            <Setter Property="Symbol" Value="ChevronDown20" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsToolsExpanded}" Value="False">
-                                                    <Setter Property="Symbol" Value="ChevronRight20" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </ui:SymbolIcon.Style>
-                                </ui:SymbolIcon>
-                            </Grid>
-                        </Button>
-                        <!-- Icon rail: the same fold/unfold, as one small chevron (the wide sidebar uses the title above). -->
-                        <Border Style="{StaticResource CollapsedOnlyStyle}">
-                            <Button x:Name="ToolsRailToggle" Style="{StaticResource RailAccordionToggleStyle}" Command="{Binding ToggleToolsCommand}"
-                                    ToolTip="Show or hide the tools">
-                                <ui:SymbolIcon FontSize="12">
-                                    <ui:SymbolIcon.Style>
-                                        <Style TargetType="ui:SymbolIcon">
-                                            <Setter Property="Symbol" Value="ChevronDown20" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsToolsExpanded}" Value="False">
-                                                    <Setter Property="Symbol" Value="ChevronRight20" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </ui:SymbolIcon.Style>
-                                </ui:SymbolIcon>
-                            </Button>
-                        </Border>
-                        <StackPanel x:Name="ToolsBody" Style="{StaticResource AccordionBodyStyle}" Tag="{Binding ToolsFolded}">
-                        <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Stats - play time and library figures"
-                                     IsChecked="{Binding IsStatsPageOpen, Mode=OneWay}" Command="{Binding ShowStatsCommand}">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="DataBarVertical24" FontSize="17" Width="40" />
-                                <TextBlock Text="Stats" Style="{StaticResource RailLabelStyle}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Pick a game for me"
-                                     IsChecked="{Binding IsPickPageOpen, Mode=OneWay}" Command="{Binding PickGameCommand}">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="ArrowShuffle24" FontSize="17" Width="40" />
-                                <TextBlock Text="Pick a game" Style="{StaticResource RailLabelStyle}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Optimize - free up memory and clear storage"
-                                     IsChecked="{Binding IsOptimizePageOpen, Mode=OneWay}" Command="{Binding ShowOptimizeCommand}">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Flash24" FontSize="17" Width="40" />
-                                <TextBlock Text="Optimize" Style="{StaticResource RailLabelStyle}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <Button x:Name="AddFolderButton" Style="{StaticResource RailPlainButtonStyle}" Margin="0,0,0,6"
-                                ToolTip="Add a folder to watch" Command="{Binding AddFolderCommand}">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="FolderAdd24" FontSize="17" Width="40" />
-                                <TextBlock Text="Add folder" Style="{StaticResource RailLabelStyle}" />
-                            </StackPanel>
-                        </Button>
-                        <!-- Controller mode is a skeleton for now (LibraryViewModel.ControllerModeAvailable): listed, greyed, labelled "Soon". -->
-                        <Button x:Name="ControllerModeButton" Margin="0,0,0,6" ToolTip="Controller mode - coming soon"
-                                ToolTipService.ShowOnDisabled="True" Command="{Binding ShowBigScreenCommand}">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource RailPlainButtonStyle}">
-                                    <Style.Triggers>
-                                        <Trigger Property="IsEnabled" Value="False">
-                                            <Setter Property="Opacity" Value="0.55" />
-                                        </Trigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Games24" FontSize="17" Width="40" />
-                                <TextBlock Text="Controller mode" Style="{StaticResource RailLabelStyle}" />
-                                <Border Style="{StaticResource ExpandedOnlyStyle}" CornerRadius="8" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center"
-                                        Background="{StaticResource DesignGhostFill}">
-                                    <TextBlock Text="Soon" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource DesignMuted}" />
-                                </Border>
-                            </StackPanel>
-                        </Button>
-                        </StackPanel>
-
-                        <Border Height="1" Background="{StaticResource DesignStroke}" Margin="6,7,6,7"
-                                Visibility="{Binding HasCollections, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                        <Border Style="{StaticResource ExpandedOnlyStyle}">
-                            <TextBlock Text="COLLECTIONS" Style="{StaticResource RailSectionHeaderStyle}"
-                                       Visibility="{Binding HasCollections, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                        </Border>
-
-                        <!-- Collections: the user's own groups. Click filters the grid to one (click again to clear);
-                             right-click deletes it. Collapsed, each is just its initial. -->
-                        <ItemsControl ItemsSource="{Binding Collections}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Button x:Name="CollectionButton" Style="{StaticResource RailPlainButtonStyle}"
-                                            Margin="0,0,0,4" HorizontalContentAlignment="Stretch"
-                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            Command="{Binding DataContext.SelectCollectionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            CommandParameter="{Binding Name}"
-                                            ToolTip="{Binding ToolTip}">
-                                        <Button.ContextMenu>
-                                            <ContextMenu>
-                                                <MenuItem Header="Delete collection"
-                                                          Command="{Binding PlacementTarget.Tag.DeleteCollectionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                          CommandParameter="{Binding PlacementTarget.DataContext.Name, RelativeSource={RelativeSource AncestorType=ContextMenu}}">
-                                                    <MenuItem.Icon>
-                                                        <ui:SymbolIcon Symbol="Delete24" FontSize="15" />
-                                                    </MenuItem.Icon>
-                                                </MenuItem>
-                                            </ContextMenu>
-                                        </Button.ContextMenu>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="40" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock x:Name="CollectionInitial" Grid.Column="0" Text="{Binding Initial}"
-                                                       FontSize="13" FontWeight="SemiBold" Opacity="0.8"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Style="{StaticResource RailLabelStyle}" />
-                                            <TextBlock Grid.Column="2" Text="{Binding Count}" FontSize="11" Margin="6,0,8,0"
-                                                       Foreground="{StaticResource DesignMuted}" VerticalAlignment="Center"
-                                                       Style="{StaticResource ExpandedOnlyStyle}" />
-                                        </Grid>
-                                    </Button>
-                                    <DataTemplate.Triggers>
-                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                            <Setter TargetName="CollectionInitial" Property="Opacity" Value="1" />
-                                            <Setter TargetName="CollectionInitial" Property="Foreground"
-                                                    Value="{StaticResource DesignAccent}" />
-                                        </DataTrigger>
-                                    </DataTemplate.Triggers>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <Border Height="1" Background="{StaticResource DesignStroke}" Margin="6,7,6,7"
+                        <Border Height="1" Background="{DynamicResource Stroke}" Margin="6,7,6,7"
                                 Visibility="{Binding HasDrives, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                         <!-- The Button's own Visibility is bound, which beats the style: the wrapper is what keeps the title out of the icon rail. -->
                         <Border Style="{StaticResource ExpandedOnlyStyle}">
@@ -894,7 +824,7 @@
                                     Visibility="{Binding HasDrives, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                                 <Grid>
                                     <TextBlock Text="DRIVES" Style="{StaticResource RailSectionHeaderStyle}" Margin="12,6,0,6" />
-                                    <ui:SymbolIcon HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource DesignMuted}"
+                                    <ui:SymbolIcon HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource Muted}"
                                                    Visibility="{Binding HasMultipleDrives, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                                         <ui:SymbolIcon.Style>
                                             <Style TargetType="ui:SymbolIcon">
@@ -982,8 +912,8 @@
                                                 <!-- Track ring, then the used-space arc over it: a real arc, so a
                                                      73%-full drive reads as 73% at a glance the way the design's
                                                      ring does. See UsedFractionToArcConverter for the geometry. -->
-                                                <Ellipse Width="32" Height="32" Stroke="{StaticResource DesignTrackFill}" StrokeThickness="2.5" />
-                                                <Path x:Name="DriveArc" Stroke="{StaticResource DesignAccent}"
+                                                <Ellipse Width="32" Height="32" Stroke="{DynamicResource TrackFill}" StrokeThickness="2.5" />
+                                                <Path x:Name="DriveArc" Stroke="{DynamicResource Accent}"
                                                       StrokeThickness="2.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                                       Data="{Binding UsedFraction, Converter={x:Static conv:UsedFractionToArcConverter.Instance}}" />
                                                 <TextBlock x:Name="DriveLetter" Text="{Binding Letter, Converter={x:Static conv:DriveLetterGlyphConverter.Instance}}"
@@ -997,12 +927,12 @@
                                           <StackPanel x:Name="DriveSpaceDetails" Style="{StaticResource ExpandedOnlyStyle}" Margin="8,4,8,8">
                                               <ProgressBar x:Name="DriveUsageBar" Height="5" Minimum="0" Maximum="1"
                                                            beh:Motion.AnimatedValue="{Binding UsedFraction, Mode=OneWay}" IsIndeterminate="False"
-                                                           Foreground="{StaticResource DesignAccent}" Background="{StaticResource DesignTrackFill}"
+                                                           Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}"
                                                            IsHitTestVisible="False" />
                                               <TextBlock x:Name="DriveSpaceSummary" Text="{Binding SummaryText}" TextWrapping="Wrap"
-                                                         FontSize="10" Foreground="{StaticResource DesignMuted}" Margin="0,6,0,0" />
+                                                         FontSize="10" Foreground="{DynamicResource Muted}" Margin="0,6,0,0" />
                                               <TextBlock x:Name="DriveIgnoredNote" Text="Not searched - its games are hidden" TextWrapping="Wrap"
-                                                         FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource DesignMuted}" Margin="0,3,0,0">
+                                                         FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" Margin="0,3,0,0">
                                                   <TextBlock.Style>
                                                       <Style TargetType="TextBlock">
                                                           <Setter Property="Visibility" Value="Collapsed" />
@@ -1036,7 +966,7 @@
                                         <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                             <Setter TargetName="DriveLetter" Property="Opacity" Value="1" />
                                             <Setter TargetName="DriveLetter" Property="Foreground"
-                                                    Value="{StaticResource DesignAccent}" />
+                                                    Value="{DynamicResource Accent}" />
                                         </DataTrigger>
                                         <!-- Low on space: the ring, the bar and the warning line turn amber, or red when almost full. -->
                                         <DataTrigger Binding="{Binding IsLow}" Value="True">
@@ -1053,16 +983,93 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                         </StackPanel>
+                        <!-- TOOLS: an accordion. Stats, Pick a game and Optimize are pages (the entry stays marked while its page is open);
+                             Rescan library and Add folder act at once. -->
+                        <Border Height="1" Background="{DynamicResource Stroke}" Margin="6,7,6,7" />
+                        <Button x:Name="ToolsHeader" Style="{StaticResource AccordionHeaderStyle}" Command="{Binding ToggleToolsCommand}"
+                                ToolTip="Show or hide the tools">
+                            <Grid>
+                                <TextBlock Text="TOOLS" Style="{StaticResource RailSectionHeaderStyle}" Margin="12,6,0,6" />
+                                <ui:SymbolIcon HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource Muted}">
+                                    <ui:SymbolIcon.Style>
+                                        <Style TargetType="ui:SymbolIcon">
+                                            <Setter Property="Symbol" Value="ChevronDown20" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsToolsExpanded}" Value="False">
+                                                    <Setter Property="Symbol" Value="ChevronRight20" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ui:SymbolIcon.Style>
+                                </ui:SymbolIcon>
+                            </Grid>
+                        </Button>
+                        <!-- Icon rail: the same fold/unfold, as one small chevron (the wide sidebar uses the title above). -->
+                        <Border Style="{StaticResource CollapsedOnlyStyle}">
+                            <Button x:Name="ToolsRailToggle" Style="{StaticResource RailAccordionToggleStyle}" Command="{Binding ToggleToolsCommand}"
+                                    ToolTip="Show or hide the tools">
+                                <ui:SymbolIcon FontSize="12">
+                                    <ui:SymbolIcon.Style>
+                                        <Style TargetType="ui:SymbolIcon">
+                                            <Setter Property="Symbol" Value="ChevronDown20" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsToolsExpanded}" Value="False">
+                                                    <Setter Property="Symbol" Value="ChevronRight20" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ui:SymbolIcon.Style>
+                                </ui:SymbolIcon>
+                            </Button>
+                        </Border>
+                        <StackPanel x:Name="ToolsBody" Style="{StaticResource AccordionBodyStyle}" Tag="{Binding ToolsFolded}">
+                        <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Stats - play time and library figures"
+                                     IsChecked="{Binding IsStatsPageOpen, Mode=OneWay}" Command="{Binding ShowStatsCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="DataBarVertical24" FontSize="18" Width="18" />
+                                <TextBlock Text="Stats" Style="{StaticResource RailLabelStyle}" />
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="My PC - specs, motherboard, BIOS and Secure Boot"
+                                     IsChecked="{Binding IsMyPcPageOpen, Mode=OneWay}" Command="{Binding ShowMyPcCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Desktop24" FontSize="18" Width="18" />
+                                <TextBlock Text="My PC" Style="{StaticResource RailLabelStyle}" />
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Pick a game for me"
+                                     IsChecked="{Binding IsPickPageOpen, Mode=OneWay}" Command="{Binding PickGameCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="ArrowShuffle24" FontSize="18" Width="18" />
+                                <TextBlock Text="Pick a game" Style="{StaticResource RailLabelStyle}" />
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton Style="{StaticResource RailNavButtonStyle}" ToolTip="Optimize - free up memory and clear storage"
+                                     IsChecked="{Binding IsOptimizePageOpen, Mode=OneWay}" Command="{Binding ShowOptimizeCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Flash24" FontSize="18" Width="18" />
+                                <TextBlock Text="Optimize" Style="{StaticResource RailLabelStyle}" />
+                            </StackPanel>
+                        </RadioButton>
+                        <Button x:Name="AddFolderButton" Style="{StaticResource RailPlainButtonStyle}" Margin="0,0,0,6"
+                                ToolTip="Add a folder to watch" Command="{Binding AddFolderCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="FolderAdd24" FontSize="18" Width="18" />
+                                <TextBlock Text="Add folder" Style="{StaticResource RailLabelStyle}" />
+                            </StackPanel>
+                        </Button>
+                        </StackPanel>
+
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>
         </Border>
 
-        <Grid Grid.Row="1" Grid.Column="1">
+        <Grid x:Name="AxisContent" Grid.Row="1" Grid.Column="1" Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}">
             <Grid.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Offset="0" Color="{StaticResource DesignBg2Color}" />
-                    <GradientStop Offset="0.42" Color="{StaticResource DesignBgColor}" />
+                    <GradientStop Offset="0" Color="{DynamicResource Bg2Color}" />
+                    <GradientStop Offset="0.42" Color="{DynamicResource BgColor}" />
                 </LinearGradientBrush>
             </Grid.Background>
 
@@ -1160,10 +1167,10 @@
                                FontSize="12" Opacity="0.6" TextWrapping="Wrap" TextAlignment="Center" Margin="0,0,0,16" />
                     <StackPanel x:Name="EmptyDiscoveryActions" Orientation="Horizontal" HorizontalAlignment="Center"
                                 Visibility="{Binding ShowEmptyDiscoveryActions, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <ui:Button Content="Scan Now" Icon="{ui:SymbolIcon ArrowSync24}"
+                        <ui:Button Content="Rescan library" Icon="{ui:SymbolIcon ArrowSync24}"
                                    Command="{Binding RescanCommand}" Margin="0,0,8,0"
                                    IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
-                        <ui:Button Content="Add Folder" Icon="{ui:SymbolIcon FolderAdd24}" Appearance="Primary"
+                        <ui:Button Content="Add folder" Icon="{ui:SymbolIcon FolderAdd24}" Appearance="Primary"
                                    Command="{Binding AddFolderCommand}" />
                     </StackPanel>
                 </StackPanel>
@@ -1182,152 +1189,154 @@
                      honest "which game matters right now" signal available). The background tint is a
                      colour sampled from the game's own cover art (DominantColorExtractor) - real box art,
                      not a per-game placeholder, is what makes that worth doing here. -->
-                <Border Margin="0,0,0,28" CornerRadius="14" ClipToBounds="True"
+                <Border x:Name="HeroCard" Margin="0,0,0,26" Height="{DynamicResource ActiveHeroHeight}" beh:ThemeRadius.Key="RadiusHero" beh:ThemeRadius.RoundClip="True"
                         beh:Motion.FadeIn="True" beh:Motion.Replay="{Binding FeaturedGame}"
-                        Background="{StaticResource DesignHeroFill}"
-                        BorderThickness="1" BorderBrush="{StaticResource DesignHeroStroke}"
+                        Background="{DynamicResource Surface}" BorderThickness="1" BorderBrush="{DynamicResource Stroke}"
                         Visibility="{Binding HasFeaturedGame, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                     <Grid>
-                        <!-- The cover's colour as a WASH over a dark panel, not as the panel itself: at
-                             full strength the tint swamped the hero and the white text on it stopped
-                             reading. Low opacity keeps it as the ambient hint the design uses. -->
-                        <Border Opacity="0.30">
+                        <!-- The game's cover across the card, under a left-to-right wash that keeps the text on a dark base. -->
+                        <Border DataContext="{Binding FeaturedGame}" Visibility="{Binding IsCoverArt, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                             <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0.6">
-                                    <GradientStop Offset="0" Color="{Binding HeroAccentColor}" />
-                                    <GradientStop Offset="1" Color="Transparent" />
+                                <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Border.Background>
+                        </Border>
+                        <Border>
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                    <GradientStop Color="#FF0B0D13" Offset="0" />
+                                    <GradientStop Color="#FF0B0D13" Offset="0.28" />
+                                    <GradientStop Color="#C70B0D13" Offset="0.58" />
+                                    <GradientStop Color="#590B0D13" Offset="1" />
                                 </LinearGradientBrush>
                             </Border.Background>
                         </Border>
 
-                    <Grid Margin="26">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
+                        <Grid Margin="28,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
 
-                        <!-- 132x198 is the design's 132px column at its 2:3 ratio. -->
-                        <Border Grid.Column="0" Width="132" Height="198" CornerRadius="10" Margin="0,0,22,0"
-                                Background="{StaticResource DesignBg2}" ClipToBounds="True">
-                            <Grid>
-                                <ui:SymbolIcon Symbol="Games24" FontSize="26" Opacity="0.35"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Visibility="{Binding FeaturedGame.Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
-                                <!-- DataContext retargeted to the GameEntry itself (not the window's VM) so
-                                     GameArtImageStyle's IsCoverArt trigger - which expects to be ON a
-                                     GameEntry, same as every card - resolves correctly here too. -->
-                                <!-- Real cover art fills the whole tile, same brush mechanism as the cards
-                                     (centred UniformToFill crop); only a fallback exe icon stays small. -->
-                                <Border x:Name="HeroCoverFill" DataContext="{Binding FeaturedGame}"
-                                        Visibility="{Binding IsCoverArt, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                    <Border.Background>
-                                        <ImageBrush ImageSource="{Binding Icon}"
-                                                    Stretch="UniformToFill"
-                                                    AlignmentX="Center" AlignmentY="Center"
-                                                    RenderOptions.BitmapScalingMode="HighQuality" />
-                                    </Border.Background>
-                                </Border>
-                                <Image DataContext="{Binding FeaturedGame}" Source="{Binding Icon}"
-                                       Style="{StaticResource GameArtImageStyle}"
-                                       Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
-                            </Grid>
-                        </Border>
-
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                <ui:SymbolIcon Symbol="Clock24" FontSize="15" Opacity="0.7" VerticalAlignment="Center" />
-                                <TextBlock Text="JUMP BACK IN" FontSize="10" FontWeight="SemiBold" Opacity="0.7"
-                                           VerticalAlignment="Center" Margin="7,0,0,0" />
-                            </StackPanel>
-
-                            <TextBlock Text="{Binding FeaturedGame.Name}" FontSize="30" FontWeight="Bold"
-                                       Margin="0,0,0,10" TextTrimming="CharacterEllipsis" />
-
-                            <!-- Meta line: platform, drive + size, tracked time + when. Each piece hides on
-                                 its own when there's nothing real behind it, so a never-played game shows
-                                 platform and drive without an empty "0 h" sitting next to them. -->
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,18">
-                                <Grid x:Name="HeroPlatformBadge" DataContext="{Binding FeaturedGame}"
-                                      Width="18" Height="18" VerticalAlignment="Center">
-                                    <Image x:Name="HeroPlatformIcon" Source="{Binding PlatformIcon}"
-                                           RenderOptions.BitmapScalingMode="HighQuality" />
-                                    <Image x:Name="HeroXboxLogo" Source="pack://application:,,,/GameLauncher;component/Assets/XboxLogo.png"
-                                           RenderOptions.BitmapScalingMode="HighQuality">
-                                        <Image.Visibility>
-                                            <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForXboxLogo}">
-                                                <Binding Path="Source" />
-                                                <Binding Path="PlatformIcon" />
-                                            </MultiBinding>
-                                        </Image.Visibility>
-                                    </Image>
-                                    <ui:SymbolIcon x:Name="HeroPlatformFallback"
-                                                   Symbol="{Binding Source, Converter={x:Static conv:GameSourceToFallbackSymbolConverter.Instance}}"
-                                                   FontSize="15" Opacity="0.65">
-                                        <ui:SymbolIcon.Visibility>
-                                            <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForFallbackSymbol}">
-                                                <Binding Path="Source" />
-                                                <Binding Path="PlatformIcon" />
-                                            </MultiBinding>
-                                        </ui:SymbolIcon.Visibility>
-                                    </ui:SymbolIcon>
+                            <!-- The cover: 150 x 195, hidden in a small window. -->
+                            <Border Grid.Column="0" Width="150" Height="195" beh:ThemeRadius.Key="RadiusCard" beh:ThemeRadius.RoundClip="True" Margin="0,0,26,0"
+                                    Background="{DynamicResource Bg2}" VerticalAlignment="Center">
+                                <Border.Effect>
+                                    <DropShadowEffect BlurRadius="40" ShadowDepth="20" Direction="270" Opacity="0.7" Color="Black" />
+                                </Border.Effect>
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSmall, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Grid>
+                                    <ui:SymbolIcon Symbol="Games24" FontSize="26" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Visibility="{Binding FeaturedGame.Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                                    <!-- DataContext retargeted to the GameEntry itself so GameArtImageStyle's IsCoverArt trigger resolves here too. -->
+                                    <Border x:Name="HeroCoverFill" DataContext="{Binding FeaturedGame}"
+                                            Visibility="{Binding IsCoverArt, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                        <Border.Background>
+                                            <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Border.Background>
+                                    </Border>
+                                    <Image DataContext="{Binding FeaturedGame}" Source="{Binding Icon}" Style="{StaticResource GameArtImageStyle}"
+                                           Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" RenderOptions.BitmapScalingMode="HighQuality" />
                                 </Grid>
-                                <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="7,0,0,0"
-                                           Text="{Binding FeaturedGame.Source, Converter={x:Static conv:GameSourceDisplayConverter.Instance}}" />
+                            </Border>
 
-                                <!-- A drawn hard-drive icon (body, divider, activity light, vent line), so it looks the same on every PC
-                                     instead of depending on an icon font glyph. -->
-                                <Path Width="16" Height="16" Stretch="Uniform" Margin="18,0,0,0" VerticalAlignment="Center"
-                                      Stroke="{StaticResource DesignInk}" StrokeThickness="1.3" Opacity="0.65"
-                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                      Data="M3,2 H13 A2,2 0 0 1 15,4 V12 A2,2 0 0 1 13,14 H3 A2,2 0 0 1 1,12 V4 A2,2 0 0 1 3,2 Z M1,9 H15 M4.3,11.5 H4.4 M8,11.5 H12" />
-                                <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="7,0,0,0"
-                                           Text="{Binding FeaturedGame.InstallDir, Converter={x:Static conv:InstallDirToDriveConverter.Instance}}" />
-                                <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="5,0,0,0"
-                                           Visibility="{Binding FeaturedGame.HasInstallSize, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                    <Run Text="·" /><Run Text=" " /><Run Text="{Binding FeaturedGame.InstallSizeDisplay, Mode=OneWay}" />
-                                </TextBlock>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <ui:SymbolIcon Symbol="Clock24" FontSize="14" Foreground="{DynamicResource Accent}" VerticalAlignment="Center" />
+                                    <TextBlock Text="JUMP BACK IN" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Accent}" VerticalAlignment="Center" Margin="7,0,0,0" />
+                                </StackPanel>
 
-                                <StackPanel Orientation="Horizontal" Margin="18,0,0,0"
-                                            Visibility="{Binding FeaturedGame.HasPlayTime, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                    <ui:SymbolIcon Symbol="Clock24" FontSize="15" Opacity="0.65" VerticalAlignment="Center" />
-                                    <TextBlock FontSize="12.5" Opacity="0.78" VerticalAlignment="Center" Margin="7,0,0,0">
-                                        <Run Text="{Binding FeaturedGame.PlayTimeDisplay, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding FeaturedGame.LastPlayedDisplay, Mode=OneWay}" />
-                                    </TextBlock>
+                                <TextBlock Text="{Binding FeaturedGame.Name}" FontSize="{DynamicResource ActiveFontSizeDisplay}" FontWeight="Bold" Margin="0,0,0,10" TextTrimming="CharacterEllipsis" />
+
+                                <!-- Meta line: the launcher pill (a real launcher icon and its name), drive and size, tracked time and when. Each piece hides on its own
+                                     when there is nothing real behind it, so a never-played game shows the launcher and drive without an empty "0 h" next to them. -->
+                                <WrapPanel Margin="0,0,0,16">
+                                    <Border Height="24" Padding="4,0,10,0" beh:ThemeRadius.Key="Pill" Background="{DynamicResource ArtPlate}" BorderBrush="{DynamicResource Stroke}" BorderThickness="1"
+                                            Margin="0,0,14,0" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Grid x:Name="HeroPlatformBadge" DataContext="{Binding FeaturedGame}" Width="16" Height="16" VerticalAlignment="Center">
+                                                <Image x:Name="HeroPlatformIcon" Source="{Binding PlatformIcon}" RenderOptions.BitmapScalingMode="HighQuality" />
+                                                <Image x:Name="HeroXboxLogo" Source="pack://application:,,,/GameLauncher;component/Assets/XboxLogo.png" RenderOptions.BitmapScalingMode="HighQuality">
+                                                    <Image.Visibility>
+                                                        <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForXboxLogo}">
+                                                            <Binding Path="Source" />
+                                                            <Binding Path="PlatformIcon" />
+                                                        </MultiBinding>
+                                                    </Image.Visibility>
+                                                </Image>
+                                                <ui:SymbolIcon x:Name="HeroPlatformFallback" Symbol="{Binding Source, Converter={x:Static conv:GameSourceToFallbackSymbolConverter.Instance}}" FontSize="13" Opacity="0.75">
+                                                    <ui:SymbolIcon.Visibility>
+                                                        <MultiBinding Converter="{x:Static conv:PlatformBadgeVisibilityConverter.ForFallbackSymbol}">
+                                                            <Binding Path="Source" />
+                                                            <Binding Path="PlatformIcon" />
+                                                        </MultiBinding>
+                                                    </ui:SymbolIcon.Visibility>
+                                                </ui:SymbolIcon>
+                                            </Grid>
+                                            <TextBlock FontSize="13" FontWeight="Medium" Foreground="{DynamicResource Ink}" VerticalAlignment="Center" Margin="6,0,0,0"
+                                                       Text="{Binding FeaturedGame.Source, Converter={x:Static conv:LauncherNameConverter.Instance}}" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,14,0" VerticalAlignment="Center">
+                                        <!-- A drawn hard-drive icon (body, divider, activity light, vent line), so it looks the same on every PC. -->
+                                        <Path Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" Stroke="{DynamicResource InkSoft}" StrokeThickness="1.3" Opacity="0.8"
+                                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                              Data="M3,2 H13 A2,2 0 0 1 15,4 V12 A2,2 0 0 1 13,14 H3 A2,2 0 0 1 1,12 V4 A2,2 0 0 1 3,2 Z M1,9 H15 M4.3,11.5 H4.4 M8,11.5 H12" />
+                                        <TextBlock FontSize="13" FontWeight="Medium" Foreground="{DynamicResource InkSoft}" VerticalAlignment="Center" Margin="7,0,0,0"
+                                                   Text="{Binding FeaturedGame.InstallDir, Converter={x:Static conv:InstallDirToDriveConverter.Instance}}" />
+                                        <TextBlock FontSize="13" FontWeight="Medium" Foreground="{DynamicResource InkSoft}" VerticalAlignment="Center" Margin="5,0,0,0"
+                                                   Visibility="{Binding FeaturedGame.HasInstallSize, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                            <Run Text="·" /><Run Text=" " /><Run Text="{Binding FeaturedGame.InstallSizeDisplay, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                                Visibility="{Binding FeaturedGame.HasPlayTime, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                        <ui:SymbolIcon Symbol="Clock24" FontSize="14" Foreground="{DynamicResource InkSoft}" Opacity="0.8" VerticalAlignment="Center" />
+                                        <TextBlock FontSize="13" FontWeight="Medium" Foreground="{DynamicResource InkSoft}" VerticalAlignment="Center" Margin="7,0,0,0">
+                                            <Run Text="{Binding FeaturedGame.PlayTimeDisplay, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding FeaturedGame.LastPlayedDisplay, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </WrapPanel>
+
+                                <StackPanel Orientation="Horizontal">
+                                    <ui:Button Content="Play" Icon="{ui:SymbolIcon Play24}" Appearance="Primary" Height="{DynamicResource HeroButtonHeight}" Padding="18,0,22,0" FontSize="14" FontWeight="SemiBold"
+                                               Command="{Binding LaunchCommand}" CommandParameter="{Binding FeaturedGame}" />
+                                    <Button Margin="8,0,0,0" Height="{DynamicResource HeroButtonHeight}" Style="{StaticResource HeroGhostButtonStyle}"
+                                            Tag="{Binding}" beh:ContextMenuButtonBehavior.OpensContextMenuOnClick="True">
+                                        <StackPanel Orientation="Horizontal">
+                                            <ui:SymbolIcon Symbol="MoreHorizontal24" FontSize="15" VerticalAlignment="Center" />
+                                            <TextBlock Text="More" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="14" FontWeight="Medium" />
+                                        </StackPanel>
+                                        <Button.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Play"
+                                                          Command="{Binding PlacementTarget.Tag.LaunchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                          CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                                <MenuItem Header="Game details..."
+                                                          Command="{Binding PlacementTarget.Tag.ShowGameDetailsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                          CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                                <Separator />
+                                                <MenuItem Header="Open install location"
+                                                          Command="{Binding PlacementTarget.Tag.OpenInstallLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                          CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                                <MenuItem Header="Uninstall..." Foreground="{DynamicResource Danger}"
+                                                          Command="{Binding PlacementTarget.Tag.UninstallGameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                          CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
+                                    </Button>
                                 </StackPanel>
                             </StackPanel>
-
-                            <StackPanel Orientation="Horizontal">
-                                <ui:Button Content="Play" Icon="{ui:SymbolIcon Play24}" Appearance="Primary"
-                                           Padding="20,9" FontWeight="SemiBold"
-                                           Command="{Binding LaunchCommand}" CommandParameter="{Binding FeaturedGame}" />
-                                <Button Margin="10,0,0,0" Style="{StaticResource HeroGhostButtonStyle}"
-                                        Tag="{Binding}"
-                                        beh:ContextMenuButtonBehavior.OpensContextMenuOnClick="True">
-                                    <StackPanel Orientation="Horizontal">
-                                        <ui:SymbolIcon Symbol="MoreHorizontal24" FontSize="15" VerticalAlignment="Center" />
-                                        <TextBlock Text="More" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="13.5" />
-                                    </StackPanel>
-                                    <Button.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Header="Play"
-                                                      Command="{Binding PlacementTarget.Tag.LaunchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                            <MenuItem Header="Game details..."
-                                                      Command="{Binding PlacementTarget.Tag.ShowGameDetailsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                            <MenuItem Header="Open install location"
-                                                      Command="{Binding PlacementTarget.Tag.OpenInstallLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                            <MenuItem Header="Uninstall..."
-                                                      Command="{Binding PlacementTarget.Tag.UninstallGameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                        </ContextMenu>
-                                    </Button.ContextMenu>
-                                </Button>
-                            </StackPanel>
-                        </StackPanel>
-                    </Grid>
+                        </Grid>
                     </Grid>
                 </Border>
 
@@ -1336,12 +1345,10 @@
                          than showing an empty rail that implies missing data. -->
                     <StackPanel Margin="0,0,0,26"
                                 Visibility="{Binding HasRecentlyPlayed, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                        <Grid Margin="2,0,2,12">
-                            <TextBlock Text="Recently played" FontSize="15" FontWeight="SemiBold"
-                                       HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            <TextBlock Text="Tracked by Axis Game Launcher" FontSize="11.5" Opacity="0.5"
-                                       HorizontalAlignment="Right" VerticalAlignment="Center" />
-                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="2,0,2,12">
+                            <TextBlock Text="Recently played" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Text="Tracked by Axis Game Launcher" FontSize="12" FontWeight="Medium" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="10,0,0,0" />
+                        </StackPanel>
 
                         <!-- A nested ScrollViewer marks the wheel handled even when it cannot scroll in
                              that direction, so hovering this row froze the page. The handler passes the
@@ -1359,53 +1366,38 @@
                         </ScrollViewer>
                     </StackPanel>
 
-                    <!-- Grid heading: view (or drive) name, its count, and the sort picker. -->
-                    <Grid Margin="2,0,2,14">
-                        <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding LibraryHeaderText}" FontSize="15" FontWeight="SemiBold"
-                                           VerticalAlignment="Center" />
-                                <ui:Button Margin="10,0,0,0" Padding="8,3" Appearance="Transparent" BorderThickness="0"
-                                           FontSize="11" Content="Clear drive filter" VerticalAlignment="Center"
-                                           Command="{Binding SelectDriveCommand}"
-                                           Visibility="{Binding HasSelectedDriveFilter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                                <ui:Button Margin="2,0,0,0" Padding="8,3" Appearance="Transparent" BorderThickness="0"
-                                           FontSize="11" Content="What's using this drive?" VerticalAlignment="Center"
-                                           Command="{Binding ShowStorageCommand}"
-                                           Visibility="{Binding HasSelectedDriveFilter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                            </StackPanel>
-                            <TextBlock Text="{Binding LibrarySubheaderText}" FontSize="11.5" Opacity="0.5"
-                                       Margin="0,3,0,0" />
+                    <!-- Grid heading: the view (or drive) name, its count, then Sort and Rescan right beside it - not parked at the far edge. -->
+                    <WrapPanel Margin="2,0,2,14">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                            <TextBlock Text="{Binding LibraryHeaderText}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding LibrarySubheaderText}" FontSize="12" FontWeight="Medium" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="10,0,0,0" />
                         </StackPanel>
-
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <!-- Only shows up once something is actually hidden - nothing to reveal otherwise. Without it there is
-                                 no way back for anything the user hides. -->
-                            <ui:Button x:Name="HiddenToggleButton" Appearance="Transparent" BorderThickness="0" Margin="0,0,2,0"
-                                       VerticalAlignment="Center" ToolTip="Show/hide the Hidden Games section"
-                                       Command="{Binding ToggleShowHiddenCommand}"
-                                       Visibility="{Binding HasHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                <Grid Width="18" Height="18">
-                                    <ui:SymbolIcon Symbol="EyeOff24" FontSize="16"
-                                                   Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
-                                    <ui:SymbolIcon Symbol="Eye24" FontSize="16"
-                                                   Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                                </Grid>
-                            </ui:Button>
-                            <ui:Button x:Name="RescanButton" Appearance="Transparent" BorderThickness="0" Margin="0,0,8,0"
-                                       VerticalAlignment="Center" Icon="{ui:SymbolIcon ArrowSync24}" ToolTip="Rescan library"
-                                       Command="{Binding RescanCommand}"
-                                       IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
-                            <ComboBox VerticalAlignment="Center" MinWidth="150"
-                                      FontSize="11.5" Padding="8,5"
-                                      Background="{StaticResource DesignSurface}"
-                                      Foreground="{StaticResource DesignMuted}"
-                                      BorderThickness="1" BorderBrush="{StaticResource DesignStroke}"
-                                      ItemsSource="{Binding SortOptions}"
-                                      DisplayMemberPath="Label" SelectedValuePath="Value"
-                                      SelectedValue="{Binding SortOption}" />
-                        </StackPanel>
-                    </Grid>
+                        <ui:Button Margin="0,0,6,0" Padding="8,3" Appearance="Transparent" BorderThickness="0" FontSize="11" Content="Clear drive filter" VerticalAlignment="Center"
+                                   Command="{Binding SelectDriveCommand}"
+                                   Visibility="{Binding HasSelectedDriveFilter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        <ui:Button Margin="0,0,6,0" Padding="8,3" Appearance="Transparent" BorderThickness="0" FontSize="11" Content="What's using this drive?" VerticalAlignment="Center"
+                                   Command="{Binding ShowStorageCommand}"
+                                   Visibility="{Binding HasSelectedDriveFilter, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        <ComboBox VerticalAlignment="Center" MinWidth="130" Height="28" MinHeight="28" Margin="0,0,6,0"
+                                  FontSize="12" FontWeight="Medium" Padding="10,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                  Background="{DynamicResource Surface}" Foreground="{DynamicResource Ink}"
+                                  BorderThickness="1" BorderBrush="{DynamicResource Stroke}"
+                                  ItemsSource="{Binding SortOptions}"
+                                  DisplayMemberPath="Label" SelectedValuePath="Value"
+                                  SelectedValue="{Binding SortOption}" />
+                        <ui:Button x:Name="RescanButton" Height="28" MinHeight="28" Padding="10,0" FontSize="12" FontWeight="Medium" Margin="0,0,6,0" VerticalAlignment="Center"
+                                   Content="Rescan library" ToolTip="Rescan library" Command="{Binding RescanCommand}"
+                                   IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
+                        <!-- Only shows up once something is actually hidden - nothing to reveal otherwise. Without it there is no way back for anything the user hides. -->
+                        <ui:Button x:Name="HiddenToggleButton" Appearance="Transparent" BorderThickness="0" VerticalAlignment="Center" ToolTip="Show/hide the Hidden Games section"
+                                   Command="{Binding ToggleShowHiddenCommand}"
+                                   Visibility="{Binding HasHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                            <Grid Width="18" Height="18">
+                                <ui:SymbolIcon Symbol="EyeOff24" FontSize="16" Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                                <ui:SymbolIcon Symbol="Eye24" FontSize="16" Visibility="{Binding ShowHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                            </Grid>
+                        </ui:Button>
+                    </WrapPanel>
 
                     <!-- The whole grid fades in when the view, drive or collection changes (the heading is what changes then) - not on every
                          keystroke of a search, where it would flicker. -->
@@ -1441,44 +1433,122 @@
             </ScrollViewer>
         </DockPanel>
 
+
+        </Grid>
+
+        <!-- Console themes: a full-window shell in place of the sidebar app. Each is shown by the chosen theme and gets the ShellState as its
+             DataContext (see MainWindow.Appearance.cs). The page host, the dialog layer and the caption sit above them. -->
+        <Grid x:Name="ConsoleHost" Grid.Row="0" Grid.RowSpan="3" Grid.Column="0" Grid.ColumnSpan="2" Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+            <local:ConsoleTileView x:Name="TileView" Visibility="{Binding DataContext.IsConsoleTileTheme, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+            <local:ConsoleRibbonView x:Name="RibbonView" Visibility="{Binding DataContext.IsConsoleRibbonTheme, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+        </Grid>
+
+        <!-- The caption the console themes share: a drag area with the title on the left and the window buttons on the right. -->
+        <Grid x:Name="ConsoleCaption" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Height="32" VerticalAlignment="Top" Panel.ZIndex="80"
+              Background="Transparent" Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+            <TextBlock Text="Axis Game Launcher" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="14,0,0,0" IsHitTestVisible="False" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource CaptionButtonStyle}" Height="32" Width="46" Click="CaptionMinimize_Click" ToolTip="Minimize">
+                    <Path Data="M0,0 L10,0" Stroke="#C9CED8" StrokeThickness="1.2" Width="10" Height="1" />
+                </Button>
+                <Button x:Name="ConsoleMaximizeButton" Style="{StaticResource CaptionButtonStyle}" Height="32" Width="46" Click="CaptionMaximize_Click" ToolTip="Maximize">
+                    <Path Stroke="#C9CED8" StrokeThickness="1.2" Width="12" Height="12">
+                        <Path.Style>
+                            <Style TargetType="Path">
+                                <Setter Property="Data" Value="M1,1 L11,1 11,11 1,11 Z" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                                        <Setter Property="Data" Value="M3,3 L3,1 11,1 11,9 9,9 M1,3 L9,3 9,11 1,11 Z" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                    </Path>
+                </Button>
+                <Button Style="{StaticResource CaptionButtonStyle}" Height="32" Width="46" Click="CaptionClose_Click" ToolTip="Close" Tag="Close">
+                    <Path Data="M0,0 L10,10 M10,0 L0,10" Stroke="#C9CED8" StrokeThickness="1.2" Width="10" Height="10" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
         <!-- The open page (Settings, Stats, ...): a Back arrow and the page's title, then the page itself. Sits where the library sits,
              so the sidebar and the title bar stay put and the page is in the same theme as everything else. -->
-        <Grid x:Name="PageHost" Visibility="{Binding IsPageOpen, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+        <Grid x:Name="PageHost" Grid.Row="1" Grid.Column="1" Panel.ZIndex="10" Background="{DynamicResource Bg}"
+              Visibility="{Binding IsPageOpen, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0" Margin="22,16,26,4">
+            <!-- The page header: a back button, the title and an Esc hint, drawn from the theme's tokens (size, fill, radius, type). -->
+            <Grid Grid.Row="0" Margin="{DynamicResource ActivePageHeaderMargin}">
                 <StackPanel Orientation="Horizontal">
-                    <ui:Button x:Name="PageBackButton" Appearance="Transparent" Padding="8" VerticalAlignment="Center"
-                               Icon="{ui:SymbolIcon ArrowLeft24}" ToolTip="Back to your library (Esc)"
-                               Command="{Binding ClosePageCommand}" />
-                    <TextBlock x:Name="PageTitleText" Text="{Binding CurrentPageTitle}" FontSize="20" FontWeight="SemiBold"
-                               VerticalAlignment="Center" Margin="8,0,0,0" TextTrimming="CharacterEllipsis" />
+                    <Button x:Name="PageBackButton" Width="{DynamicResource BackButtonSize}" Height="{DynamicResource BackButtonSize}" VerticalAlignment="Center" Cursor="Hand"
+                            ToolTip="{Binding BackTooltip, Source={x:Static services:ThemeState.Instance}}" FocusVisualStyle="{x:Null}" Command="{Binding ClosePageCommand}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Grid>
+                                    <Border x:Name="Glow" beh:ThemeRadius.Key="RadiusNavItem" Background="{DynamicResource Bg}" Opacity="0" IsHitTestVisible="False" Effect="{DynamicResource ToggleGlowEffect}" />
+                                    <Border x:Name="Body" beh:ThemeRadius.Key="RadiusNavItem" Background="{DynamicResource BackButtonFill}" BorderBrush="{DynamicResource BackButtonStroke}" BorderThickness="1">
+                                        <ui:SymbolIcon Symbol="ChevronLeft24" FontSize="18" Foreground="{DynamicResource Ink}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" BorderBrush="{DynamicResource FocusInk}" BorderThickness="2" Opacity="0" IsHitTestVisible="False" />
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                        <Setter TargetName="Glow" Property="Opacity" Value="1" />
+                                    </Trigger>
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                        <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                        <Setter TargetName="Glow" Property="Opacity" Value="1" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <TextBlock x:Name="PageTitleText" Text="{Binding CurrentPageTitle}" FontSize="{DynamicResource FontSizePageTitle}" FontWeight="{DynamicResource FontWeightPageTitle}"
+                               VerticalAlignment="Center" Margin="14,0,0,0" TextTrimming="CharacterEllipsis">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <!-- Game details names itself: Console-tile with an eyebrow over the game's title, Console-ribbon with the title alone. -->
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsConsole, Source={x:Static services:ThemeState.Instance}}" Value="True" />
+                                            <Condition Binding="{Binding CurrentPageKey}" Value="details" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <Border Margin="12,0,0,0" Padding="5,2" CornerRadius="4" Background="{DynamicResource ChipFill}" VerticalAlignment="Center"
+                            Visibility="{Binding ShortcutsEnabled, Source={x:Static services:ThemeState.Instance}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <TextBlock Text="Esc" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
+                    </Border>
                 </StackPanel>
             </Grid>
 
-            <ContentControl x:Name="PageContent" Grid.Row="1" Content="{Binding CurrentPage}"
+            <ContentControl x:Name="PageContent" Grid.Row="1" Content="{Binding CurrentPage}" Margin="{DynamicResource ActivePageBodyMargin}"
                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" IsTabStop="False"
                             beh:Motion.Replay="{Binding CurrentPageKey}" />
         </Grid>
-        </Grid>
-
         <!-- Footer: how much of the library is on screen (left) and whatever the app last did (right).
              The count is the honest signal that a view, drive, search or disabled source is narrowing
              things - "2 of 47 games shown" explains an unexpectedly short grid by itself. -->
-        <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
-                Background="{StaticResource DesignSurface}"
-                BorderThickness="0,1,0,0" BorderBrush="{StaticResource DesignStroke}" Padding="18,9">
+        <Border x:Name="StatusFooter" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}"
+                Background="{DynamicResource Surface}"
+                BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Stroke}" Padding="18,9">
             <Grid>
-                <TextBlock Text="{Binding FooterCountText}" FontSize="11" Foreground="{StaticResource DesignMuted}"
+                <TextBlock Text="{Binding FooterCountText}" FontSize="11" Foreground="{DynamicResource Muted}"
                            HorizontalAlignment="Left" VerticalAlignment="Center" />
                 <ui:Button Content="Cancel shutdown" Appearance="Caution" Padding="12,2" FontSize="11"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            Command="{Binding CancelShutdownCommand}"
                            Visibility="{Binding IsShutdownPending, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{StaticResource DesignMuted}"
+                <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{DynamicResource Muted}"
                            HorizontalAlignment="Right" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" />
             </Grid>
@@ -1491,9 +1561,9 @@
             <Border x:Name="ModalScrim" Background="#B3000000" MouseLeftButtonDown="ModalScrim_MouseLeftButtonDown" />
 
             <Border x:Name="ModalCard" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center"
-                    CornerRadius="14" Background="{StaticResource DesignSurface}"
-                    BorderBrush="{StaticResource DesignStroke}" BorderThickness="1"
-                    TextElement.Foreground="{StaticResource DesignInk}">
+                    CornerRadius="14" Background="{DynamicResource Surface}"
+                    BorderBrush="{DynamicResource Stroke}" BorderThickness="1"
+                    TextElement.Foreground="{DynamicResource Ink}">
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="28" ShadowDepth="6" Opacity="0.55" Color="Black" />
                 </Border.Effect>
@@ -1502,7 +1572,7 @@
                         <TextBlock x:Name="ModalTitle" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis" Margin="0,0,40,0" />
                         <ui:Button x:Name="ModalCloseButton" Appearance="Transparent" Padding="7" HorizontalAlignment="Right"
-                                   Icon="{ui:SymbolIcon Dismiss24}" ToolTip="Close (Esc)" Click="ModalClose_Click" />
+                                   Icon="{ui:SymbolIcon Dismiss24}" ToolTip="{Binding CloseTooltip, Source={x:Static services:ThemeState.Instance}}" Click="ModalClose_Click" />
                     </Grid>
                     <!-- A dialog taller than the window scrolls here instead of running off the bottom (see FitModalToWindow). -->
                     <ScrollViewer x:Name="ModalScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

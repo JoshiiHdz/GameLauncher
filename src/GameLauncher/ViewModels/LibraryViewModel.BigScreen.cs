@@ -8,8 +8,9 @@ namespace GameLauncher.ViewModels;
 public partial class LibraryViewModel
 {
     /// <summary>Controller mode is a skeleton for now: the screen, the carousel and the controller reading all exist and are tested, but it
-    /// is being built up to a finished standard before it opens for everyone. Until this is switched on, every way into it (the sidebar,
-    /// F11, the palette, Settings) is marked "coming soon" and does nothing but say so.</summary>
+    /// is being built up to a finished standard (it will be PlayStation-theme only, see docs/design/controller-mode-plan.md). Until this is
+    /// switched on there is no way into it: no sidebar entry, no Settings card and no palette command. F11 and a direct command call
+    /// only say it is coming.</summary>
     public bool ControllerModeAvailable { get; internal set; }
 
     private bool CanShowBigScreen() => ControllerModeAvailable;

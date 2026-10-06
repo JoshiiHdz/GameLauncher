@@ -16,14 +16,18 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid MaxWidth="820" HorizontalAlignment="Center">
+    <!-- Centred in its area in every theme: the Grid is held to the page width and a stretched element that is capped sits in the middle. -->
+    <Grid MaxWidth="{DynamicResource PageBodyMaxWidth}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="24,8,24,12" beh:Motion.FadeIn="True">
+        <StackPanel Grid.Row="0" Margin="0,8,0,12" beh:Motion.FadeIn="True">
             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="16" />
             <TextBlock Text="{Binding DriveSummary}" FontSize="12" Opacity="0.65" Margin="0,4,0,0" TextWrapping="Wrap" />
             <Border Margin="0,10,0,0" Padding="12,8" CornerRadius="8" Background="#26F5A524"
@@ -32,7 +36,7 @@
             </Border>
         </StackPanel>
 
-        <ScrollViewer Grid.Row="1" Margin="24,0,24,8" Padding="0,0,14,0" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
+        <ScrollViewer Grid.Row="1" Margin="0,0,0,8" Padding="0,0,14,0" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
             <StackPanel>
                 <TextBlock Text="No games are installed on this drive." FontSize="12" Opacity="0.6"
                            Visibility="{Binding Snapshot.HasNoRows, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
@@ -50,8 +54,8 @@
                                         <TextBlock Text="{Binding SizeDisplay}" FontSize="12.5" FontWeight="SemiBold" HorizontalAlignment="Right" />
                                     </Grid>
                                     <ProgressBar Height="5" Margin="0,5,0,3" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding Fraction, Mode=OneWay}"
-                                                 Foreground="{StaticResource DesignAccent}" Background="{StaticResource DesignTrackFill}" />
-                                    <TextBlock Text="{Binding ShareText}" FontSize="11" Foreground="{StaticResource DesignMuted}" />
+                                                 Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}" />
+                                    <TextBlock Text="{Binding ShareText}" FontSize="11" Foreground="{DynamicResource Muted}" />
                                 </StackPanel>
                                 <ui:Button Grid.Column="1" Appearance="Transparent" BorderThickness="0" Margin="8,0,0,0"
                                            VerticalAlignment="Top" ToolTip="Open install location"
@@ -63,7 +67,7 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Grid Grid.Row="2" Margin="24,4,24,18">
+        <Grid Grid.Row="2" Margin="0,4,0,18">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

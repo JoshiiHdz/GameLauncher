@@ -56,6 +56,11 @@ public sealed partial class GameEntry : ObservableObject
     [ObservableProperty]
     private BitmapImage? _icon;
 
+    /// <summary>Wide, high-resolution background art (Steam's library hero) for the console themes' home screens; null until it has been fetched, and for games
+    /// that have none (the cover is used then). See BackdropArtService.</summary>
+    [ObservableProperty]
+    private BitmapImage? _backdrop;
+
     /// <summary>True when Icon is real portrait box art (fills the card edge-to-edge); false when
     /// it's a fallback exe icon (small, centered, on a plate) - the UI renders these differently.</summary>
     [ObservableProperty]

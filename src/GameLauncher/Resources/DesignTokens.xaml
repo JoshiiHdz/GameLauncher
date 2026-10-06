@@ -43,15 +43,10 @@
          Hero border    = glow 24% over stroke      -> #5A3B4C
          Ghost button   = ink at 9%
          Tile bar track = ink at 12%                                                        -->
-    <SolidColorBrush x:Key="DesignHeroFill" Color="#B8141822" />
-    <SolidColorBrush x:Key="DesignHeroStroke" Color="#FF5A3B4C" />
     <SolidColorBrush x:Key="DesignGhostFill" Color="#17F1F3F9" />
-    <SolidColorBrush x:Key="DesignGhostFillHover" Color="#26F1F3F9" />
-    <SolidColorBrush x:Key="DesignTrackFill" Color="#1FF1F3F9" />
 
     <!-- Card art overlays: fixed in the preview rather than token-derived, since they sit on top of
          artwork rather than on the app's own surfaces. -->
-    <SolidColorBrush x:Key="DesignArtChipFill" Color="#99000000" />
     <SolidColorBrush x:Key="DesignArtMoreFill" Color="#26FFFFFF" />
     <SolidColorBrush x:Key="DesignCloseHover" Color="#FFE81123" />
 

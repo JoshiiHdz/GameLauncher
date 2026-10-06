@@ -7,6 +7,7 @@
              xmlns:beh="clr-namespace:GameLauncher.Behaviors"
              xmlns:services="clr-namespace:GameLauncher.Services"
              xmlns:conv="clr-namespace:GameLauncher.Converters"
+             xmlns:local="clr-namespace:GameLauncher"
              mc:Ignorable="d">
 
     <UserControl.Resources>
@@ -17,10 +18,10 @@
 
             <!-- A group of related settings: one rounded card per group, titled, instead of one long undivided scroll. -->
             <Style x:Key="GroupCardStyle" TargetType="Border">
-                <Setter Property="Background" Value="{StaticResource DesignSurface}" />
-                <Setter Property="BorderBrush" Value="{StaticResource DesignStroke}" />
+                <Setter Property="Background" Value="{DynamicResource GroupCardFill}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource GroupCardStroke}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="beh:ThemeRadius.Key" Value="RadiusPanel" />
                 <Setter Property="Padding" Value="18,16" />
                 <Setter Property="Margin" Value="0,0,0,14" />
             </Style>
@@ -30,121 +31,228 @@
                 <Setter Property="Margin" Value="0,0,0,10" />
             </Style>
             <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="20" />
-                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="FontSize" Value="{DynamicResource FontSizeSectionTitle}" />
+                <Setter Property="FontWeight" Value="{DynamicResource FontWeightPageTitle}" />
                 <Setter Property="Margin" Value="2,0,0,4" />
+                <Setter Property="TextAlignment" Value="Center" />
             </Style>
             <Style x:Key="SectionNoteStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12.5" />
-                <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+                <Setter Property="Foreground" Value="{DynamicResource Muted}" />
                 <Setter Property="TextWrapping" Value="Wrap" />
                 <Setter Property="Margin" Value="2,0,0,16" />
+                <Setter Property="TextAlignment" Value="Center" />
+            </Style>
+            <!-- A category's content column: centred in its area. The console styles let it shrink to its content; Axis gives every category the same
+                 width (a stretched element capped by its MaxWidth sits in the middle), so the cards line up from one category to the next. -->
+            <Style x:Key="SectionBodyStyle" TargetType="StackPanel">
+                <Setter Property="HorizontalAlignment" Value="Center" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsAxis, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                        <Setter Property="HorizontalAlignment" Value="Stretch" />
+                    </DataTrigger>
+                </Style.Triggers>
             </Style>
             <Style x:Key="NoteStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12" />
-                <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+                <Setter Property="Foreground" Value="{DynamicResource Muted}" />
                 <Setter Property="TextWrapping" Value="Wrap" />
                 <Setter Property="Margin" Value="0,5,0,0" />
             </Style>
             <Style x:Key="RowGapStyle" TargetType="Border">
                 <Setter Property="Height" Value="1" />
-                <Setter Property="Background" Value="{StaticResource DesignStroke}" />
+                <Setter Property="Background" Value="{DynamicResource Stroke}" />
                 <Setter Property="Margin" Value="0,14" />
             </Style>
-            <!-- The category list matches the sidebar's own selection look (soft fill, accent marker) rather than the library's default blue. -->
+            <!-- Category items. Content is the label and Tag the icon's name, so each theme can draw them its own way: a row with an accent marker
+                 (Axis), a square tile with a wrapping label (Console-tile), a glowing pill (Console-ribbon). -->
             <Style x:Key="CategoryItemStyle" TargetType="ListBoxItem">
-                <Setter Property="Padding" Value="12,9" />
-                <Setter Property="Margin" Value="0,0,0,3" />
-                <Setter Property="Foreground" Value="{StaticResource DesignMuted}" />
+                <Setter Property="Foreground" Value="{DynamicResource Muted}" />
                 <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Margin" Value="0,0,0,3" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ListBoxItem">
-                            <Grid>
-                                <Border x:Name="Root" CornerRadius="10" Background="Transparent" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter VerticalAlignment="Center" />
+                            <Grid MinHeight="36">
+                                <Border x:Name="Root" beh:ThemeRadius.Key="RadiusNavItem" Background="Transparent" Padding="12,0">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ui:SymbolIcon Symbol="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" FontSize="18" Foreground="{TemplateBinding Foreground}" />
+                                        <TextBlock Text="{TemplateBinding Content}" Margin="10,0,0,0" FontSize="13" FontWeight="Medium" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center" />
+                                    </StackPanel>
                                 </Border>
-                                <Border x:Name="Marker" Width="3" Height="18" CornerRadius="2" Margin="1,0,0,0"
-                                        HorizontalAlignment="Left" VerticalAlignment="Center" Background="Transparent" />
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusNavItem" BorderBrush="{DynamicResource FocusInk}" BorderThickness="2" Opacity="0" IsHitTestVisible="False" />
                             </Grid>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
-                                    <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                                    <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface2}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Ink}" />
                                 </Trigger>
                                 <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="Root" Property="Background" Value="{StaticResource DesignSurface2}" />
-                                    <Setter TargetName="Marker" Property="Background" Value="{StaticResource DesignAccent}" />
-                                    <Setter Property="Foreground" Value="{StaticResource DesignInk}" />
+                                    <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface2}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Accent}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <Style x:Key="TileCategoryItemStyle" TargetType="ListBoxItem">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Margin" Value="0,0,4,4" />
+                <Setter Property="Width" Value="{DynamicResource ActiveSettingsTileWidth}" />
+                <Setter Property="Height" Value="{DynamicResource ActiveSettingsTileHeight}" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <Grid>
+                                <Border x:Name="Root" beh:ThemeRadius.Key="RadiusPanel" Background="#E61A1D27" Padding="12,10">
+                                    <Grid>
+                                        <ui:SymbolIcon Symbol="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" FontSize="18" Foreground="{TemplateBinding Foreground}"
+                                                       HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                        <TextBlock Text="{TemplateBinding Content}" FontSize="12" FontWeight="Bold" Foreground="{TemplateBinding Foreground}" TextWrapping="Wrap"
+                                                   HorizontalAlignment="Left" VerticalAlignment="Bottom" />
+                                    </Grid>
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusPanel" BorderBrush="White" BorderThickness="3" Opacity="0" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="{DynamicResource InverseFill}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource InverseInk}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="PillCategoryItemStyle" TargetType="ListBoxItem">
+                <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Margin" Value="0,0,0,4" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <Grid Height="40">
+                                <Border x:Name="Glow" beh:ThemeRadius.Key="Pill" Background="{DynamicResource Bg}" Opacity="0" IsHitTestVisible="False" Effect="{DynamicResource ToggleGlowEffect}" />
+                                <Border x:Name="Root" beh:ThemeRadius.Key="Pill" Background="Transparent" Padding="14,0">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ui:SymbolIcon Symbol="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" FontSize="18" Foreground="{TemplateBinding Foreground}" />
+                                        <TextBlock Text="{TemplateBinding Content}" Margin="10,0,0,0" FontSize="14" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Border>
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="Pill" BorderBrush="#40FFFFFF" BorderThickness="1" Opacity="0" IsHitTestVisible="False" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="#0AFFFFFF" />
+                                    <Setter Property="Foreground" Value="White" />
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="#1AFFFFFF" />
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                    <Setter TargetName="Glow" Property="Opacity" Value="1" />
+                                    <Setter Property="Foreground" Value="White" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- The category list: a vertical list (Axis), tiles in a wrapping row above the content (Console-tile), a vertical list of pills (Console-ribbon). -->
+            <Style x:Key="CategoryListStyle" TargetType="ListBox">
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="ItemContainerStyle" Value="{StaticResource CategoryItemStyle}" />
+                <Setter Property="Grid.Column" Value="0" />
+                <Setter Property="Grid.ColumnSpan" Value="1" />
+                <Setter Property="Grid.Row" Value="0" />
+                <Setter Property="Grid.RowSpan" Value="2" />
+                <Setter Property="Margin" Value="0,4,24,0" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsTile, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                        <Setter Property="ItemContainerStyle" Value="{StaticResource TileCategoryItemStyle}" />
+                        <Setter Property="Grid.ColumnSpan" Value="2" />
+                        <Setter Property="Grid.RowSpan" Value="1" />
+                        <Setter Property="Margin" Value="0,0,0,18" />
+                        <Setter Property="HorizontalAlignment" Value="Center" />
+                        <Setter Property="ItemsPanel">
+                            <Setter.Value>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsRibbon, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                        <Setter Property="ItemContainerStyle" Value="{StaticResource PillCategoryItemStyle}" />
+                        <Setter Property="Margin" Value="0,4,28,0" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="SectionHostStyle" TargetType="Grid">
+                <Setter Property="Grid.Column" Value="1" />
+                <Setter Property="Grid.ColumnSpan" Value="1" />
+                <Setter Property="Grid.Row" Value="0" />
+                <Setter Property="Grid.RowSpan" Value="2" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsTile, Source={x:Static services:ThemeState.Instance}}" Value="True">
+                        <Setter Property="Grid.Column" Value="0" />
+                        <Setter Property="Grid.ColumnSpan" Value="2" />
+                        <Setter Property="Grid.Row" Value="1" />
+                        <Setter Property="Grid.RowSpan" Value="1" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
     <!-- Categories on the left, one category at a time on the right - no endless scroll. Every setting from before is still here, just grouped. -->
-    <Grid Margin="22,6,22,18">
+    <Grid Margin="0,14,0,0">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="196" />
+            <ColumnDefinition Width="{DynamicResource ActiveSettingsNavColumn}" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-        <ListBox x:Name="CategoryList" Grid.Column="0" Margin="0,4,18,0" BorderThickness="0" Background="Transparent"
-                 ItemContainerStyle="{StaticResource CategoryItemStyle}"
+        <ListBox x:Name="CategoryList" Style="{StaticResource CategoryListStyle}"
                  SelectionChanged="CategoryList_SelectionChanged">
-            <ListBoxItem x:Name="GeneralCategory" AutomationProperties.Name="General">
-                <StackPanel Orientation="Horizontal">
-                    <ui:SymbolIcon Symbol="Settings24" FontSize="17" Width="26" />
-                    <TextBlock Text="General" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </ListBoxItem>
-            <ListBoxItem x:Name="LibraryCategory" AutomationProperties.Name="Library">
-                <StackPanel Orientation="Horizontal">
-                    <ui:SymbolIcon Symbol="Folder24" FontSize="17" Width="26" />
-                    <TextBlock Text="Library" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </ListBoxItem>
-            <ListBoxItem x:Name="AppearanceCategory" AutomationProperties.Name="Appearance">
-                <StackPanel Orientation="Horizontal">
-                    <ui:SymbolIcon Symbol="PaintBrush24" FontSize="17" Width="26" />
-                    <TextBlock Text="Appearance" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </ListBoxItem>
-            <ListBoxItem x:Name="PerformanceCategory" AutomationProperties.Name="Performance">
-                <StackPanel Orientation="Horizontal">
-                    <ui:SymbolIcon Symbol="Flash24" FontSize="17" Width="26" />
-                    <TextBlock Text="Performance" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </ListBoxItem>
-            <ListBoxItem x:Name="IntegrationsCategory" AutomationProperties.Name="Integrations">
-                <StackPanel Orientation="Horizontal">
-                    <ui:SymbolIcon Symbol="PlugConnected24" FontSize="17" Width="26" />
-                    <TextBlock Text="Integrations" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </ListBoxItem>
-            <ListBoxItem x:Name="BackupCategory" AutomationProperties.Name="Data and backup">
-                <StackPanel Orientation="Horizontal">
-                    <ui:SymbolIcon Symbol="Save24" FontSize="17" Width="26" />
-                    <TextBlock Text="Data and backup" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </ListBoxItem>
-            <ListBoxItem x:Name="AboutCategory" AutomationProperties.Name="About and support">
-                <StackPanel Orientation="Horizontal">
-                    <ui:SymbolIcon Symbol="Info24" FontSize="17" Width="26" />
-                    <TextBlock Text="About and support" VerticalAlignment="Center" FontSize="13" />
-                </StackPanel>
-            </ListBoxItem>
+            <ListBoxItem x:Name="GeneralCategory" AutomationProperties.Name="General" Tag="Settings24" Content="General" />
+            <ListBoxItem x:Name="LibraryCategory" AutomationProperties.Name="Library" Tag="Folder24" Content="Library" />
+            <ListBoxItem x:Name="AppearanceCategory" AutomationProperties.Name="Appearance" Tag="PaintBrush24" Content="Appearance" />
+            <ListBoxItem x:Name="PerformanceCategory" AutomationProperties.Name="Performance" Tag="Flash24" Content="Performance" />
+            <ListBoxItem x:Name="BackupCategory" AutomationProperties.Name="Data and backup" Tag="Save24" Content="Data and backup" />
+            <ListBoxItem x:Name="AboutCategory" AutomationProperties.Name="About and support" Tag="Info24" Content="About and support" />
         </ListBox>
 
         <!-- The seven category panels share one cell; SettingsPage.xaml.cs shows the chosen one. Each scrolls on its own. -->
-        <Grid x:Name="SectionHost" Grid.Column="1">
+        <Grid x:Name="SectionHost" Style="{StaticResource SectionHostStyle}">
 
             <!-- ================= General ================= -->
             <ScrollViewer x:Name="GeneralSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
-                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                <StackPanel MaxWidth="{DynamicResource PageBodyMaxWidth}" Style="{StaticResource SectionBodyStyle}">
                     <TextBlock Text="General" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="How the launcher starts, how it behaves while you play, how play time is kept, and how you reach it." Style="{StaticResource SectionNoteStyle}" />
 
@@ -160,6 +268,15 @@
                                        Style="{StaticResource NoteStyle}" />
                             <Border Style="{StaticResource RowGapStyle}" />
                             <ui:ToggleSwitch Content="Check for updates on startup" IsChecked="{Binding CheckForUpdates}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Minimize button" Style="{StaticResource GroupTitleStyle}" />
+                            <ui:ToggleSwitch Content="Minimize to tray" IsChecked="{Binding MinimizeToTrayOnMinimize}" />
+                            <TextBlock Text="When you press the minimize button, hide the launcher in the system tray instead of the taskbar. Double-click the tray icon to bring it back. Off by default."
+                                       Style="{StaticResource NoteStyle}" />
                         </StackPanel>
                     </Border>
 
@@ -181,7 +298,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource GroupCardStyle}">
+                    <Border Style="{StaticResource GroupCardStyle}" Visibility="{Binding ShortcutsEnabled, Source={x:Static services:ThemeState.Instance}, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                         <StackPanel>
                             <TextBlock Text="Shortcuts" Style="{StaticResource GroupTitleStyle}" />
                             <TextBlock Text="Press Ctrl+K in the launcher to find a game or run any command by typing." FontSize="13" TextWrapping="Wrap" />
@@ -196,7 +313,7 @@
 
             <!-- ================= Library ================= -->
             <ScrollViewer x:Name="LibrarySection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
-                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                <StackPanel MaxWidth="{DynamicResource PageBodyMaxWidth}" Style="{StaticResource SectionBodyStyle}">
                     <TextBlock Text="Library" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="Where your games come from, and how they are scanned." Style="{StaticResource SectionNoteStyle}" />
 
@@ -225,7 +342,7 @@
                                 </ListBox.ItemTemplate>
                             </ListBox>
 
-                            <ui:Button Content="Add Folder" Command="{Binding AddFolderCommand}"
+                            <ui:Button Content="Add folder" Command="{Binding AddFolderCommand}"
                                        Icon="{ui:SymbolIcon FolderAdd24}" HorizontalAlignment="Left" Margin="0,12,0,0" />
                         </StackPanel>
                     </Border>
@@ -245,7 +362,7 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
                                                 <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Text="{Binding SizeText}" FontSize="11" Foreground="{StaticResource DesignMuted}" />
+                                                <TextBlock Text="{Binding SizeText}" FontSize="11" Foreground="{DynamicResource Muted}" />
                                             </StackPanel>
                                             <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IsSearched}" VerticalAlignment="Center" />
                                         </Grid>
@@ -262,17 +379,17 @@
                     <Border Style="{StaticResource GroupCardStyle}">
                         <StackPanel>
                             <TextBlock Text="Scanning" Style="{StaticResource GroupTitleStyle}" />
-                            <TextBlock Text="Re-scan after installing new games, or add a shortcut to launch Axis Game Launcher from your desktop."
+                            <TextBlock Text="Rescan after installing new games, or add a shortcut to launch Axis Game Launcher from your desktop."
                                        Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
-                            <StackPanel Orientation="Horizontal">
-                                <ui:Button Content="Re-scan Library" Appearance="Primary"
+                            <WrapPanel>
+                                <ui:Button Margin="0,0,10,8" Content="Rescan library" Appearance="Primary"
                                            Command="{Binding RescanCommand}"
                                            Icon="{ui:SymbolIcon ArrowSync24}"
                                            IsEnabled="{Binding IsLoading, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
                                 <ui:Button Content="{Binding DesktopShortcutButtonText}"
                                            Command="{Binding CreateDesktopShortcutCommand}"
-                                           Icon="{ui:SymbolIcon Desktop24}" Margin="10,0,0,0" />
-                            </StackPanel>
+                                           Icon="{ui:SymbolIcon Desktop24}" Margin="0,0,10,8" />
+                            </WrapPanel>
                         </StackPanel>
                     </Border>
 
@@ -288,16 +405,33 @@
 
             <!-- ================= Appearance ================= -->
             <ScrollViewer x:Name="AppearanceSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
-                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                <StackPanel MaxWidth="{DynamicResource PageBodyMaxWidth}" Style="{StaticResource SectionBodyStyle}">
                     <TextBlock Text="Appearance" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="How the launcher looks." Style="{StaticResource SectionNoteStyle}" />
+
+                    <!-- The theme: three option cards. Choosing one re-dresses the whole window at once and keeps this page open. -->
+                    <Border Style="{StaticResource GroupCardStyle}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBlock Text="Theme" Style="{StaticResource GroupTitleStyle}" Margin="0" VerticalAlignment="Center" />
+                                <Border Margin="10,0,0,0" Padding="7,2" CornerRadius="9" BorderBrush="#33FFFFFF" BorderThickness="1" VerticalAlignment="Center">
+                                    <TextBlock Text="New" FontSize="10" FontWeight="SemiBold" />
+                                </Border>
+                            </StackPanel>
+                            <TextBlock Text="Changes navigation, cards, menus and motion as well as colour. Your library, collections and settings stay the same."
+                                       Style="{StaticResource NoteStyle}" Margin="0,0,0,14" />
+                            <local:ThemePicker x:Name="ThemeChoices" />
+                        </StackPanel>
+                    </Border>
 
                     <Border Style="{StaticResource GroupCardStyle}">
                         <StackPanel>
                             <TextBlock Text="Background" Style="{StaticResource GroupTitleStyle}" />
-                            <ui:ToggleSwitch Content="Vibrant background" IsChecked="{Binding VibrantBackground}" />
+                            <ui:ToggleSwitch x:Name="VibrantSwitch" Content="Vibrant background" IsChecked="{Binding VibrantBackground}" IsEnabled="{Binding IsAxisTheme}" />
                             <TextBlock Text="Frosted acrylic background. Uses a little GPU while the window is on screen - nothing while it's minimized during a game."
                                        Style="{StaticResource NoteStyle}" />
+                            <TextBlock Text="Not used by this theme." Style="{StaticResource NoteStyle}" FontWeight="SemiBold"
+                                       Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -305,7 +439,7 @@
 
             <!-- ================= Performance ================= -->
             <ScrollViewer x:Name="PerformanceSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
-                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                <StackPanel MaxWidth="{DynamicResource PageBodyMaxWidth}" Style="{StaticResource SectionBodyStyle}">
                     <TextBlock Text="Performance" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="Free up memory and clear storage clutter - sizes are shown first, and you are asked before anything is deleted."
                                Style="{StaticResource SectionNoteStyle}" />
@@ -327,28 +461,19 @@
                                        Style="{StaticResource NoteStyle}" />
                         </StackPanel>
                     </Border>
-                </StackPanel>
-            </ScrollViewer>
-
-            <!-- ================= Integrations ================= -->
-            <ScrollViewer x:Name="IntegrationsSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
-                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
-                    <TextBlock Text="Integrations" Style="{StaticResource SectionTitleStyle}" />
-                    <TextBlock Text="Other ways to play." Style="{StaticResource SectionNoteStyle}" />
 
                     <Border Style="{StaticResource GroupCardStyle}">
                         <StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                <TextBlock Text="Controller mode" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                <Border CornerRadius="8" Padding="8,2" Margin="10,0,0,0" VerticalAlignment="Center"
-                                        Background="{StaticResource DesignGhostFill}">
-                                    <TextBlock Text="COMING SOON" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource DesignAccent}" />
-                                </Border>
-                            </StackPanel>
-                            <TextBlock Text="A full-screen, controller-friendly view of your library for the couch or a TV, played with an Xbox-style controller. It is still being built and is not open yet."
-                                       Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
-                            <ui:Button Content="Open controller mode" Command="{Binding ShowBigScreenCommand}"
-                                       Icon="{ui:SymbolIcon Games24}" HorizontalAlignment="Left" />
+                            <TextBlock Text="Focus play" Style="{StaticResource GroupTitleStyle}" />
+                            <ui:ToggleSwitch Content="Use a high performance power plan while a game runs" IsChecked="{Binding FocusPlayEnabled}" IsEnabled="{Binding FocusPlayAvailable}" />
+                            <TextBlock Text="{Binding FocusPlayStatusText}" Style="{StaticResource NoteStyle}" Foreground="{DynamicResource Danger}"
+                                       Visibility="{Binding HasFocusPlayStatus, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                            <TextBlock Text="Switches Windows to a high performance power plan when you launch a game from here, and back to your own plan when the game closes (or if this app is closed or restarted). Nothing is closed or changed besides the plan. A game can also be set to run at High priority from its details page."
+                                       Style="{StaticResource NoteStyle}" />
+                            <Border Style="{StaticResource RowGapStyle}" />
+                            <ui:ToggleSwitch Content="Only when plugged in" IsChecked="{Binding FocusPlayOnlyWhenPluggedIn}" IsEnabled="{Binding FocusPlayAvailable}" />
+                            <TextBlock Text="On a laptop running on battery the power plan is left alone."
+                                       Style="{StaticResource NoteStyle}" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -356,7 +481,7 @@
 
             <!-- ================= Data and backup ================= -->
             <ScrollViewer x:Name="BackupSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
-                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                <StackPanel MaxWidth="{DynamicResource PageBodyMaxWidth}" Style="{StaticResource SectionBodyStyle}">
                     <TextBlock Text="Data and backup" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Text="Keep your own data safe, or move it to another PC." Style="{StaticResource SectionNoteStyle}" />
 
@@ -365,12 +490,12 @@
                             <TextBlock Text="Library data" Style="{StaticResource GroupTitleStyle}" />
                             <TextBlock Text="Save your favorites, hidden games, collections, notes, custom names, tracked play time and preferences to a file - to keep safe or move to another PC. Cover art, keys and folder paths are not included."
                                        Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
-                            <StackPanel Orientation="Horizontal">
-                                <ui:Button Content="Export library data..." Command="{Binding ExportLibraryDataCommand}"
+                            <WrapPanel>
+                                <ui:Button Margin="0,0,10,8" Content="Export library data..." Command="{Binding ExportLibraryDataCommand}"
                                            Icon="{ui:SymbolIcon ArrowUpload24}" />
                                 <ui:Button Content="Import library data..." Command="{Binding ImportLibraryDataCommand}"
-                                           Icon="{ui:SymbolIcon ArrowDownload24}" Margin="10,0,0,0" />
-                            </StackPanel>
+                                           Icon="{ui:SymbolIcon ArrowDownload24}" Margin="0,0,10,8" />
+                            </WrapPanel>
                         </StackPanel>
                     </Border>
 
@@ -379,12 +504,12 @@
                             <TextBlock Text="Cache and reset" Style="{StaticResource GroupTitleStyle}" />
                             <TextBlock Text="After an update a saved cover can be out of date. Clearing the cache removes the saved cover art and icons and looks every cover up again. Resetting also puts every setting back to its default. Your favorites, hidden games, collections, notes, play time, watched folders and the covers you chose yourself are kept either way."
                                        Style="{StaticResource NoteStyle}" Margin="0,0,0,12" />
-                            <StackPanel Orientation="Horizontal">
-                                <ui:Button Content="Clear cache and refresh covers" Command="{Binding ClearCacheCommand}"
+                            <WrapPanel>
+                                <ui:Button Margin="0,0,10,8" Content="Clear cache and refresh covers" Command="{Binding ClearCacheCommand}"
                                            Icon="{ui:SymbolIcon ArrowSync24}" />
                                 <ui:Button Content="Reset all settings and cache..." Command="{Binding ResetEverythingCommand}"
-                                           Appearance="Danger" Icon="{ui:SymbolIcon Delete24}" Margin="10,0,0,0" />
-                            </StackPanel>
+                                           Appearance="Danger" Icon="{ui:SymbolIcon Delete24}" Margin="0,0,10,8" />
+                            </WrapPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -392,7 +517,7 @@
 
             <!-- ================= About and support ================= -->
             <ScrollViewer x:Name="AboutSection" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0" Visibility="Collapsed">
-                <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+                <StackPanel MaxWidth="{DynamicResource PageBodyMaxWidth}" Style="{StaticResource SectionBodyStyle}">
                     <TextBlock Text="About and support" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Style="{StaticResource SectionNoteStyle}">
                         <Run Text="Axis Game Launcher &#8226; Version " /><Run Text="{x:Static services:AppInfo.Version}" />
@@ -410,13 +535,13 @@
                     <Border Style="{StaticResource GroupCardStyle}">
                         <StackPanel>
                             <TextBlock Text="Help" Style="{StaticResource GroupTitleStyle}" />
-                            <StackPanel Orientation="Horizontal">
-                                <ui:Button Content="Open Logs Folder" Command="{Binding OpenLogsFolderCommand}"
+                            <WrapPanel>
+                                <ui:Button Margin="0,0,10,8" Content="Open Logs Folder" Command="{Binding OpenLogsFolderCommand}"
                                            Icon="{ui:SymbolIcon DocumentText24}" />
                                 <ui:Button Content="Send Feedback or Report a Bug" Command="{Binding ReportBugCommand}"
-                                           Icon="{ui:SymbolIcon Bug24}" Margin="10,0,0,0"
+                                           Icon="{ui:SymbolIcon Bug24}" Margin="0,0,10,8"
                                            ToolTip="Tell the developer about a bug, a wrong cover, or an idea - no account needed." />
-                            </StackPanel>
+                            </WrapPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>

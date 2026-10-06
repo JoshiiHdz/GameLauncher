@@ -56,9 +56,10 @@ public partial class LibraryViewModel
         GameDetailsViewModel? details = null;
         try
         {
-            details = new GameDetailsViewModel(game, GetGameNotes(gameId));
+            details = new GameDetailsViewModel(game, GetGameNotes(gameId), GetRaiseGamePriority(gameId));
             details.OpenInstallLocationRequested += () => OpenInstallLocation(game);
             details.EditCollectionsRequested += () => EditCollections(game);
+            details.PlayTimeRequested += () => ShowPlayTimeCommand.Execute(game);
             details.UninstallRequested += () => _ = UninstallGame(game);
 
             // Not measured yet: start it now, so the size appears on the page as it is found.
@@ -70,6 +71,9 @@ public partial class LibraryViewModel
             {
                 if (details.NotesChanged)
                     SetGameNotes(gameId, details.Notes);
+
+                if (details.RaiseGamePriorityChanged)
+                    SetRaiseGamePriority(gameId, details.RaiseGamePriority);
 
                 // The game is looked up again by id: a refresh can replace the entry while the page is open.
                 if (details.PlayRequested && _allGames.FirstOrDefault(g => g.Id == gameId) is { } current)

@@ -25,11 +25,18 @@ public sealed class GameOverride
 
     public DateTime? DateAdded { get; set; }
 
+    /// <summary>Part of Focus play: run this game's processes at High priority. Off unless chosen; never Realtime.</summary>
+    public bool RaiseGamePriority { get; set; }
+
     /// <summary>Total tracked running time, accumulated for launched sessions and observed external
     /// sessions while this app is running. Deliberately NOT a
     /// "lifetime played" figure: this app cannot know what someone played before the game was added
     /// here, so the UI labels it "tracked by Axis Game Launcher" rather than implying it's complete.</summary>
     public long TotalPlaySeconds { get; set; }
+
+    /// <summary>The tracked play time as it happened, so "today" and "this week" can be told apart (see PlayHistory). Only covers play from the version that
+    /// started keeping it; earlier play is only in <see cref="TotalPlaySeconds"/>.</summary>
+    public List<PlaySessionRecord> Sessions { get; set; } = new();
 
     /// <summary>Most recent tracked session end or external-session checkpoint, UTC.</summary>
     public DateTime? LastPlayedUtc { get; set; }

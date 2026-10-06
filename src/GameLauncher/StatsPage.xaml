@@ -15,28 +15,32 @@
             </ResourceDictionary.MergedDictionaries>
 
             <Style x:Key="StatTileStyle" TargetType="Border">
-                <Setter Property="Background" Value="{StaticResource DesignSurface}" />
-                <Setter Property="BorderBrush" Value="{StaticResource DesignStroke}" />
+                <Setter Property="Background" Value="{DynamicResource GroupCardFill}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource GroupCardStroke}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="10" />
-                <Setter Property="Padding" Value="14,12" />
-                <Setter Property="Margin" Value="0,0,8,0" />
+                <Setter Property="beh:ThemeRadius.Key" Value="RadiusPanel" />
+                <Setter Property="Padding" Value="18,16" />
+                <Setter Property="Margin" Value="0,0,10,0" />
             </Style>
             <Style x:Key="SectionHeadingStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="14" />
-                <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="Margin" Value="0,22,0,10" />
+                <Setter Property="FontSize" Value="{DynamicResource FontSizeGroupTitle}" />
+                <Setter Property="FontWeight" Value="{DynamicResource FontWeightGroupTitle}" />
+                <Setter Property="Margin" Value="0,0,0,10" />
             </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid MaxWidth="820" HorizontalAlignment="Center">
+    <!-- Centred in its area in every theme: the Grid is held to the page width and a stretched element that is capped sits in the middle. -->
+    <Grid MaxWidth="{DynamicResource PageBodyMaxWidth}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ScrollViewer Grid.Row="0" Margin="24,8,24,8" Padding="0,0,14,0" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
+        <ScrollViewer Grid.Row="0" Margin="0,8,0,8" Padding="0,0,14,0" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
             <StackPanel>
                 <!-- Three headline numbers. -->
                 <Grid>
@@ -47,24 +51,25 @@
                     </Grid.ColumnDefinitions>
                     <Border Grid.Column="0" Style="{StaticResource StatTileStyle}">
                         <StackPanel>
-                            <TextBlock Text="{Binding GameCount}" FontSize="26" FontWeight="Bold" />
-                            <TextBlock Text="Games" FontSize="11.5" Foreground="{StaticResource DesignMuted}" />
+                            <TextBlock Text="{Binding GameCount}" FontSize="{DynamicResource FontSizeStat}" FontWeight="{DynamicResource FontWeightStat}" />
+                            <TextBlock Text="Games" FontSize="11.5" Foreground="{DynamicResource Muted}" />
                         </StackPanel>
                     </Border>
                     <Border Grid.Column="1" Style="{StaticResource StatTileStyle}">
                         <StackPanel>
-                            <TextBlock Text="{Binding TotalPlayDisplay}" FontSize="26" FontWeight="Bold" />
-                            <TextBlock Text="Tracked play time" FontSize="11.5" Foreground="{StaticResource DesignMuted}" />
+                            <TextBlock Text="{Binding TotalPlayDisplay}" FontSize="{DynamicResource FontSizeStat}" FontWeight="{DynamicResource FontWeightStat}" />
+                            <TextBlock Text="Tracked play time" FontSize="11.5" Foreground="{DynamicResource Muted}" />
                         </StackPanel>
                     </Border>
                     <Border Grid.Column="2" Style="{StaticResource StatTileStyle}" Margin="0">
                         <StackPanel>
-                            <TextBlock Text="{Binding PlayedGameCount}" FontSize="26" FontWeight="Bold" />
-                            <TextBlock Text="Games played" FontSize="11.5" Foreground="{StaticResource DesignMuted}" />
+                            <TextBlock Text="{Binding PlayedGameCount}" FontSize="{DynamicResource FontSizeStat}" FontWeight="{DynamicResource FontWeightStat}" />
+                            <TextBlock Text="Games played" FontSize="11.5" Foreground="{DynamicResource Muted}" />
                         </StackPanel>
                     </Border>
                 </Grid>
 
+                <Border Style="{StaticResource GroupCard}" Margin="0,12,0,12"><StackPanel>
                 <TextBlock Text="Most played" Style="{StaticResource SectionHeadingStyle}" />
                 <TextBlock Text="Nothing tracked yet. Play a game while Axis Game Launcher is running and it will show up here."
                            FontSize="12" Opacity="0.6" TextWrapping="Wrap"
@@ -77,16 +82,17 @@
                                 <Grid>
                                     <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" Margin="0,0,70,0" />
                                     <TextBlock Text="{Binding Detail}" FontSize="12" HorizontalAlignment="Right"
-                                               Foreground="{StaticResource DesignMuted}" />
+                                               Foreground="{DynamicResource Muted}" />
                                 </Grid>
-                                <ProgressBar Height="5" Margin="0,5,0,0" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding Fraction, Mode=OneWay}"
-                                             Foreground="{StaticResource DesignAccent}" Background="{StaticResource DesignTrackFill}" />
+                                <ProgressBar Height="6" Margin="0,5,0,0" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding Fraction, Mode=OneWay}"
+                                             Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}" />
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                </StackPanel></Border>
 
-                <StackPanel Visibility="{Binding HasPlayedThisWeek, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <Border Style="{StaticResource GroupCard}" Visibility="{Binding HasPlayedThisWeek, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
                     <TextBlock Text="{Binding PlayedThisWeekHeading}" Style="{StaticResource SectionHeadingStyle}" />
                     <ItemsControl ItemsSource="{Binding PlayedThisWeek}">
                         <ItemsControl.ItemTemplate>
@@ -94,14 +100,14 @@
                                 <Grid Margin="0,0,0,6">
                                     <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" Margin="0,0,110,0" />
                                     <TextBlock Text="{Binding Detail}" FontSize="12" HorizontalAlignment="Right"
-                                               Foreground="{StaticResource DesignMuted}" />
+                                               Foreground="{DynamicResource Muted}" />
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                </StackPanel>
+                </StackPanel></Border>
 
-                <StackPanel Visibility="{Binding HasNotPlayed, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <Border Style="{StaticResource GroupCard}" Visibility="{Binding HasNotPlayed, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
                     <TextBlock Text="Not played yet" Style="{StaticResource SectionHeadingStyle}" />
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -114,11 +120,11 @@
                                    Command="{Binding DataContext.SelectViewCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                    CommandParameter="unplayed" />
                     </Grid>
-                </StackPanel>
+                </StackPanel></Border>
             </StackPanel>
         </ScrollViewer>
 
-        <TextBlock Grid.Row="1" Margin="24,0,24,18"
+        <TextBlock Grid.Row="1" Margin="0,0,0,14"
                    Text="Only play seen by Axis Game Launcher is counted - earlier play history isn't known."
                    FontSize="11" Opacity="0.55" TextWrapping="Wrap" VerticalAlignment="Center" />
     </Grid>

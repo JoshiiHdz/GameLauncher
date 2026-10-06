@@ -131,9 +131,12 @@ public partial class LibraryViewModel
         IsSidebarExpanded = s.SidebarExpanded;
         VibrantBackground = s.VibrantBackground;
         MinimizeToTrayWhileGaming = s.MinimizeToTrayWhileGaming;
+        MinimizeToTrayOnMinimize = s.MinimizeToTrayOnMinimize;
         TrackExternalGames = s.TrackExternalGames;
         CheckForUpdates = s.CheckForUpdates;
         OptimizeBeforeLaunch = s.OptimizeBeforeLaunch;
+        FocusPlayEnabled = s.FocusPlay;
+        FocusPlayOnlyWhenPluggedIn = s.FocusPlayOnlyWhenPluggedIn;
     }
 
     /// <summary>Pushes the (just merged) overrides onto the games already on screen, the same fields a rescan re-applies.</summary>
