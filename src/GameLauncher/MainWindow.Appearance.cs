@@ -80,7 +80,14 @@ public partial class MainWindow
 
     // The Console-ribbon page is a layer with rounded top corners (22 px); the bottom corners run off the window.
     /// <summary>Called whenever a dialog opens or closes, so the Console-ribbon home can recede behind it.</summary>
-    internal void NotifyModalChanged() => Shell.ModalOpen = IsModalOpen;
+    internal void NotifyModalChanged()
+    {
+        Shell.ModalOpen = IsModalOpen;
+        Shell.PaletteOpen = IsModalOpen && _modals.Peek().Content is CommandPaletteDialog;
+        PadKeyboardFollowsDialogs();
+        if (IsModalOpen && DataContext is LibraryViewModel { IsControllerMode: true })
+            Dispatcher.BeginInvoke(() => EnsurePadFocus(), System.Windows.Threading.DispatcherPriority.Loaded); // a dialog that opens gets the pad at once
+    }
 
     private void RoundPageTop(object sender, SizeChangedEventArgs e) =>
         PageHost.Clip = new RectangleGeometry(new Rect(0, 0, PageHost.ActualWidth, PageHost.ActualHeight + 40), 22, 22);

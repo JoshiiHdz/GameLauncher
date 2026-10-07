@@ -55,7 +55,7 @@ public partial class LibraryViewModel
         var now = SessionClock();
         var items = new List<PaletteItem>();
 
-        var recentIds = _allGames.Where(g => !g.Hidden && g.HasPlayTime).OrderByDescending(g => g.LastPlayedUtc).Take(5)
+        var recentIds = _allGames.Where(g => !g.Hidden && g.HasPlayTime).OrderByDescending(g => g.LastPlayedUtc).Take(IsControllerMode ? 12 : 5) // no keyboard to type with: offer more
             .Select(g => g.Id).ToHashSet();
 
         foreach (var game in _allGames.Where(g => !g.Hidden && IsSourceEnabled(g.Source)))
@@ -75,7 +75,7 @@ public partial class LibraryViewModel
                     else
                         ShowGameDetailsCommand.Execute(captured);
                 },
-                Bonus: (recent ? 40 : 0) + (game.Favorite ? 20 : 0), ShowWhenEmpty: recentIds.Contains(game.Id),
+                Bonus: (recent ? 40 : 0) + (game.Favorite ? 20 : 0), ShowWhenEmpty: recentIds.Contains(game.Id) || (IsControllerMode && game.Favorite),
                 Cover: game.IsCoverArt ? game.Icon : null, Detail: LauncherText.Name(game.Source)));
         }
 
@@ -85,8 +85,6 @@ public partial class LibraryViewModel
             return items;
 
         items.Add(Command("Pick a game for me", "random shuffle suggest surprise", () => PickGameCommand.Execute(null), showWhenEmpty: true));
-        if (ControllerModeAvailable)
-            items.Add(Command("Controller mode", "big screen controller gamepad couch tv fullscreen full screen", () => ShowBigScreenCommand.Execute(null), showWhenEmpty: true));
         items.Add(Command("Show stats", "statistics playtime play time most played charts", () => ShowStatsCommand.Execute(null), showWhenEmpty: true));
         items.Add(Command("My PC: specs, motherboard, BIOS and Secure Boot", "computer hardware cpu processor gpu graphics ram memory motherboard mobo bios uefi tpm system information", () => ShowMyPcCommand.Execute(null), showWhenEmpty: true));
         items.Add(Command("Optimize: free up memory and storage", "ram clean cleanup temp cache speed boost", () => ShowOptimizeCommand.Execute(null), showWhenEmpty: true));
@@ -98,6 +96,8 @@ public partial class LibraryViewModel
         if (HasDuplicates)
             items.Add(Command("Go to games installed twice", "duplicates copies view", () => SelectViewCommand.Execute("duplicates")));
         items.Add(Command("Open settings", "preferences options configuration", () => ShowSettingsCommand.Execute(null)));
+        if (IsAxisTheme)
+            items.Add(Command("Controller mode (F11)", "gamepad controller pad xbox playstation big screen couch tv full screen switch", () => EnterControllerModeFromAxisCommand.Execute(null)));
 
         // Each setting can be found by name and takes you to the section that holds it.
         foreach (var (title, keywords, section, sectionName) in SettingsPaletteEntries)

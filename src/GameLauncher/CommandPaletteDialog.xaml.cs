@@ -11,6 +11,9 @@ public partial class CommandPaletteDialog : UserControl
 {
     private readonly CommandPaletteViewModel _viewModel;
 
+    /// <summary>The palette's view model, so the controller can move its selection and choose (the keyboard does this through key events).</summary>
+    internal CommandPaletteViewModel Model => _viewModel;
+
     public CommandPaletteDialog(CommandPaletteViewModel viewModel)
     {
         InitializeComponent();

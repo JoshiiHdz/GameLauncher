@@ -8,6 +8,7 @@
              xmlns:services="clr-namespace:GameLauncher.Services"
              xmlns:conv="clr-namespace:GameLauncher.Converters"
              xmlns:local="clr-namespace:GameLauncher"
+             xmlns:controls="clr-namespace:GameLauncher.Controls"
              mc:Ignorable="d">
 
     <UserControl.Resources>
@@ -432,6 +433,68 @@
                                        Style="{StaticResource NoteStyle}" />
                             <TextBlock Text="Not used by this theme." Style="{StaticResource NoteStyle}" FontWeight="SemiBold"
                                        Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Only in the PlayStation theme: controller mode is a mode of that theme. -->
+                    <Border x:Name="ControllerCard" Style="{StaticResource GroupCardStyle}"
+                            Visibility="{Binding ControllerModeAvailable, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <StackPanel>
+                            <TextBlock Text="Controller mode" Style="{StaticResource GroupTitleStyle}" />
+                            <ui:ToggleSwitch x:Name="ControllerSwitch" Content="Use the launcher with a controller" IsChecked="{Binding IsControllerMode, Mode=TwoWay}" />
+                            <TextBlock Text="Full screen and a little bigger, driven by a gamepad: D-pad or left stick to move, A to choose, B to go back. Xbox controllers work as they are; a PlayStation controller needs Steam Input or DS4Windows. The controller is ignored whenever a game (or another window) is in front."
+                                       Style="{StaticResource NoteStyle}" />
+
+                            <Border Style="{StaticResource RowGapStyle}" />
+                            <TextBlock Text="Button mapping" FontSize="14" FontWeight="SemiBold" Margin="0,6,0,2" />
+                            <TextBlock Text="A and B never change, and the D-pad and left stick always move. Press a button's row to give that button another job; press again for the next one, and it comes back round to its default. A job can be on one button only: one that another button already has is skipped."
+                                       Style="{StaticResource NoteStyle}" />
+                            <!-- The buttons that never change, drawn as they look on the pad. -->
+                            <StackPanel x:Name="ControllerFixedButtons" Margin="0,8,0,4">
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="64" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:PadGlyphView Glyph="A" HorizontalAlignment="Left" />
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center"><Run Text="Choose" FontWeight="SemiBold" /><Run Text="  -  always" Foreground="{DynamicResource Muted}" /></TextBlock>
+                                </Grid>
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="64" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:PadGlyphView Glyph="B" HorizontalAlignment="Left" />
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center"><Run Text="Back" FontWeight="SemiBold" /><Run Text="  -  always" Foreground="{DynamicResource Muted}" /></TextBlock>
+                                </Grid>
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="64" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:PadGlyphView Glyph="RightStick" HorizontalAlignment="Left" />
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center"><Run Text="Scroll" FontWeight="SemiBold" /><Run Text="  -  always" Foreground="{DynamicResource Muted}" /></TextBlock>
+                                </Grid>
+                            </StackPanel>
+                            <ItemsControl x:Name="ControllerButtonList" ItemsSource="{Binding ControllerButtonRows}" Focusable="False" Margin="0,6,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="64" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <controls:PadGlyphView Glyph="{Binding Glyph}" HorizontalAlignment="Left" />
+                                            <ui:Button Grid.Column="1" MinWidth="230" HorizontalContentAlignment="Left" Content="{Binding FunctionText}"
+                                                       Command="{Binding DataContext.CycleControllerButtonCommand, RelativeSource={RelativeSource AncestorType=local:SettingsPage}}"
+                                                       CommandParameter="{Binding}" ToolTip="Press to give this button another job"
+                                                       AutomationProperties.Name="{Binding ButtonName}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <ui:Button x:Name="ControllerResetButton" Content="Reset buttons to default" Command="{Binding ResetControllerButtonsCommand}" Icon="{ui:SymbolIcon ArrowCounterclockwise24}"
+                                       HorizontalAlignment="Left" Margin="0,6,0,0" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

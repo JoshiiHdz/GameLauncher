@@ -442,11 +442,6 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
             await ShellTestSupport.SettleAsync();
             Assert.True(window.IsModalOpen); // a stray click must not throw away what was typed
 
-            // Ctrl+K and F11 do not open anything on top of a dialog.
-            var preview = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window)!, 0, Key.F11) { RoutedEvent = Keyboard.PreviewKeyDownEvent };
-            window.RaiseEvent(preview);
-            Assert.True(preview.Handled);
-
             await Invoke(window.ModalCloseButton);
             Assert.False(window.IsModalOpen);
             Assert.True(window.SearchBox.IsEnabled);

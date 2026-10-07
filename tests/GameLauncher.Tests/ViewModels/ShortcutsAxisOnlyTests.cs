@@ -90,9 +90,6 @@ public sealed class ShortcutsAxisOnlyTests(WpfStaFixture sta)
 
             Assert.True(vm.IsPageOpen);                                              // Esc is not a way back here: the back button is
 
-            var f11 = Press(window, Key.F11, Keyboard.PreviewKeyDownEvent);
-            Assert.True(f11.Handled);                                                // swallowed: it can never reach a command
-
             vm.ClosePageCommand.Execute(null);                                       // the back button's command still works
             Assert.False(vm.IsPageOpen);
         }
@@ -104,7 +101,7 @@ public sealed class ShortcutsAxisOnlyTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void InAxis_EscapeStillGoesBack_AndF11IsLeftToItsBinding() => sta.RunAsync(async () =>
+    public void InAxis_EscapeStillGoesBack() => sta.RunAsync(async () =>
     {
         GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
         ThemeManager.Apply(ThemeId.Axis);
@@ -121,9 +118,6 @@ public sealed class ShortcutsAxisOnlyTests(WpfStaFixture sta)
             await ShellTestSupport.SettleAsync();
 
             Assert.False(vm.IsPageOpen);
-
-            var f11 = Press(window, Key.F11, Keyboard.PreviewKeyDownEvent);
-            Assert.False(f11.Handled);                                               // not swallowed by the theme rule (the window's own binding decides)
         }
         finally { window.Close(); }
     });

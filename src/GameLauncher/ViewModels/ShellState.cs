@@ -99,6 +99,7 @@ public sealed partial class ShellState : ObservableObject
         library.PropertyChanged += OnLibraryChanged;
         library.ListsChanged += RefreshRibbon;
         library.ListsChanged += RebuildLibraryGroups;
+        library.ControllerMap.Changed += NotifyPadHints; // the hints name what each button does now
         ThemeState.Instance.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ThemeState.IsRibbon))
@@ -344,7 +345,7 @@ public sealed partial class ShellState : ObservableObject
 
     public bool HasActivityCards => ActivityCards.Count > 0;
 
-    /// <summary>The focused game's play-time figures and sessions, for the home's right-hand Sessions panel; null for the Library tile.</summary>
+    /// <summary>The focused game's play-time figures and sessions, for the About cards; null for the Library tile.</summary>
     [ObservableProperty]
     private PlayTimeViewModel? _heroPlayTime;
 
@@ -362,15 +363,17 @@ public sealed partial class ShellState : ObservableObject
         }
         else if (HeroGame is { } g)
         {
-            // Exactly the Game details page's fact cards (same wording as GameDetailsViewModel); only Collections is clickable there, so only it is here.
+            // Two columns, filled row by row: every card you can press is on the left (so the D-pad goes straight down them), the plain facts beside them on the right.
+            // The launcher is not a card any more (the facts line already shows it); the session figures that used to float on the right are the first card.
             var details = new GameDetailsViewModel(g, null);
-            cards.Add(new("LAUNCHER", details.SourceText, "", () => { }, clickable: false));
-            cards.Add(new("INSTALLED IN", g.InstallDir, "", () => { }, clickable: false));
-            cards.Add(new("SIZE ON DISK", details.SizeText, "", () => { }, clickable: false));
             HeroPlayTime = Library.BuildPlayTime(g);
+            var sessionText = HeroPlayTime.HasSessions ? $"Last {HeroPlayTime.LastSessionText}" : "No sessions yet";
+            cards.Add(new("SESSION PLAY TIME ›", sessionText, "", () => Library.ShowPlayTimeCommand.Execute(g)));
+            cards.Add(new("INSTALLED IN", g.InstallDir, "", () => { }, clickable: false));
             cards.Add(new("PLAY TIME ›", HeroPlayTime.CardText, "", () => Library.ShowPlayTimeCommand.Execute(g)));
-            cards.Add(new("ADDED", details.AddedText, "", () => { }, clickable: false));
+            cards.Add(new("SIZE ON DISK", details.SizeText, "", () => { }, clickable: false));
             cards.Add(new("COLLECTIONS ›", details.CollectionsText, "", () => Library.EditCollectionsCommand.Execute(g)));
+            cards.Add(new("ADDED", details.AddedText, "", () => { }, clickable: false));
             details.Dispose();
         }
 
@@ -458,8 +461,105 @@ public sealed partial class ShellState : ObservableObject
     private GameEntry? MostRecentlyPlayed() =>
         Library.RecentlyPlayedGames.FirstOrDefault() ?? Library.FeaturedGame;
 
+    /// <summary>What the hints bar says right now, as buttons and what they do (the bar draws each button like the real thing). Empty outside controller mode.</summary>
+    public IReadOnlyList<PadHintItem> PadHintItems
+    {
+        get
+        {
+            if (!Library.IsControllerMode)
+                return [];
+
+            // The pad went to sleep or was unplugged: the mode stays on (a button press on it wakes it), and this says how to get going again or leave.
+            if (!Library.ControllerConnected)
+                return [PadHintItem.Sentence("Controller disconnected  -  press a button on it to wake it, or click the controller button at the top to leave")];
+
+            if (IsMenuOpen)
+                return [PadHintItem.Of(PadGlyph.A, "Choose"), PadHintItem.Of(PadGlyph.B, "Close")];
+
+            // The keyboard has its own help line; the search palette says how to bring the keyboard back; any other dialog is just A and B.
+            if (KeyboardOpen)
+                return [];
+
+            if (ModalOpen)
+                return PaletteOpen
+                    ? [PadHintItem.Of(PadGlyph.A, "Choose"), PadHintItem.Of(PadGlyph.X, "Type"), PadHintItem.Of(PadGlyph.B, "Close")]
+                    : [PadHintItem.Of(PadGlyph.A, "Select"), PadHintItem.Of(PadGlyph.B, "Close")];
+
+            if (NavOpen)
+                return [PadHintItem.Of(PadGlyph.A, "Select"), PadHintItem.Of(PadGlyph.B, "Close")];
+
+            var map = Library.ControllerMap;
+            if (Library.IsPageOpen)
+            {
+                var items = new List<PadHintItem>
+                {
+                    PadHintItem.Of(PadGlyph.A, "Select"),
+                    PadHintItem.Of(PadGlyph.B, "Back"),
+                    PadHintItem.Of(PadGlyph.RightStick, "Scroll"),
+                };
+                var paging = ControllerMap.Remappable.Where(b => map.Resolve(b) is PadFunction.PageUp or PadFunction.PageDown)
+                    .Select(PadHintItem.GlyphOf).OfType<PadGlyph>().ToList();
+                if (paging.Count > 0)
+                    items.Add(new PadHintItem(paging, "Page"));
+
+                return items;
+            }
+
+            // The home screen and the Library tab: A and B, then whatever the other buttons do now (only the jobs that work on this screen).
+            var jobs = new List<PadHintItem> { PadHintItem.Of(PadGlyph.A, Tab == ShellTab.Library ? "Open" : "Select") };
+            foreach (var button in ControllerMap.Remappable)
+            {
+                var label = map.Resolve(button) switch
+                {
+                    PadFunction.Settings => "Settings",
+                    PadFunction.Library => "Library",
+                    PadFunction.Optimize => "Optimize",
+                    PadFunction.RescanLibrary => "Rescan",
+                    PadFunction.Search => "Search",
+                    PadFunction.GameMenu => "Menu",
+                    PadFunction.NextTab when Tab == ShellTab.Home => "Library",
+                    PadFunction.PreviousTab when Tab == ShellTab.Library => "Home",
+                    _ => null,
+                };
+                if (label is not null && PadHintItem.GlyphOf(button) is { } glyph)
+                    jobs.Add(PadHintItem.Of(glyph, label));
+            }
+
+            jobs.Add(PadHintItem.Of(PadGlyph.RightStick, "Scroll"));
+            jobs.Add(PadHintItem.Of(PadGlyph.B, Tab == ShellTab.Library ? "Home" : "Leave"));
+            return jobs;
+        }
+    }
+
+    /// <summary>The same hints as one line of text ("A  Select      Y  Settings ..."): for tests and screen readers.</summary>
+    public string PadHints => PadHintItem.Join(PadHintItems);
+
+    public bool HasPadHints => PadHintItems.Count > 0;
+
+    private void NotifyPadHints()
+    {
+        OnPropertyChanged(nameof(PadHintItems));
+        OnPropertyChanged(nameof(PadHints));
+        OnPropertyChanged(nameof(HasPadHints));
+    }
+
+    partial void OnModalOpenChanged(bool value) => NotifyPadHints();
+
+    /// <summary>The on-screen keyboard is up (set by the window). It has its own help line, so the hints bar steps aside.</summary>
+    [ObservableProperty]
+    private bool _keyboardOpen;
+
+    /// <summary>The search palette is the dialog showing (set by the window).</summary>
+    [ObservableProperty]
+    private bool _paletteOpen;
+
+    partial void OnKeyboardOpenChanged(bool value) => NotifyPadHints();
+
+    partial void OnPaletteOpenChanged(bool value) => NotifyPadHints();
+
     partial void OnTabChanged(ShellTab value)
     {
+        NotifyPadHints();
         // The grid is one row; on Home the focused game lives in Recently played if it is there, else in All games.
         FocusedRow = value == ShellTab.Library ? 0 : FocusedGame is { } game && Library.RecentlyPlayedGames.Contains(game) ? 0 : 1;
 
@@ -473,9 +573,14 @@ public sealed partial class ShellState : ObservableObject
         OnPropertyChanged(nameof(IsMenuOpen));
         OnPropertyChanged(nameof(IsOverlayOpen));
         OnPropertyChanged(nameof(MenuCentered));
+        NotifyPadHints();
     }
 
-    partial void OnNavOpenChanged(bool value) => OnPropertyChanged(nameof(IsOverlayOpen));
+    partial void OnNavOpenChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsOverlayOpen));
+        NotifyPadHints();
+    }
 
     // ---- Feedback -------------------------------------------------------------------------------------------------
 
@@ -511,6 +616,11 @@ public sealed partial class ShellState : ObservableObject
                 break;
             case nameof(LibraryViewModel.IsPageOpen):
                 OnPropertyChanged(nameof(IsOverlayOpen));
+                NotifyPadHints();
+                break;
+            case nameof(LibraryViewModel.IsControllerMode):
+            case nameof(LibraryViewModel.ControllerConnected):
+                NotifyPadHints();
                 break;
             case nameof(LibraryViewModel.AllGamesCount):
             case nameof(LibraryViewModel.FavoritesCount):

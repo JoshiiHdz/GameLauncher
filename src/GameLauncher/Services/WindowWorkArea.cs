@@ -48,6 +48,24 @@ public static class WindowWorkArea
             (info.Work.Right - info.Work.Left) / dpi.DpiScaleX, (info.Work.Bottom - info.Work.Top) / dpi.DpiScaleY);
     }
 
+    /// <summary>The whole monitor the window is on (taskbar included), in the window's device-independent units (what
+    /// <see cref="ControllerScale"/> goes by); null when it cannot be found.</summary>
+    public static Rect? MonitorOf(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero)
+            return null;
+
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(MonitorFromWindow(handle, MonitorDefaultToNearest), ref info))
+            return null;
+
+        var dpi = VisualTreeHelper.GetDpi(window);
+        var bounds = new Rect(info.Monitor.Left / dpi.DpiScaleX, info.Monitor.Top / dpi.DpiScaleY,
+            (info.Monitor.Right - info.Monitor.Left) / dpi.DpiScaleX, (info.Monitor.Bottom - info.Monitor.Top) / dpi.DpiScaleY);
+        return bounds;
+    }
+
     /// <summary>Shrinks and moves a normal window so all of it is inside the work area. Does nothing for a maximized or minimized window.</summary>
     public static void Clamp(Window window)
     {

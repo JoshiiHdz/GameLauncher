@@ -180,8 +180,8 @@ public partial class MainWindow : IModalHost
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        // Ctrl+K and F11 are Axis shortcuts. In the console themes they do nothing at all (swallowed here, before the window's key bindings see them).
-        if (!ThemeState.Instance.ShortcutsEnabled && (e.Key == Key.F11 || (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)))
+        // Ctrl+K is an Axis shortcut. In the console themes it does nothing at all (swallowed here, before the window's key bindings see it).
+        if (!ThemeState.Instance.ShortcutsEnabled && e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)
         {
             e.Handled = true;
             return;
@@ -194,7 +194,7 @@ public partial class MainWindow : IModalHost
         }
 
         // Behind a dialog the shortcuts that would open another one stay quiet.
-        if (IsModalOpen && (e.Key == Key.F11 || (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)))
+        if (IsModalOpen && e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)
         {
             e.Handled = true;
             return;

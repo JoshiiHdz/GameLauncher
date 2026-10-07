@@ -65,6 +65,10 @@ public sealed class AppSettings
     /// <summary>Hide to the system tray when the window's minimize button is pressed, instead of minimizing to the taskbar. Off by default.</summary>
     public bool MinimizeToTrayOnMinimize { get; set; }
 
+    /// <summary>Controller button changes (button name to job name; see ControllerMap). Only what the user changed is stored, so a default can move later without
+    /// overriding anyone. Empty means every button is on its default.</summary>
+    public Dictionary<string, string> ControllerButtons { get; set; } = new();
+
     /// <summary>Trim other apps' idle memory just before a game is launched from here (see MemoryOptimizer). Off by default.</summary>
     public bool OptimizeBeforeLaunch { get; set; }
 

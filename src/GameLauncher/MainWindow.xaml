@@ -6,6 +6,7 @@
         xmlns:local="clr-namespace:GameLauncher"
         xmlns:conv="clr-namespace:GameLauncher.Converters"
         xmlns:beh="clr-namespace:GameLauncher.Behaviors"
+        xmlns:controls="clr-namespace:GameLauncher.Controls"
         xmlns:services="clr-namespace:GameLauncher.Services"
         xmlns:vm="clr-namespace:GameLauncher.ViewModels"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
@@ -19,7 +20,7 @@
 
     <Window.InputBindings>
         <KeyBinding Key="K" Modifiers="Control" Command="{Binding ShowCommandPaletteCommand}" />
-        <KeyBinding Key="F11" Command="{Binding ShowBigScreenCommand}" />
+        <KeyBinding Key="F11" Command="{Binding EnterControllerModeFromAxisCommand}" />
     </Window.InputBindings>
 
     <Window.Resources>
@@ -439,6 +440,17 @@
                         Click="CaptionMinimize_Click" ToolTip="Minimize">
                     <Path Data="M0,0 L10,0" Stroke="#E8FFFFFF"
                           StrokeThickness="1.2" Width="10" Height="1" />
+                </Button>
+
+                <!-- Whether a controller is connected, always visible; just left of the caption buttons. -->
+                <controls:ControllerStatusPill x:Name="AxisControllerPill" DockPanel.Dock="Right" Margin="0,0,10,0" />
+
+                <!-- Axis's way into controller mode (also F11, Ctrl+K, and Start on a pad): puts the PlayStation look on for the session. -->
+                <Button x:Name="AxisControllerModeButton" DockPanel.Dock="Right" Style="{StaticResource CaptionButtonStyle}" Width="38"
+                        Command="{Binding EnterControllerModeFromAxisCommand}" ToolTip="Controller mode (F11)"
+                        AutomationProperties.Name="Controller mode" AutomationProperties.AutomationId="AxisControllerModeButton"
+                        Visibility="{Binding IsAxisTheme, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <ui:SymbolIcon Symbol="Games24" FontSize="18" Foreground="#E8FFFFFF" />
                 </Button>
 
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
@@ -1445,7 +1457,7 @@
 
         <!-- The caption the console themes share: a drag area with the title on the left and the window buttons on the right. -->
         <Grid x:Name="ConsoleCaption" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Height="32" VerticalAlignment="Top" Panel.ZIndex="80"
-              Background="Transparent" Visibility="{Binding IsConsoleTheme, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+              Background="Transparent" Visibility="{Binding ShowConsoleCaption, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
             <TextBlock Text="Axis Game Launcher" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="14,0,0,0" IsHitTestVisible="False" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Style="{StaticResource CaptionButtonStyle}" Height="32" Width="46" Click="CaptionMinimize_Click" ToolTip="Minimize">
@@ -1473,7 +1485,7 @@
 
         <!-- The open page (Settings, Stats, ...): a Back arrow and the page's title, then the page itself. Sits where the library sits,
              so the sidebar and the title bar stay put and the page is in the same theme as everything else. -->
-        <Grid x:Name="PageHost" Grid.Row="1" Grid.Column="1" Panel.ZIndex="10" Background="{DynamicResource Bg}"
+        <Grid x:Name="PageHost" KeyboardNavigation.DirectionalNavigation="Contained" KeyboardNavigation.TabNavigation="Contained" Grid.Row="1" Grid.Column="1" Panel.ZIndex="10" Background="{DynamicResource Bg}"
               Visibility="{Binding IsPageOpen, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -1556,7 +1568,7 @@
 
         <!-- In-app dialogs (collections, feedback, confirmations, the command palette, ...): a dimmed layer over the whole window below
              the title bar, with the dialog as a card in the middle. MainWindow.Shell.cs shows and hides it. -->
-        <Grid x:Name="ModalLayer" Grid.Row="1" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2" Panel.ZIndex="50"
+        <Grid x:Name="ModalLayer" KeyboardNavigation.DirectionalNavigation="Contained" Grid.Row="1" Grid.RowSpan="2" Grid.Column="0" Grid.ColumnSpan="2" Panel.ZIndex="50"
               Visibility="Collapsed" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.ControlTabNavigation="Cycle">
             <Border x:Name="ModalScrim" Background="#B3000000" MouseLeftButtonDown="ModalScrim_MouseLeftButtonDown" />
 
@@ -1581,5 +1593,19 @@
                 </DockPanel>
             </Border>
         </Grid>
+
+        <!-- The on-screen keyboard the pad types with: over the page and over dialogs, under the focus ring. Shown only while a text box is being typed into. -->
+        <local:OnScreenKeyboard x:Name="PadKeyboard" Grid.Row="0" Grid.RowSpan="3" Grid.Column="0" Grid.ColumnSpan="2" Panel.ZIndex="150" Visibility="Collapsed"
+                                VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="24,0,24,28" MaxWidth="1040" />
+
+        <!-- Controller mode's focus ring: one ring, drawn over whatever control the pad is on, so every screen shows where the pad is (several controls draw no focus of their own).
+             It sits above everything, takes no clicks, and is only shown while the pad is the thing in use. -->
+        <Canvas x:Name="FocusRingLayer" Grid.Row="0" Grid.RowSpan="3" Grid.Column="0" Grid.ColumnSpan="2" Panel.ZIndex="200" IsHitTestVisible="False" Focusable="False">
+            <Border x:Name="FocusRing" Visibility="Collapsed" IsHitTestVisible="False" BorderBrush="White" BorderThickness="3" CornerRadius="14">
+                <Border.Effect>
+                    <DropShadowEffect ShadowDepth="0" BlurRadius="16" Color="#60A5FA" Opacity="0.9" />
+                </Border.Effect>
+            </Border>
+        </Canvas>
     </Grid>
 </ui:FluentWindow>

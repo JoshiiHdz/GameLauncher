@@ -150,12 +150,6 @@ public partial class ConsoleRibbonView : UserControl
             state.Library.UninstallGameCommand.Execute(game);
     }
 
-    private void HeroPlayTime_Click(object sender, RoutedEventArgs e)
-    {
-        if (State is { } state && state.HeroGame is { } game)
-            state.Library.ShowPlayTimeCommand.Execute(game);
-    }
-
     private void HeroFavorite_Click(object sender, RoutedEventArgs e)
     {
         if (State is { } state && state.HeroGame is { } game)
@@ -357,6 +351,54 @@ public partial class ConsoleRibbonView : UserControl
                 return sv;
 
             if (FindScrollViewer(child) is { } nested)
+                return nested;
+        }
+
+        return null;
+    }
+
+    // ---- Controller support ------------------------------------------------------------------------------------------
+
+    private static bool IsGameTile(IInputElement? element) =>
+        element is Button { DataContext: GameEntry or RibbonLibraryItem, IsVisible: true };
+
+    /// <summary>Keyboard focus is on a game's tile: an item in the ribbon strip (or the Library tile) or a poster in the Library grid.</summary>
+    internal bool GameTileHasFocus => IsGameTile(Keyboard.FocusedElement);
+
+    /// <summary>Puts keyboard focus on the tile of the shell's focused game (or the Library tile) and scrolls it into view. Waits for layout, since the strip or grid may have just changed.</summary>
+    internal void FocusFocusedTile()
+    {
+        if (State is not { } state)
+            return;
+
+        RevealFocused();
+        Dispatcher.BeginInvoke(() => TryFocusTile(), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Puts keyboard focus on the focused game's tile right now; false when there is no such tile on screen (an empty Library tab, a game a filter hides).</summary>
+    internal bool TryFocusTile()
+    {
+        if (State is not { } state)
+            return false;
+
+        object want = state.Tab == ShellTab.Home && state.LibraryTileFocused ? RibbonLibraryItem.Instance : state.FocusedGame ?? (object)RibbonLibraryItem.Instance;
+        if (FindTile(this, want) is not { } tile)
+            return false;
+
+        tile.BringIntoView();
+        return Keyboard.Focus(tile) is not null;
+    }
+
+    private static Button? FindTile(DependencyObject root, object context)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is Button { IsVisible: true, Focusable: true } button && ReferenceEquals(button.DataContext, context)
+                && (button is Controls.RibbonTile || button.Style == button.TryFindResource("PosterButton")))
+                return button;
+
+            if (FindTile(child, context) is { } nested)
                 return nested;
         }
 

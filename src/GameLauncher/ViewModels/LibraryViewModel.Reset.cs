@@ -70,6 +70,7 @@ public partial class LibraryViewModel
         VibrantBackground = true;
         MinimizeToTrayWhileGaming = true;
         MinimizeToTrayOnMinimize = false;
+        ControllerMap.Reset();
         OptimizeBeforeLaunch = false;
         FocusPlayEnabled = false;
         FocusPlayOnlyWhenPluggedIn = true;

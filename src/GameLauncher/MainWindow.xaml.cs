@@ -39,6 +39,7 @@ public partial class MainWindow : FluentWindow
         DataContext = viewModel;
         InitializeShell();
         InitializeAppearance(viewModel);
+        InitializeController(viewModel, startRuntimeServices);
         _sessionOrchestrator = new GameSessionOrchestrator(_sessionWatcher, WindowExitDiagnosticsEnabled);
         SizeToDisplay();
 
@@ -53,7 +54,7 @@ public partial class MainWindow : FluentWindow
         {
             StateChanged += (_, _) =>
             {
-                if (WindowState == WindowState.Normal)
+                if (WindowState == WindowState.Normal && !viewModel.IsControllerMode) // controller mode covers the taskbar on purpose
                     Dispatcher.BeginInvoke(() => WindowWorkArea.Clamp(this), System.Windows.Threading.DispatcherPriority.Loaded);
             };
             Loaded += (_, _) => WindowWorkArea.Clamp(this);
@@ -279,7 +280,7 @@ public partial class MainWindow : FluentWindow
         Activate();
 
         Topmost = true;
-        Topmost = false;
+        Topmost = DataContext is LibraryViewModel { IsControllerMode: true }; // controller mode stays above the taskbar
         Focus();
 
         TrayIcon.Visibility = Visibility.Collapsed;

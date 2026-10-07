@@ -269,6 +269,7 @@ public partial class LibraryViewModel : ObservableObject
         _vibrantBackground = _settings.VibrantBackground;
         _minimizeToTrayWhileGaming = _settings.MinimizeToTrayWhileGaming;
         _minimizeToTrayOnMinimize = _settings.MinimizeToTrayOnMinimize;
+        InitializeControllerMap();
         _optimizeBeforeLaunch = _settings.OptimizeBeforeLaunch;
         _focusPlayEnabled = _settings.FocusPlay;
         _focusPlayOnlyWhenPluggedIn = _settings.FocusPlayOnlyWhenPluggedIn;

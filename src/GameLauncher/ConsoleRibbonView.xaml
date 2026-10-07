@@ -745,6 +745,11 @@
                         <Button x:Name="SearchButton" Style="{StaticResource RoundGlassButton}" Command="{Binding Library.ShowCommandPaletteCommand}" ToolTip="{Binding SearchTooltip, Source={x:Static services:ThemeState.Instance}}" Margin="0,0,10,0">
                             <ui:SymbolIcon Symbol="Search24" FontSize="18" />
                         </Button>
+                        <controls:ControllerStatusPill x:Name="RibbonControllerPill" DataContext="{Binding Library}" Margin="0,0,12,0" />
+                        <Button x:Name="ControllerButton" Style="{StaticResource RoundGlassButton}" Command="{Binding Library.ToggleControllerModeCommand}" ToolTip="Controller mode" Margin="0,0,10,0"
+                                AutomationProperties.Name="Controller mode">
+                            <ui:SymbolIcon Symbol="Games24" FontSize="18" />
+                        </Button>
                         <Button x:Name="SettingsButton" Style="{StaticResource RoundGlassButton}" Command="{Binding Library.ShowSettingsCommand}" ToolTip="Settings" Margin="0,0,10,0">
                             <ui:SymbolIcon Symbol="Options24" FontSize="18" />
                         </Button>
@@ -898,11 +903,11 @@
                         <StackPanel x:Name="HomeExtras" Margin="0,10,0,36" MaxWidth="820" HorizontalAlignment="Left">
                             <TextBlock Text="{Binding ActivityHeading}" Style="{StaticResource SheetHeading}" Margin="0,0,0,10"
                                        Visibility="{Binding HasActivityCards, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                            <!-- The fact cards (three across, as on the Game details page), under Quick access. Not at 760 x 480. -->
-                            <ItemsControl x:Name="ActivityRow" ItemsSource="{Binding ActivityCards}" Margin="0" MaxWidth="640" HorizontalAlignment="Left" Focusable="False">
+                            <!-- The About cards, two columns: every card you can press runs down the left, the plain facts beside them on the right. Not at 760 x 480. -->
+                            <ItemsControl x:Name="ActivityRow" ItemsSource="{Binding ActivityCards}" Margin="0" Width="560" HorizontalAlignment="Left" Focusable="False">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <UniformGrid Columns="3" />
+                                        <UniformGrid Columns="2" />
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
@@ -1023,10 +1028,14 @@
                         </StackPanel>
                     </ScrollViewer>
 
-                    <!-- The right-hand panel: this game's play sessions (the cover is already the focused tile and the background, so it is not shown a third time). -->
-                    <Border x:Name="SessionsPanel" Width="236" MinHeight="150" Margin="{DynamicResource ActiveCoverMargin}" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="18"
-                            BorderBrush="#1AFFFFFF" BorderThickness="1" Background="#CC22252F" Padding="18,16"
+                    <!-- The right-hand card: the focused game's cover, as a card (the strip's tile and the background art are the same picture, but a card here is what the home
+                         always had on the right). Its sessions live in the first About card. -->
+                    <Border x:Name="HeroCover" Width="236" Height="354" Margin="{DynamicResource ActiveCoverMargin}" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="18"
+                            BorderBrush="#26FFFFFF" BorderThickness="1" IsHitTestVisible="False"
                             beh:MotionExtensions.Enter="Rise" beh:MotionExtensions.EnterDurationKey="DurDialog" beh:MotionExtensions.ReplayOn="{Binding RibbonTitle}">
+                        <Border.Effect>
+                            <DropShadowEffect ShadowDepth="8" BlurRadius="30" Opacity="0.55" Color="Black" />
+                        </Border.Effect>
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Setter Property="Visibility" Value="Visible" />
@@ -1043,23 +1052,45 @@
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
-                        <StackPanel DataContext="{Binding HeroPlayTime}">
-                            <TextBlock Text="SESSIONS" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
-                            <StackPanel Visibility="{Binding HasSessions, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                <TextBlock Text="LAST SESSION" Margin="0,12,0,0" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
-                                <TextBlock Text="{Binding LastSessionText}" Margin="0,3,0,0" FontSize="14" Foreground="White" TextWrapping="Wrap" />
-                                <TextBlock Text="THIS WEEK" Margin="0,12,0,0" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
-                                <TextBlock Text="{Binding SessionsThisWeekText}" Margin="0,3,0,0" FontSize="14" Foreground="White" />
-                                <TextBlock Text="LONGEST" Margin="0,12,0,0" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
-                                <TextBlock Text="{Binding LongestSessionText}" Margin="0,3,0,0" FontSize="14" Foreground="White" />
-                                <TextBlock Text="AVERAGE" Margin="0,12,0,0" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
-                                <TextBlock Text="{Binding AverageSessionText}" Margin="0,3,0,0" FontSize="14" Foreground="White" />
-                            </StackPanel>
-                            <TextBlock Margin="0,10,0,0" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
-                                       Text="No sessions yet. Play this game from here and each time you play will show up."
-                                       Visibility="{Binding HasSessions, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
-                            <Button Style="{StaticResource GlassPill}" Height="36" Margin="0,16,0,0" Content="Play time ›" FontSize="13" Click="HeroPlayTime_Click" ToolTip="Today, the last 7 days and all time" />
-                        </StackPanel>
+                        <Grid>
+                            <!-- The cover, when the game has one. -->
+                            <Border x:Name="HeroCoverArt" CornerRadius="17">
+                                <Border.Background>
+                                    <ImageBrush ImageSource="{Binding HeroGame.Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                                </Border.Background>
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HeroGame.IsCoverArt}" Value="False">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                            <!-- No cover (only the program's own icon): the launcher's initials on a plain card, as in the strip. -->
+                            <Border x:Name="HeroCoverFallback" CornerRadius="17">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#2A2D3A" Offset="0" />
+                                        <GradientStop Color="#1A1D27" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                                <TextBlock Text="{Binding HeroGame.Source, Converter={x:Static conv:LauncherInitialsConverter.Instance}}" FontSize="44" FontWeight="Bold" Foreground="White"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HeroGame.IsCoverArt}" Value="False">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                        </Grid>
                     </Border>
 
                 </Grid>
@@ -1174,7 +1205,7 @@
                         <ItemsControl ItemsSource="{Binding LetterIndex}" Focusable="False">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Button Width="28" Height="26" Cursor="Hand" Focusable="False" Click="Letter_Click" IsEnabled="{Binding HasGames}" FocusVisualStyle="{x:Null}">
+                                    <Button Width="28" Height="26" Cursor="Hand" Click="Letter_Click" IsEnabled="{Binding HasGames}" FocusVisualStyle="{x:Null}" AutomationProperties.Name="{Binding Letter}">
                                         <Button.Template>
                                             <ControlTemplate TargetType="Button">
                                                 <Border x:Name="Pill" Background="Transparent" CornerRadius="9">
@@ -1209,11 +1240,21 @@
         </Grid>
 
         <!-- ===== Status: how many games are shown and what the app last did, a pill at the bottom centre. Hidden under dialogs and when there is nothing to say. ===== -->
-        <Border x:Name="StatusPill" Panel.ZIndex="25" VerticalAlignment="Bottom" HorizontalAlignment="Center" IsHitTestVisible="False" MaxWidth="760"
-                Padding="14,5" CornerRadius="12" Background="#B30B0D13" BorderBrush="#14FFFFFF" BorderThickness="1" Opacity="0.95">
-            <Border.RenderTransform>
+        <!-- The bottom centre is one stack: in controller mode the controller guide (what each button does, drawn with the real buttons) sits on top of the status pill. -->
+        <StackPanel x:Name="BottomCenter" Panel.ZIndex="25" VerticalAlignment="Bottom" HorizontalAlignment="Center" IsHitTestVisible="False">
+            <StackPanel.RenderTransform>
                 <TranslateTransform Y="-8" />
-            </Border.RenderTransform>
+            </StackPanel.RenderTransform>
+
+            <!-- ===== Controller mode: what each button does right now. Not shown otherwise. ===== -->
+            <Border x:Name="PadHintsPill" HorizontalAlignment="Center" MaxWidth="1100" Margin="0,0,0,6"
+                    Padding="16,5" CornerRadius="14" Background="#D90B0D13" BorderBrush="#1FFFFFFF" BorderThickness="1"
+                    Visibility="{Binding HasPadHints, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <controls:PadHintsStrip x:Name="PadHintsStrip" Items="{Binding PadHintItems}" />
+            </Border>
+
+        <Border x:Name="StatusPill" HorizontalAlignment="Center" MaxWidth="760"
+                Padding="14,5" CornerRadius="12" Background="#B30B0D13" BorderBrush="#14FFFFFF" BorderThickness="1" Opacity="0.95">
             <TextBlock Text="{Binding StatusLine}" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis" />
             <Border.Style>
                 <Style TargetType="Border">
@@ -1229,6 +1270,8 @@
                 </Style>
             </Border.Style>
         </Border>
+
+        </StackPanel>
 
         <!-- ===== Menu: a panel placed beside what opened it (card, More and drive menus) ===== -->
         <Grid x:Name="MenuLayer" Panel.ZIndex="30" Visibility="{Binding IsMenuOpen, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
