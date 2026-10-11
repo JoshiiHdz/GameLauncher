@@ -20,13 +20,17 @@ public partial class App : Application
     /// in OnStartup included) sees them. A normal launch passes straight through as a no-op.
     /// </summary>
     [STAThread]
-    private static void Main()
+    private static int Main(string[] args)
     {
+        // The elevated copy that clears the files a normal run is refused (see ElevatedCleaner): no window, no single-instance check, just the work and an exit code.
+        if (args.Contains(ElevatedCleaner.Switch))
+            return ElevatedCleaner.RunFromArguments(args);
+
         VelopackApp.Build().Run();
 
         var app = new App();
         app.InitializeComponent();
-        app.Run();
+        return app.Run();
     }
 
     // Sampled from the app icon itself (the dominant fill color across its red/orange artwork)

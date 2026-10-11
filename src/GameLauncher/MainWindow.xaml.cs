@@ -280,7 +280,7 @@ public partial class MainWindow : FluentWindow
         Activate();
 
         Topmost = true;
-        Topmost = DataContext is LibraryViewModel { IsControllerMode: true }; // controller mode stays above the taskbar
+        Topmost = false;
         Focus();
 
         TrayIcon.Visibility = Visibility.Collapsed;

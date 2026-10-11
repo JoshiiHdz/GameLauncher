@@ -13,6 +13,31 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Resources/DesignTokens.xaml" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- One section: a small icon heading and tight label / value rows. The explanatory line a row used to carry is its tooltip. -->
+            <DataTemplate x:Key="SectionTemplate">
+                <StackPanel Margin="0,0,0,10">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                        <ui:SymbolIcon Symbol="{Binding Icon, Converter={x:Static conv:SymbolNameConverter.Instance}}" FontSize="15" Foreground="{DynamicResource Accent}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Title}" Margin="7,0,0,0" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Border Height="1" Background="#14FFFFFF" Margin="0,0,0,4" />
+                    <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,1" Background="Transparent" ToolTip="{Binding Hint}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Label}" FontSize="11.5" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,1,6,0" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </DataTemplate>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -27,37 +52,17 @@
                 </StackPanel>
             </Grid>
 
-            <!-- One compact panel: the sections flow side by side under a small icon heading each, with tight rows. The explanatory line each row used to carry is its tooltip. -->
-            <Border Style="{StaticResource GroupCard}" Padding="20,16,0,2">
-                <ItemsControl x:Name="SectionList" ItemsSource="{Binding Sections}" Focusable="False">
+            <!-- One compact panel, no cards: the sections are dealt into two or three even columns (by how many lines they have) under a small icon heading each. -->
+            <Border Style="{StaticResource GroupCard}" Padding="18,12,18,2">
+                <ItemsControl x:Name="SectionColumns" Focusable="False">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <WrapPanel />
+                            <UniformGrid Rows="1" />
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Width="308" Margin="0,0,22,16">
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                                    <ui:SymbolIcon Symbol="{Binding Icon, Converter={x:Static conv:SymbolNameConverter.Instance}}" FontSize="17" Foreground="{DynamicResource Accent}" VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding Title}" Margin="9,0,0,0" FontSize="13.5" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                </StackPanel>
-                                <Border Height="1" Background="#14FFFFFF" Margin="0,0,0,7" />
-                                <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid Margin="0,0,0,3" Background="Transparent" ToolTip="{Binding Hint}">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="92" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Text="{Binding Label}" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,1,8,0" />
-                                                <TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
+                            <ItemsControl ItemsSource="{Binding}" ItemTemplate="{StaticResource SectionTemplate}" Focusable="False" Margin="0,0,20,0" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

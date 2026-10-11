@@ -503,7 +503,7 @@ public static class StorageCleaner
                 "Web caches, logs and crash files kept by Steam, Epic Games, Ubisoft Connect and Discord. They rebuild themselves; your games, saves and logins are untouched. Close the launcher first for the best result.",
                 LauncherCaches, TimeSpan.Zero),
             Directories("driver-installers", "Old graphics driver installers",
-                "Driver files left behind after installing NVIDIA or AMD drivers (the C:\\NVIDIA and C:\\AMD folders and the GeForce download cache). Only files a week old or more; the driver already installed is not affected.",
+                "Driver files left behind after installing NVIDIA or AMD drivers (the C:\\NVIDIA and C:\\AMD folders and the GeForce download cache). Only files a week old or more; the driver already installed is not affected. Windows protects these folders: if some files are refused, the launcher offers to clear them with administrator rights.",
                 [Path.Combine(systemDrive, "NVIDIA"), Path.Combine(systemDrive, "AMD"), Path.Combine(programData, "NVIDIA Corporation", "Downloader")],
                 oneWeek),
             Directories("windows-update-cache", "Windows Update downloads",

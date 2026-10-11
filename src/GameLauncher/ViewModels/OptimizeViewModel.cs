@@ -42,6 +42,12 @@ public sealed partial class OptimizeViewModel : ObservableObject
     private readonly Action<GameEntry>? _uninstall;
     private readonly string? _runningGameId;
 
+    /// <summary>True when the launcher already runs with administrator rights (then a refused file is simply in use, and asking again would change nothing).</summary>
+    internal Func<bool> IsAdministrator { get; set; } = ElevatedCleaner.IsAdministrator;
+
+    /// <summary>Clears these categories (by id) with administrator rights after Windows' own permission prompt; null when that was declined.</summary>
+    internal Func<IReadOnlyList<string>, IReadOnlyDictionary<string, CleanOutcome>?> RunElevated { get; set; } = ElevatedCleaner.Run;
+
     /// <param name="protectedFolders">Install folders whose programs memory trimming must leave alone (the running game's).</param>
     /// <param name="confirm">The "are you sure?" question; true to go ahead.</param>
     /// <param name="games">The library's games, for the Space saver list; null leaves the list out.</param>
@@ -277,6 +283,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
             int skipped = 0;
             long done = 0;
             var step = 0;
+            var refused = new List<CleanItem>(); // kinds that had files Windows would not let a normal run delete
             foreach (var item in chosen)
             {
                 step++;
@@ -304,11 +311,44 @@ public sealed partial class OptimizeViewModel : ObservableObject
                         Report(unreported);
 
                     item.SizeText = outcome.Deleted == 0 ? "Nothing was cleared" : $"Cleared {ByteFormat.Size(outcome.FreedBytes)}";
+                    if (outcome.Skipped > 0)
+                        refused.Add(item);
                 }
                 catch (Exception ex)
                 {
                     Logger.Warn($"Optimize: cleaning '{item.Name}' failed.", ex);
                     item.SizeText = "Couldn't be cleared";
+                }
+            }
+
+            // Files a normal run is refused (the NVIDIA and AMD driver folders ask Windows' own "Continue" permission prompt too): with the person's say-so the launcher
+            // starts a copy of itself with administrator rights to clear just those kinds. Declined or not, the numbers below are measured, not assumed.
+            string? elevatedNote = null;
+            if (refused.Count > 0 && !IsAdministrator())
+            {
+                var names = string.Join("\n", refused.Select(i => $"  - {i.Name}"));
+                if (_confirm($"Some files in these were refused - Windows wants administrator permission to remove them:\n\n{names}\n\nClear them with administrator rights? Windows will ask you to allow it."))
+                {
+                    StorageText = "Clearing with administrator rights...";
+                    var elevated = await Task.Run(() => RunElevated(refused.Select(i => i.Category.Id).ToList()));
+                    if (elevated is null)
+                    {
+                        elevatedNote = " Administrator permission was not given, so those files stay.";
+                    }
+                    else
+                    {
+                        foreach (var item in refused)
+                        {
+                            if (!elevated.TryGetValue(item.Category.Id, out var more))
+                                continue;
+
+                            freed += more.FreedBytes;
+                            if (more.Deleted > 0)
+                                item.SizeText = $"Cleared {ByteFormat.Size(more.FreedBytes)} with administrator rights";
+                        }
+
+                        skipped = elevated.Values.Sum(o => o.Skipped);
+                    }
                 }
             }
 
@@ -326,7 +366,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
 
             StorageBarFraction = before > 0 ? Math.Clamp((double)after / before, 0, 1) : 0;
             StorageText = after == 0 ? $"All {ByteFormat.Size(before)} cleared." : $"{ByteFormat.Size(after)} left of {ByteFormat.Size(before)}.";
-            var summary = $"Freed {ByteFormat.Size(freed)}." + (skipped > 0 ? $" {skipped:N0} files were in use or protected and were left alone." : "");
+            var summary = $"Freed {ByteFormat.Size(freed)}." + (skipped > 0 ? $" {skipped:N0} files were in use or protected and were left alone." : "") + elevatedNote;
 
             Logger.Info($"Optimize: cleared {ByteFormat.Size(freed)} - {ByteFormat.Size(before)} before, {ByteFormat.Size(after)} after (skipped {skipped} files in use or protected).");
             StorageResultText = summary;

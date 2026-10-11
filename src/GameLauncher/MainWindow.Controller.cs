@@ -6,6 +6,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using GameLauncher.Models;
 using GameLauncher.Services;
 using GameLauncher.ViewModels;
 
@@ -20,10 +21,12 @@ public partial class MainWindow
     private ControllerRouter? _router;
     private WindowSurface? _surface;
     private bool _padInUse;
+
+    /// <summary>Controls whose own keyboard-focus look was switched off while the pad is in use (the one ring is the only highlight); put back when the mode ends.</summary>
+    private readonly List<WeakReference<Control>> _quietedFocusVisuals = new();
     private bool _controllerToastShown;
     private WindowState _stateBeforeController;
     private Rect _boundsBeforeController;
-    private bool _topmostBeforeController;
     private Size _minSizeBeforeController;
     private readonly DispatcherTimer _cursorTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     private Point _lastMousePoint = new(double.NaN, double.NaN);
@@ -72,7 +75,12 @@ public partial class MainWindow
             // Directions and page keys repeat while held (about eight a second), so they are not logged one by one.
             if (button is not (PadButton.Up or PadButton.Down or PadButton.Left or PadButton.Right) && library.ControllerMap.Resolve(button) is not (PadFunction.PageUp or PadFunction.PageDown))
                 Logger.Info($"Pad: {button} (mode {(library.IsControllerMode ? "on" : "off")}; {DescribeScreen(library)})");
+            var traced = library.IsControllerMode && !_router!.AskingToEnter;
+            var screen = DescribeScreen(library);
+            var from = traced ? DescribeControl(Keyboard.FocusedElement) : "";
             _router!.Handle(button);
+            if (traced)
+                TraceStep(screen, button, from);
         };
         _pad.ConnectionChanged += connected => HandlePadConnection(library, connected);
         _pad.BatteryChanged += battery =>
@@ -89,13 +97,20 @@ public partial class MainWindow
 
         // The pad's focus ring follows the focus, the layout and the scrolling; the right stick scrolls; a page or dialog that opens gets the pad at once.
         AddHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler((_, _) => UpdateFocusRing()), true);
+        AddHandler(Keyboard.PreviewGotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler((_, e) => QuietOwnFocusVisual(library, e.NewFocus)), true);
         AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, _) => UpdateFocusRing()), true);
         LayoutUpdated += (_, _) => UpdateFocusRing();
         _pad.RightStick += (_, y, seconds) => ScrollWithStick(library, y, seconds);
         library.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(LibraryViewModel.IsPageOpen) && library.IsControllerMode && library.IsPageOpen)
-                Dispatcher.BeginInvoke(() => _surface!.EnsureFocus(), System.Windows.Threading.DispatcherPriority.Loaded);
+            // A page that opens gets the pad at once; one that closes (a button on it did something: Stats' "Show them") hands the pad back to the screen under it, or the
+            // focus would be left on a control that is gone and the next press would only show where it is.
+            if (e.PropertyName == nameof(LibraryViewModel.IsPageOpen) && library.IsControllerMode)
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (library.IsControllerMode && !IsModalOpen)
+                        _surface!.EnsureFocus();
+                }, System.Windows.Threading.DispatcherPriority.Loaded);
         };
 
         _cursorTimer.Tick += (_, _) => HideCursor();
@@ -110,6 +125,13 @@ public partial class MainWindow
         {
             if (library.IsControllerMode)
                 Logger.Info("The launcher window is in front again.");
+        };
+
+        // A closed window must not keep hiding the pointer for the whole process (its timer would otherwise tick on).
+        Closed += (_, _) =>
+        {
+            _cursorTimer.Stop();
+            ShowCursor();
         };
 
         if (!startRuntimeServices)
@@ -163,30 +185,70 @@ public partial class MainWindow
         : !IsActive ? "window not in front" // a game that has the screen is exactly this case
         : null;
 
+    /// <summary>The control and its place on screen, in words a person reading the navigation log can follow: "Button#HeroPlay[Play] @612,340 96x40".</summary>
+    internal string DescribeControl(object? element)
+    {
+        if (element is not FrameworkElement control)
+            return "nothing";
+
+        var label = control switch
+        {
+            ContentControl { Content: string text } => text,
+            _ => System.Windows.Automation.AutomationProperties.GetName(control) is { Length: > 0 } name ? name : control.ToolTip as string ?? "",
+        };
+
+        if (label.Length == 0)
+        {
+            label = control.DataContext switch
+            {
+                GameEntry game => game.Name,
+                DriveSpaceInfo drive => drive.Letter,
+                { } other => other.GetType().Name,
+                _ => "",
+            };
+        }
+
+        var box = FocusNavigator.BoundsIn(control, RootGrid);
+        var where = box.IsEmpty ? "" : $" @{box.Left:0},{box.Top:0} {box.Width:0}x{box.Height:0}";
+        return $"{control.GetType().Name}#{control.Name}[{(label.Length > 40 ? label[..40] : label)}]{where}";
+    }
+
+    /// <summary>The navigation trace (see <see cref="NavigationTrace"/>): one line per press in controller mode, and a report that says where the pad hit walls or was taken back.</summary>
+    internal NavigationTrace NavTrace { get; } = new(Logger.LogDir);
+
+    private void TraceStep(string screen, PadButton button, string from)
+    {
+        var rule = _router!.LastRule;
+        var stick = _pad.LastStick;
+        var stickText = Math.Abs(stick.X) >= 8000 || Math.Abs(stick.Y) >= 8000 ? $"{stick.X},{stick.Y}" : null;
+
+        // The focus settles a moment after the press (a tile takes it when the layout is done), so what it landed on is read then.
+        Dispatcher.BeginInvoke(() =>
+        {
+            var to = DescribeControl(Keyboard.FocusedElement);
+            NavTrace.IgnoredDiagonals = _pad.IgnoredDiagonals;
+            NavTrace.Record(new NavStep(DateTime.Now, screen, button.ToString(), from, to, rule, to != from, stickText));
+            if (NavTrace.Steps % 40 == 0)
+                NavTrace.WriteSummary();
+        }, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
     private string DescribeScreen(LibraryViewModel library) =>
         Shell.IsMenuOpen ? $"menu {Shell.MenuKind}" : IsModalOpen ? "dialog" : library.IsPageOpen ? "page" : Shell.NavOpen ? "control center" : $"{Shell.Tab} tab";
 
-    /// <summary>A controller was found or went away (it was switched off, went to sleep, or was unplugged). The pill follows, and in controller mode the screen says so: a toast,
-    /// a hint that stays, and the mouse pointer comes back so the mode can be left with a click. The mode itself stays on: a pad that sleeps mid-session wakes with a button press
-    /// and carries on where it was.</summary>
+    /// <summary>A controller was found or went away (it was switched off, went to sleep, or was unplugged). The pill follows. When it goes away in controller mode the mode ends
+    /// (nothing is left to drive it) and a toast says so; waking the controller and pressing Start comes back.</summary>
     internal void HandlePadConnection(LibraryViewModel library, bool connected)
     {
         Logger.Info(connected ? "A controller was found." : "The last controller went away.");
-        library.SetControllerStatus(connected, _pad?.Battery);
+        var wasInMode = library.IsControllerMode;
+        library.SetControllerStatus(connected, _pad?.Battery); // a controller that goes away takes controller mode with it
 
-        if (library.IsControllerMode)
+        if (wasInMode && !connected)
         {
-            if (connected)
-            {
-                Shell.ShowFeedback("Controller connected", "Back in control");
-                _cursorTimer.Start();
-            }
-            else
-            {
-                ShowCursor();
-                Shell.ShowFeedback("Controller disconnected", "Press a button on it to wake it up, or click the controller button to leave");
-            }
-
+            ShowCursor();
+            _controllerToastShown = false; // when it wakes up, "Controller found - press Start" says how to come back
+            Shell.ShowFeedback("Controller disconnected", "Controller mode is off. Wake the controller and press Start to come back");
             return;
         }
 
@@ -210,7 +272,6 @@ public partial class MainWindow
         {
             _stateBeforeController = WindowState;
             _boundsBeforeController = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
-            _topmostBeforeController = Topmost;
             _minSizeBeforeController = new Size(MinWidth, MinHeight);
 
             var monitor = WindowWorkArea.MonitorOf(this);
@@ -230,19 +291,27 @@ public partial class MainWindow
                 Height = m.Height;
             }
 
-            Topmost = true;
+            // Not Topmost: the mode is full screen, but it is an ordinary window, so Alt+Tab, the Windows key and other apps work; a window that covers the whole screen
+            // while it is in front hides the taskbar by itself.
+            Activate();
             Shell.ClearFeedback();
-            if (!library.ControllerConnected)
-                Shell.ShowFeedback("No controller connected", "Wake or plug in your controller, or click the controller button to leave");
             Dispatcher.BeginInvoke(() => RibbonView.FocusFocusedTile(), DispatcherPriority.Loaded);
             _cursorTimer.Start();
         }
         else
         {
+            RestoreOwnFocusVisuals();
+            if (NavTrace.Steps > 0)
+            {
+                NavTrace.IgnoredDiagonals = _pad.IgnoredDiagonals;
+                NavTrace.WriteSummary();
+                Logger.Info("Controller navigation: " + NavTrace.Summary().Split(Environment.NewLine)[0] + " (the report is controller-navigation-summary.txt in the logs folder).");
+            }
+
             _cursorTimer.Stop();
             ShowCursor();
             PadKeyboard.Close(restoreFocus: false); // the keyboard is for the pad: leaving the mode puts it away
-            Topmost = _topmostBeforeController;
+            UpdateFocusRing(); // the window answers the mouse again
             RootGrid.LayoutTransform = Transform.Identity;
             MinWidth = _minSizeBeforeController.Width;
             MinHeight = _minSizeBeforeController.Height;
@@ -289,7 +358,7 @@ public partial class MainWindow
     private void HideCursor()
     {
         // Only while a pad is there to use: with none (it sleeps, or the mode was started with the mouse) the pointer stays, so the mouse can still be used.
-        if (DataContext is LibraryViewModel { IsControllerMode: true, ControllerConnected: true })
+        if (IsVisible && DataContext is LibraryViewModel { IsControllerMode: true, ControllerConnected: true })
             Mouse.OverrideCursor = Cursors.None;
     }
 
@@ -333,10 +402,39 @@ public partial class MainWindow
 
     internal void EnsurePadFocus() => _surface?.EnsureFocus();
 
+    /// <summary>The pad's ring is the one highlight for the control it is on. Buttons and switches also draw a focus look of their own (a dotted or double outline, a hover
+    /// tint), and the two together read as a smear: a ring round something that is also outlined, or two things lit at once. So while the pad is in use, the control's own
+    /// focus look is switched off, and put back when the mode ends (a keyboard in Axis still needs it).</summary>
+    internal void QuietOwnFocusVisual(LibraryViewModel library, IInputElement? focus)
+    {
+        if (!library.IsControllerMode || focus is not Control control || control.FocusVisualStyle is null)
+            return;
+
+        control.FocusVisualStyle = null;
+        _quietedFocusVisuals.Add(new WeakReference<Control>(control));
+    }
+
+    private void RestoreOwnFocusVisuals()
+    {
+        foreach (var reference in _quietedFocusVisuals)
+        {
+            if (reference.TryGetTarget(out var control))
+                control.ClearValue(FocusVisualStyleProperty);
+        }
+
+        _quietedFocusVisuals.Clear();
+    }
+
     /// <summary>Draws the ring round the control the pad is on (or hides it). Several controls draw no focus of their own (the drive rows, the cards), and the ones that do each
     /// do it differently, so there is one ring for all of them. Game tiles are left alone: they highlight themselves.</summary>
     internal void UpdateFocusRing()
     {
+        // While the pad is in use nothing under the (hidden) pointer may light up: a control the pointer was last over would keep its hover tint beside the pad's ring. The
+        // mouse moving (NotePointerAt) makes everything live again, and a click follows a move, so the mouse is not lost.
+        var padOnly = _padInUse && DataContext is LibraryViewModel { IsControllerMode: true };
+        if (RootGrid.IsHitTestVisible == padOnly)
+            RootGrid.IsHitTestVisible = !padOnly;
+
         if (!TryGetRingTarget(out var target))
         {
             if (FocusRing.Visibility != Visibility.Collapsed)
@@ -385,9 +483,37 @@ public partial class MainWindow
         if (IsModalOpen && _modals.Peek().Content is CommandPaletteDialog)
             return false; // the palette lights its own row
 
+        // A control that draws its own ring on keyboard focus (the PlayStation buttons, tabs and cards) is highlighted already: a second ring over it was the smear of two
+        // outlines. The overlay is for the controls that draw nothing of their own (the Settings switches and buttons, the drive rows).
+        if (HasOwnFocusRing(focused) && OwnRingIsLit(focused))
+            return false;
+
         target = focused;
         return true;
     }
+
+    /// <summary>The control's own ring is showing right now. A template can have the trigger and still not show the ring (a hover animation that was left holding the ring at
+    /// zero keeps a later focus trigger from lighting it), and then the overlay has to mark the control or the pad has no visible place.</summary>
+    internal static bool OwnRingIsLit(FrameworkElement control)
+    {
+        if (control is not Control { Template: { } template } c)
+            return false;
+
+        foreach (var name in new[] { "Ring", "SelectedRing" })
+        {
+            if (template.FindName(name, c) is FrameworkElement { Visibility: Visibility.Visible, Opacity: > 0.5 })
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The control's template lights a ring of its own when it takes keyboard focus: a trigger on IsKeyboardFocused that sets a part called "Ring" (or "SelectedRing" on
+    /// the tiles). Looked for in the triggers, not by name alone: another library's template may have a part of that name that does nothing on focus.</summary>
+    internal static bool HasOwnFocusRing(FrameworkElement control) =>
+        control is Control { Template: { } template }
+        && template.Triggers.OfType<Trigger>().Any(t => t.Property == UIElement.IsKeyboardFocusedProperty
+            && t.Setters.OfType<Setter>().Any(setter => setter.TargetName is "Ring" or "SelectedRing"));
 
     /// <summary>False when the control is scrolled out of sight (its ring would float over something else).</summary>
     private bool IsInsideScrollViews(FrameworkElement element, Rect box)
@@ -418,6 +544,7 @@ public partial class MainWindow
             return;
 
         _padInUse = true;
+        RibbonView.FollowRailAfterScroll();
         Behaviors.SmoothScroll.Stop(scroller); // the stick is scrolling by hand now, not gliding somewhere
         scroller.ScrollToVerticalOffset(Math.Clamp(scroller.VerticalOffset - stickY * StickScrollPixelsPerSecond * seconds, 0, scroller.ScrollableHeight));
     }
@@ -480,9 +607,9 @@ public partial class MainWindow
         {
             Keyboard.Focus(target);
             FocusNavigator.EnsureVisible(target, controls);
-            if (target is ListBoxItem row && ItemsControl.ItemsControlFromItemContainer(row) is ListBox)
-                row.IsSelected = true;
 
+            // A list of choices (the Settings categories) is not chosen by moving over it: the row is only marked by the pad, and A (or Right) chooses it and drops the pad
+            // on the first option of what it shows (see EnterChoice).
             window.UpdateFocusRing();
         }
 
@@ -502,6 +629,10 @@ public partial class MainWindow
             if (current is Button { DataContext: LetterItem } && direction == ShellDirection.Left)
                 return window.RibbonView.TryFocusTile();
 
+            // Right from a row of a list of choices chooses that row and goes into what it shows.
+            if (current is ListBoxItem chosenRow && direction == ShellDirection.Right && ListOf(chosenRow) is not null && EnterChoice(chosenRow))
+                return true;
+
             // The nearest control that way, by where the controls really are on screen - the same on every page, whatever the page is built from. A list of choices (the Settings
             // categories) has its own rules: see below.
             var controls = Controls();
@@ -514,6 +645,24 @@ public partial class MainWindow
         }
 
         private static ListBox? ListOf(ListBoxItem row) => ItemsControl.ItemsControlFromItemContainer(row) as ListBox;
+
+        /// <summary>Chooses a row of a list of choices (a Settings category) and drops the pad on the first option of what it now shows: the one nearest the top that is
+        /// beside the list and on screen. False when there is nothing beside the list to go to (the row is still chosen).</summary>
+        private bool EnterChoice(ListBoxItem row)
+        {
+            row.IsSelected = true;
+            window.UpdateLayout();
+            var controls = Controls();
+            var edge = FocusNavigator.BoundsIn(row, window.RootGrid).Right;
+            var beside = controls.Where(c => c is not ListBoxItem && FocusNavigator.BoundsIn(c, window.RootGrid).Left >= edge - 1).ToList();
+            var onScreen = beside.Where(c => FocusNavigator.IsInView(c, window.RootGrid)).ToList();
+            var first = FocusNavigator.FirstInReadingOrder(onScreen.Count > 0 ? onScreen : beside, window.RootGrid);
+            if (first is null)
+                return true;
+
+            Land(first, controls);
+            return true;
+        }
 
         /// <summary>From a row of a list of choices: Up and Down step through the list and stop at its ends (Up from the first row goes on to what is above the list); Right goes
         /// into the options beside it, to the first one; Left has nowhere to go.</summary>
@@ -534,7 +683,10 @@ public partial class MainWindow
                 case ShellDirection.Right:
                     var edge = FocusNavigator.BoundsIn(row, window.RootGrid).Right; // the row, not the list: a list control can be wider than its rows
                     var beside = controls.Where(c => c is not ListBoxItem && FocusNavigator.BoundsIn(c, window.RootGrid).Left >= edge - 1).ToList();
-                    return FocusNavigator.FirstInReadingOrder(beside, window.RootGrid);
+                    // The first option that is on screen: with the options scrolled down (the right stick) the very first one is out of sight, and landing there threw the page
+                    // back to the top.
+                    var onScreen = beside.Where(c => FocusNavigator.IsInView(c, window.RootGrid)).ToList();
+                    return FocusNavigator.FirstInReadingOrder(onScreen.Count > 0 ? onScreen : beside, window.RootGrid);
 
                 default:
                     return null;
@@ -554,9 +706,32 @@ public partial class MainWindow
                 usable = controls.Where(c => c is not ListBoxItem || SpatialFocus.InBeam(from, FocusNavigator.BoundsIn(c, window.RootGrid), direction)).ToList();
             }
 
+            // From a card in the first column of the Library grid, Left is the filters (the chosen one), whatever row the card is on.
+            if (direction == ShellDirection.Left && FocusNavigator.IsGameTile(current) && window.Shell.Tab == ShellTab.Library
+                && FocusNavigator.NextAcrossPanels(current, controls, direction, window.RootGrid) is { } filters)
+                return filters;
+
             var target = FocusNavigator.Next(current, usable, direction, window.RootGrid);
 
-            if (direction == ShellDirection.Left && (target is null || target is ListBoxItem))
+            // A control level with this one but scrolled out of sight is not "the next one across" - the card of a grid that has been scrolled away from the filters is
+            // the case - so it counts as nothing there.
+            if (target is not null && direction is ShellDirection.Left or ShellDirection.Right && !FocusNavigator.IsInView(target, window.RootGrid))
+                target = null;
+
+            // Nothing level in this row: across to the scroll area beside this one (the Library's filters from a card at the bottom of the grid, and back), wherever the
+            // grid has been scrolled to.
+            if (target is null && direction is ShellDirection.Left or ShellDirection.Right)
+            {
+                target = FocusNavigator.NextAcrossPanels(current, controls, direction, window.RootGrid);
+
+                // The grid's other cards are not controls of their own (only the focused game's card is), so with that card scrolled out of sight there is nothing to cross
+                // to: the pad lands on the card on screen nearest in height instead, and that game becomes the focused one.
+                if (target is null && direction == ShellDirection.Right && window.Shell.Tab == ShellTab.Library && window.DataContext is not LibraryViewModel { IsPageOpen: true } && !FocusNavigator.IsGameTile(current))
+                    target = window.RibbonView.VisibleLibraryTile(FocusNavigator.BoundsIn(current, window.RootGrid));
+            }
+
+            // Left from any option - whatever lies level to its left - goes back to the list of choices beside the page, to its chosen row.
+            if (direction == ShellDirection.Left && current is not ListBoxItem)
             {
                 var left = FocusNavigator.BoundsIn(current, window.RootGrid).Left;
                 var rowToTheLeft = controls.OfType<ListBoxItem>().FirstOrDefault(r => ListOf(r) is { } list && FocusNavigator.BoundsIn(list, window.RootGrid).Right <= left + 1);
@@ -588,6 +763,10 @@ public partial class MainWindow
                 window.OpenPadKeyboard(box);
                 return true;
             }
+
+            // A on a row of a list of choices (a Settings category): choose it and drop the pad on its first option.
+            if (Keyboard.FocusedElement is ListBoxItem row && ListOf(row) is not null)
+                return EnterChoice(row);
 
             return Keyboard.FocusedElement is UIElement element && Press(element);
         }
@@ -727,8 +906,16 @@ public partial class MainWindow
                 return true;
             }
 
-            // Anywhere else it starts at the top left, but not on the page's Back button when there is something else to start on.
+            // A page with a list of choices that is already on one (Settings opened on a category by a shortcut, the palette or the Optimize tile) starts the pad on that
+            // choice: starting at the top of the list would mark General while the options of another category are showing.
             var controls = Controls();
+            if (controls.OfType<ListBoxItem>().Where(r => r.IsSelected).OrderBy(r => FocusNavigator.BoundsIn(r, window.RootGrid).Top).FirstOrDefault() is { } chosen)
+            {
+                Land(chosen, controls);
+                return true;
+            }
+
+            // Anywhere else it starts at the top left, but not on the page's Back button when there is something else to start on.
             if (FocusNavigator.FirstInReadingOrder(controls, window.RootGrid, c => c.Name == "PageBackButton" && controls.Count > 1) is not { } first)
                 return false; // nothing to land on (an empty screen): the press carries on
 

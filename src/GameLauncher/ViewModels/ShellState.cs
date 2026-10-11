@@ -99,11 +99,15 @@ public sealed partial class ShellState : ObservableObject
         library.PropertyChanged += OnLibraryChanged;
         library.ListsChanged += RefreshRibbon;
         library.ListsChanged += RebuildLibraryGroups;
+        library.ListsChanged += KeepFocusedGameShown; // after the groups: the Library grid's first game is read from them
         library.ControllerMap.Changed += NotifyPadHints; // the hints name what each button does now
         ThemeState.Instance.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ThemeState.IsRibbon))
+            {
                 RebuildLibraryGroups(); // letter headings are a PlayStation-style feature
+                ClearFiltersForHome();  // a view picked in Axis must not narrow the ribbon
+            }
         };
         RebuildLibraryGroups();
         _wasLoading = library.IsLoading;
@@ -363,17 +367,16 @@ public sealed partial class ShellState : ObservableObject
         }
         else if (HeroGame is { } g)
         {
-            // Two columns, filled row by row: every card you can press is on the left (so the D-pad goes straight down them), the plain facts beside them on the right.
-            // The launcher is not a card any more (the facts line already shows it); the session figures that used to float on the right are the first card.
+            // Two columns, filled row by row: every card you can press is on the left (so the D-pad goes straight down them, and Up from Quick access lands on the last one),
+            // the plain facts beside them on the right. The date it was added is the Installed card's second line.
+            // The launcher is not a card any more (the facts line already shows it). One play-time card: it opens the Play time page, which has the sessions.
             var details = new GameDetailsViewModel(g, null);
             HeroPlayTime = Library.BuildPlayTime(g);
-            var sessionText = HeroPlayTime.HasSessions ? $"Last {HeroPlayTime.LastSessionText}" : "No sessions yet";
-            cards.Add(new("SESSION PLAY TIME ›", sessionText, "", () => Library.ShowPlayTimeCommand.Execute(g)));
-            cards.Add(new("INSTALLED IN", g.InstallDir, "", () => { }, clickable: false));
+            var added = details.AddedText == "Unknown" ? "" : $"Added {details.AddedText}";
             cards.Add(new("PLAY TIME ›", HeroPlayTime.CardText, "", () => Library.ShowPlayTimeCommand.Execute(g)));
-            cards.Add(new("SIZE ON DISK", details.SizeText, "", () => { }, clickable: false));
+            cards.Add(new("INSTALLED IN", g.InstallDir, added, () => { }, clickable: false));
             cards.Add(new("COLLECTIONS ›", details.CollectionsText, "", () => Library.EditCollectionsCommand.Execute(g)));
-            cards.Add(new("ADDED", details.AddedText, "", () => { }, clickable: false));
+            cards.Add(new("SIZE ON DISK", details.SizeText, "", () => { }, clickable: false));
             details.Dispose();
         }
 
@@ -433,8 +436,25 @@ public sealed partial class ShellState : ObservableObject
     /// <summary>The game the hero describes: the focused one, else the library's featured (last played) game.</summary>
     public GameEntry? HeroGame => LibraryTileFocused ? null : FocusedGame ?? Library.FeaturedGame;
 
-    /// <summary>The game the Console-ribbon strip highlights: none while the Library tile is the selected item.</summary>
-    public GameEntry? RibbonFocus => LibraryTileFocused ? null : FocusedGame;
+    /// <summary>The game the Console-ribbon strip highlights: none while the Library tile is the selected item, and none in the Library while the pad is parked on the
+    /// filters (<see cref="LibraryCardsIdle"/>).</summary>
+    public GameEntry? RibbonFocus => LibraryTileFocused || (LibraryCardsIdle && Tab == ShellTab.Library) ? null : FocusedGame;
+
+    /// <summary>The pad has gone back to the Library's filters: no card is lit, and the grid is waiting at its top for the pad to come back.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RibbonFocus))]
+    private bool _libraryCardsIdle;
+
+    /// <summary>The pad left the grid for the filters: the lit card goes dark and the focus returns to the grid's first card, so the pad comes back at the top.</summary>
+    public void ParkLibraryFocusAtTop()
+    {
+        if (Tab != ShellTab.Library || GridRows().FirstOrDefault()?.FirstOrDefault() is not { } first)
+            return;
+
+        LibraryTileFocused = false;
+        FocusedGame = first;
+        LibraryCardsIdle = true;
+    }
 
     /// <summary>The window is in the small (760 x 480) size; the Console-ribbon hides its activity cards then.</summary>
     [ObservableProperty]
@@ -468,10 +488,6 @@ public sealed partial class ShellState : ObservableObject
         {
             if (!Library.IsControllerMode)
                 return [];
-
-            // The pad went to sleep or was unplugged: the mode stays on (a button press on it wakes it), and this says how to get going again or leave.
-            if (!Library.ControllerConnected)
-                return [PadHintItem.Sentence("Controller disconnected  -  press a button on it to wake it, or click the controller button at the top to leave")];
 
             if (IsMenuOpen)
                 return [PadHintItem.Of(PadGlyph.A, "Choose"), PadHintItem.Of(PadGlyph.B, "Close")];
@@ -557,9 +573,73 @@ public sealed partial class ShellState : ObservableObject
 
     partial void OnPaletteOpenChanged(bool value) => NotifyPadHints();
 
+    /// <summary>A view, drive, collection or search is narrowing the library.</summary>
+    private bool FilterIsOn => Library.SelectedView != LibraryView.All || Library.SelectedDriveLetter is not null
+        || Library.SelectedCollection is not null || !string.IsNullOrWhiteSpace(Library.SearchText);
+
+    private bool _clearingFilters;
+
+    /// <summary>The PlayStation theme's home ribbon always shows the whole library. Anything that narrows the games (a view such as "Not played yet", a drive, a collection)
+    /// belongs to the Library tab: with one on, the ribbon held only those games - none of them recently played, the hero empty - and the pad had nothing sensible to land
+    /// on. So the home is never filtered: coming back to it clears the filter, and a filter chosen while it is showing opens the Library tab instead (see
+    /// <see cref="OnLibraryChanged"/>).</summary>
+    private void ClearFiltersForHome()
+    {
+        if (_clearingFilters || !ThemeState.Instance.IsRibbon || Tab != ShellTab.Home || !FilterIsOn)
+            return;
+
+        _clearingFilters = true;
+        try
+        {
+            // Not SelectView: it closes the open page, and this can run while one is up (the theme was changed in Settings).
+            if (!string.IsNullOrWhiteSpace(Library.SearchText))
+                Library.SearchText = string.Empty;
+
+            Library.SelectedDriveLetter = null;
+            Library.SelectedCollection = null;
+            Library.SelectedView = LibraryView.All;
+        }
+        finally
+        {
+            _clearingFilters = false;
+        }
+    }
+
+    /// <summary>The focused game has to be one the screen shows, or the pad has nothing to land on: only the focused game's tile counts as a control (the shell state moves
+    /// between tiles), so with the focused game filtered out of the Library grid (Stats' "Show them", a drive, a collection, a search, a game hidden or uninstalled, a launcher
+    /// switched off) there was no tile at all and the D-pad did nothing. Whenever the games on screen change, or the tab does, a focused game that is not among them gives way
+    /// to the first one that is: the grid's first game on the Library tab, the strip's first on Home.</summary>
+    private void KeepFocusedGameShown()
+    {
+        if (LibraryTileFocused && Tab == ShellTab.Home)
+            return; // the Library item itself is the focus: nothing to fix
+
+        if (FocusedGame is { } focused && Library.Games.Contains(focused))
+            return;
+
+        if (FocusedGame is null && Tab == ShellTab.Home)
+            return; // nothing chosen yet: the hero shows the featured game, and the strip starts where it always did
+
+        GameEntry? first = Tab == ShellTab.Library
+            ? GridRows().FirstOrDefault()?.FirstOrDefault()
+            : RibbonOrder().FirstOrDefault(g => g is not null);
+        first ??= Library.Games.FirstOrDefault();
+        if (first is null || ReferenceEquals(first, FocusedGame))
+            return; // nothing is shown at all (an empty view): the pad has nothing to land on whatever is focused
+
+        LibraryTileFocused = false;
+        FocusedGame = first;
+    }
+
     partial void OnTabChanged(ShellTab value)
     {
+        LibraryCardsIdle = false;
         NotifyPadHints();
+        if (value == ShellTab.Home)
+            ClearFiltersForHome();
+
+        KeepFocusedGameShown();
+
         // The grid is one row; on Home the focused game lives in Recently played if it is there, else in All games.
         FocusedRow = value == ShellTab.Library ? 0 : FocusedGame is { } game && Library.RecentlyPlayedGames.Contains(game) ? 0 : 1;
 
@@ -617,6 +697,14 @@ public sealed partial class ShellState : ObservableObject
             case nameof(LibraryViewModel.IsPageOpen):
                 OnPropertyChanged(nameof(IsOverlayOpen));
                 NotifyPadHints();
+                break;
+            case nameof(LibraryViewModel.SelectedView):
+            case nameof(LibraryViewModel.SelectedDriveLetter):
+            case nameof(LibraryViewModel.SelectedCollection):
+                // A view picked from a page or the palette while the ribbon home is showing (Stats' "Show them"): the games go to the Library tab, the ribbon is left alone.
+                if (!_clearingFilters && ThemeState.Instance.IsRibbon && Tab == ShellTab.Home && FilterIsOn)
+                    Tab = ShellTab.Library;
+
                 break;
             case nameof(LibraryViewModel.IsControllerMode):
             case nameof(LibraryViewModel.ControllerConnected):
@@ -1011,13 +1099,14 @@ public sealed partial class ShellState : ObservableObject
         switch (direction)
         {
             case ShellDirection.Left:
+                // From the first column Left leaves the grid for the panel beside it (the filters), from any row: it used to wrap to the end of the row above, so that panel
+                // was only reachable from the top row.
                 if (column > 0) column--;
-                else if (row > 0) { row--; column = rows[row].Count - 1; }
                 else return false;
                 break;
             case ShellDirection.Right:
+                // The end of a row is the end of it: rows are changed with Up and Down, not by running off the side. Right from the last card of a row goes on to the A to Z rail.
                 if (column < rows[row].Count - 1) column++;
-                else if (row < rows.Count - 1) { row++; column = 0; }
                 else return false;
                 break;
             case ShellDirection.Up:
@@ -1089,7 +1178,10 @@ public sealed partial class ShellState : ObservableObject
     {
         LibraryTileFocused = game is null;
         if (game is not null)
+        {
+            LibraryCardsIdle = false;
             FocusedGame = game;
+        }
 
         // A game that is not on the strip (picked from the palette, or from the Library tab) is added to it, so the focus has somewhere to be.
         if (game is not null && ThemeState.Instance.IsRibbon && !RibbonItems.Contains(game))

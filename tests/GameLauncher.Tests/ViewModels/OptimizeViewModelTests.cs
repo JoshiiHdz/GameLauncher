@@ -52,7 +52,11 @@ public class OptimizeViewModelTests : IDisposable
 
     private static OptimizeViewModel Page(FakeMemory memory, List<CleanCategory> categories, Func<string, bool>? confirm = null,
         IReadOnlyList<string>? protectedFolders = null) =>
-        new(memory, categories, protectedFolders ?? [], confirm ?? (_ => true));
+        new(memory, categories, protectedFolders ?? [], confirm ?? (_ => true))
+        {
+            IsAdministrator = () => true, // by default the page behaves as one that already has the rights: a refused file is just in use, and nothing asks again
+            RunElevated = _ => throw new InvalidOperationException("the test did not expect an elevated run"),
+        };
 
     // ---- memory ------------------------------------------------------------------------------------
 
@@ -163,6 +167,82 @@ public class OptimizeViewModelTests : IDisposable
         Assert.Equal("1 GB in 1 file", page.Items[1].SizeText);
         Assert.Equal("Freed 2 GB. 3 files were in use or protected and were left alone.", page.StorageResultText);
         Assert.Equal(0, page.Items[0].Bytes);
+    }
+
+    [Fact]
+    public async Task FilesWindowsRefuses_AreOfferedAgainWithAdministratorRights_AndClearedOnYes()
+    {
+        var log = new List<string>();
+        var asked = new List<string>();
+        var page = Page(new FakeMemory(), [Fake("driver-installers", 268_000_000, 40, true, log, skipped: 40, leftBehind: 268_000_000)], confirm: q => { asked.Add(q); return true; });
+        page.IsAdministrator = () => false;
+        IReadOnlyList<string>? sent = null;
+        page.RunElevated = ids =>
+        {
+            sent = ids;
+            return new Dictionary<string, CleanOutcome> { ["driver-installers"] = new(268_000_000, 40, 0) };
+        };
+        await page.ScanCommand.ExecuteAsync(null);
+
+        await page.CleanCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, asked.Count);                                    // "delete these?", then "clear the refused ones with administrator rights?"
+        Assert.Contains("administrator", asked[1]);
+        Assert.Contains("driver-installers", asked[1]);
+        Assert.Equal(["driver-installers"], sent);                       // by id: the elevated copy is never handed a path
+        Assert.Contains("with administrator rights", page.Items[0].SizeText);
+        Assert.StartsWith("Freed 255.6 MB", page.StorageResultText);     // the elevated run's bytes count
+        Assert.DoesNotContain("left alone", page.StorageResultText);
+    }
+
+    [Fact]
+    public async Task DecliningAdministratorRights_LeavesTheFiles_AndSaysSo()
+    {
+        var log = new List<string>();
+        var answers = new Queue<bool>([true, false]);
+        var page = Page(new FakeMemory(), [Fake("driver-installers", Gb, 10, true, log, skipped: 10, leftBehind: Gb)], confirm: _ => answers.Dequeue());
+        page.IsAdministrator = () => false;
+        await page.ScanCommand.ExecuteAsync(null);
+
+        await page.CleanCommand.ExecuteAsync(null);
+
+        Assert.Contains("10 files were in use or protected", page.StorageResultText);
+        Assert.Equal(1, page.Items[0].Bytes > 0 ? 1 : 0);                // still there
+    }
+
+    [Fact]
+    public async Task WhenWindowsDeclinesThePrompt_TheResultSaysThePermissionWasNotGiven()
+    {
+        var log = new List<string>();
+        var page = Page(new FakeMemory(), [Fake("driver-installers", Gb, 10, true, log, skipped: 10, leftBehind: Gb)]);
+        page.IsAdministrator = () => false;
+        page.RunElevated = _ => null; // the user pressed No on Windows' prompt
+        await page.ScanCommand.ExecuteAsync(null);
+
+        await page.CleanCommand.ExecuteAsync(null);
+
+        Assert.Contains("Administrator permission was not given", page.StorageResultText);
+    }
+
+    [Fact]
+    public void TheElevatedCopy_ClearsOnlyCategoriesTheLauncherDefines_ByIdAlone_AndWritesWhatItDid()
+    {
+        var log = new List<string>();
+        var result = Path.Combine(Path.GetTempPath(), "GameLauncherTests-elev-" + Guid.NewGuid() + ".json");
+        try
+        {
+            var code = ElevatedCleaner.RunFromArguments(
+                [ElevatedCleaner.Switch, "driver-installers,not-a-category,..\\evil", "--result", result],
+                [Fake("driver-installers", 2 * Gb, 4, true, log)]);
+
+            Assert.Equal(0, code);
+            Assert.Equal(["driver-installers"], log);                    // the unknown id and the path-like one did nothing
+            var written = File.ReadAllText(result);
+            Assert.Contains("driver-installers", written);
+            Assert.DoesNotContain("evil", written);
+            Assert.Equal(2, ElevatedCleaner.RunFromArguments([ElevatedCleaner.Switch], []));   // arguments that make no sense: nothing runs
+        }
+        finally { File.Delete(result); }
     }
 
     [Fact]

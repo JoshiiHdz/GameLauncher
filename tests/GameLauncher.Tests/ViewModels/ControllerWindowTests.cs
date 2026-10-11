@@ -29,6 +29,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
         if (ribbon)
             vm.AppearanceTheme = ThemeId.ConsoleRibbon;
 
+        vm.SetControllerStatus(true, null); // controller mode needs a controller
         return vm;
     }
 
@@ -89,7 +90,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
             await ShellTestSupport.SettleAsync();
 
             Assert.Equal(Visibility.Collapsed, window.ConsoleCaption.Visibility);
-            Assert.True(window.Topmost);
+            Assert.False(window.Topmost); // full screen, but an ordinary window: the user can still switch to other apps
             Assert.Equal(monitor!.Value.Width, window.Width, 1);
             Assert.Equal(monitor.Value.Height, window.Height, 1);
             var scale = Assert.IsType<ScaleTransform>(window.RootGrid.LayoutTransform);
@@ -206,6 +207,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
     public void ThePillWords_FollowTheControllerAndItsBattery() => sta.RunAsync(async () =>
     {
         var vm = NewLibrary(ribbon: false);
+        vm.SetControllerStatus(false, null);
         Assert.Equal("Not connected", vm.ControllerPillText);
         Assert.Contains("No controller", vm.ControllerPillTooltip);
         Assert.False(vm.ControllerBatteryLow);
@@ -247,6 +249,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
                 {
                     ThemeManager.Apply(ribbon ? ThemeId.ConsoleRibbon : ThemeId.Axis);
                     var vm = NewLibrary(ribbon);
+                    vm.SetControllerStatus(false, null);
                     var window = ShellTestSupport.OpenMain(vm, width, height);
                     try
                     {
@@ -314,6 +317,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
             await ShellTestSupport.SettleAsync();
             Assert.False(window.PadKeyboard.IsOpen);
             Assert.Equal(0, model.SelectedIndex);
+            await ShellTestSupport.SettleAsync();
 
             router.Handle(PadButton.Down);
             Assert.Equal(1, model.SelectedIndex);
@@ -419,7 +423,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
             await ShellTestSupport.SettleAsync();
 
             Assert.True(vm.IsControllerMode);
-            Assert.True(window.Topmost);
+            Assert.False(window.Topmost);
             Assert.Equal(width, window.Width, 1);
         }
         finally
@@ -465,7 +469,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void ThePad_SwitchingOffInTheMode_ShowsThePointerAndAToast_AndComingBackHidesItAgain() => sta.RunAsync(async () =>
+    public void ThePad_SwitchingOffInTheMode_EndsTheMode_ShowsThePointerAndAToast_AndWakingItOffersStartAgain() => sta.RunAsync(async () =>
     {
         GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
         ThemeManager.Apply(ThemeId.ConsoleRibbon);
@@ -484,17 +488,20 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
             window.HandlePadConnection(vm, false); // the pad switches itself off
             await ShellTestSupport.SettleAsync();
 
-            Assert.True(vm.IsControllerMode);                                    // the mode stays on
+            Assert.False(vm.IsControllerMode);                                   // the mode ends with it: nothing is left to drive it
             Assert.False(vm.ControllerConnected);                                // the pill says so
-            Assert.Null(Mouse.OverrideCursor);                                   // the pointer is back, so the mouse works
-            Assert.Equal("Controller disconnected", window.Shell.FeedbackText);  // and a toast says why nothing responds
-            Assert.Contains("Controller disconnected", window.Shell.PadHints);
+            Assert.Null(Mouse.OverrideCursor);                                   // the pointer is back
+            Assert.Equal("Controller disconnected", window.Shell.FeedbackText);  // and a toast says why
+            Assert.False(window.Shell.HasPadHints);
+            Assert.False(window.RibbonView.ControllerButton.IsVisible);          // and there is no way back in until it is found again
+            Assert.True(window.ConsoleCaption.IsVisible);                        // an ordinary window again
 
             window.HandlePadConnection(vm, true); // a press woke it
             await ShellTestSupport.SettleAsync();
             Assert.True(vm.ControllerConnected);
-            Assert.Equal("Controller connected", window.Shell.FeedbackText);
-            Assert.Contains("Leave", window.Shell.PadHints);
+            Assert.False(vm.IsControllerMode);                                   // it does not switch on by itself
+            Assert.Equal("Controller found", window.Shell.FeedbackText);         // Start does
+            Assert.True(window.RibbonView.ControllerButton.IsVisible);
         }
         finally
         {
@@ -505,22 +512,34 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void StartingTheModeWithNoPad_SaysSo_AndKeepsThePointer() => sta.RunAsync(async () =>
+    public void WithNoPad_NoEntryIsOffered_InEitherTheme_AndTheSettingsSwitchIsOff() => sta.RunAsync(async () =>
     {
         GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
-        ThemeManager.Apply(ThemeId.ConsoleRibbon);
-        var vm = NewLibrary(ribbon: true);
+        var vm = NewLibrary(ribbon: false);
+        vm.SetControllerStatus(false, null);
         var window = ShellTestSupport.OpenMain(vm);
         try
         {
             await ShellTestSupport.SettleAsync();
-            Assert.False(vm.ControllerConnected);
+            Assert.False(window.AxisControllerModeButton.IsVisible);
+            vm.EnterControllerModeFromAxisCommand.Execute(null); // F11 with no controller: nothing starts, and it says why
+            Assert.False(vm.IsControllerMode);
+            Assert.Equal(ThemeId.Axis, vm.AppearanceTheme);
+            Assert.Contains("Connect a controller", vm.StatusText);
 
-            vm.EnterControllerMode(); // from the top-bar button, with the mouse
+            vm.SetControllerStatus(true, null);
             await ShellTestSupport.SettleAsync();
+            Assert.True(window.AxisControllerModeButton.IsVisible);
+            Assert.True(vm.EnterControllerModeFromAxisCommand.CanExecute(null));
 
-            Assert.Equal("No controller connected", window.Shell.FeedbackText);
-            Assert.Null(Mouse.OverrideCursor);
+            vm.SetControllerStatus(false, null);
+            vm.ChangeThemeCommand.Execute("ConsoleRibbon");
+            ThemeManager.Apply(ThemeId.ConsoleRibbon);
+            await ShellTestSupport.SettleAsync();
+            Assert.False(window.RibbonView.ControllerButton.IsVisible);
+            vm.EnterControllerMode();
+            Assert.False(vm.IsControllerMode);
+            Assert.Contains("Connect a controller", vm.StatusText);
         }
         finally
         {
@@ -586,7 +605,16 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
             await ShellTestSupport.SettleAsync();
             Assert.DoesNotContain("PlayStation", window.PadGateReason(vm) ?? ""); // the pad is read in Axis too
 
-            await OpenAskAsync(window);
+            window.HandlePadConnection(vm, true); // the pad is found (the pill, and a toast that says Start)
+            await ShellTestSupport.SettleAsync();
+            Assert.Equal("Controller found", window.Shell.FeedbackText);
+            Assert.True(window.AxisControllerModeButton.IsVisible);
+
+            window.PadForTest.PressForTest(PadButton.Start); // through the window's own pad handler, as a real press arrives
+            for (var i = 0; i < 40 && !window.IsModalOpen; i++)
+                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+
+            await ShellTestSupport.SettleAsync();
             Assert.True(window.IsModalOpen);
             Assert.False(vm.IsControllerMode);
             Assert.True(window.ControllerRouterForTest.AskingToEnter);

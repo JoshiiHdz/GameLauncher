@@ -13,8 +13,32 @@ public partial class LibraryViewModel
     public bool ControllerModeAvailable => IsConsoleRibbonTheme;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowConsoleCaption))]
+    [NotifyPropertyChangedFor(nameof(ShowConsoleCaption), nameof(ShowControllerButton), nameof(ControllerModeSwitch), nameof(ControllerModeSwitchEnabled))]
     private bool _isControllerMode;
+
+    /// <summary>The top-bar button of the PlayStation theme: there only while a controller is connected (or the mode is on, so it can still be left with the mouse).</summary>
+    public bool ShowControllerButton => IsConsoleRibbonTheme && (ControllerConnected || IsControllerMode);
+
+    /// <summary>The title-bar button of Axis: there only while a controller is connected.</summary>
+    public bool ShowAxisControllerButton => IsAxisTheme && ControllerConnected;
+
+    /// <summary>The Settings switch. Setting it goes through <see cref="EnterControllerMode"/>, which refuses without a controller; a plain bound bool would not.</summary>
+    public bool ControllerModeSwitch
+    {
+        get => IsControllerMode;
+        set
+        {
+            if (value)
+                EnterControllerMode();
+            else
+                ExitControllerMode();
+
+            OnPropertyChanged(); // a refused "on" must put the switch back
+        }
+    }
+
+    /// <summary>The Settings switch can be turned on only with a controller connected (it can always be turned off).</summary>
+    public bool ControllerModeSwitchEnabled => ControllerConnected || IsControllerMode;
 
     /// <summary>The thin caption (title and window buttons) the console themes draw at the top. Controller mode has no caption: it is full screen.</summary>
     public bool ShowConsoleCaption => IsConsoleTheme && !IsControllerMode;
@@ -60,6 +84,13 @@ public partial class LibraryViewModel
         if (IsControllerMode)
             return;
 
+        // No controller, no controller mode: it is a mode for a pad, and one that is not there cannot be used to leave it again.
+        if (!ControllerConnected)
+        {
+            StatusText = "Connect a controller to use controller mode.";
+            return;
+        }
+
         if (!ControllerModeAvailable)
         {
             _themeBeforeController = AppearanceTheme;
@@ -73,8 +104,12 @@ public partial class LibraryViewModel
     }
 
     /// <summary>Axis's way in: the title bar button, F11, the palette. Only offered in Axis (the PlayStation theme has its own button and no shortcuts).</summary>
-    [RelayCommand(CanExecute = nameof(IsAxisTheme))]
+    [RelayCommand(CanExecute = nameof(CanEnterControllerModeFromAxis))]
     private void EnterControllerModeFromAxis() => EnterControllerMode();
+
+    // Offered whenever Axis is showing, with or without a controller: F11 with none connected says so ("Connect a controller...") instead of doing nothing at all. The
+    // title-bar button and the palette entry are what stay out of sight until a controller is there.
+    private bool CanEnterControllerModeFromAxis() => IsAxisTheme;
 
     internal void ExitControllerMode(string reason = "asked to")
     {
@@ -84,7 +119,7 @@ public partial class LibraryViewModel
         IsControllerMode = false;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanToggleControllerMode))]
     private void ToggleControllerMode()
     {
         if (IsControllerMode)
@@ -93,21 +128,34 @@ public partial class LibraryViewModel
             EnterControllerMode();
     }
 
+    private bool CanToggleControllerMode() => IsControllerMode || ControllerConnected;
+
     // ---- Is a controller connected? (the status pill: Axis and PlayStation) ---------------------------------------------------------
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ControllerPillText), nameof(ControllerPillTooltip), nameof(ControllerBatteryLow))]
+    [NotifyPropertyChangedFor(nameof(ControllerPillText), nameof(ControllerPillTooltip), nameof(ControllerBatteryLow), nameof(ShowControllerButton),
+        nameof(ShowAxisControllerButton), nameof(ControllerModeSwitchEnabled))]
     private bool _controllerConnected;
+
+    partial void OnControllerConnectedChanged(bool value)
+    {
+        EnterControllerModeFromAxisCommand.NotifyCanExecuteChanged();
+        ToggleControllerModeCommand.NotifyCanExecuteChanged();
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ControllerPillText), nameof(ControllerPillTooltip), nameof(ControllerBatteryLow))]
     private PadBattery? _controllerBattery;
 
-    /// <summary>Set by the window from the pad reader: whether a controller is plugged in, and its battery when it reports one.</summary>
+    /// <summary>Set by the window from the pad reader: whether a controller is plugged in, and its battery when it reports one. When the controller goes away
+    /// (switched off, asleep, unplugged) controller mode ends with it: there is nothing left to drive it, and the screen would otherwise be full screen with no way out
+    /// but the mouse.</summary>
     internal void SetControllerStatus(bool connected, PadBattery? battery)
     {
         ControllerConnected = connected;
         ControllerBattery = connected ? battery : null;
+        if (!connected && IsControllerMode)
+            ExitControllerMode("the controller went away");
     }
 
     /// <summary>The pill's words: "Not connected", "Connected", or "Connected · Medium" (the battery level, when the controller reports one).</summary>

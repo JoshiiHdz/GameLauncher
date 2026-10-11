@@ -303,6 +303,7 @@ public sealed class ControllerKeyboardTests(WpfStaFixture sta)
         var directory = Path.Combine(Path.GetTempPath(), "GameLauncherTests-Keyboard-" + Guid.NewGuid());
         var library = new LibraryViewModel(new SettingsService(directory), new PendingUpdateNotesService(directory)) { InstallSizeEstimatorForTest = (_, _) => null };
         library.AppearanceTheme = ThemeId.ConsoleRibbon;
+        library.SetControllerStatus(true, null); // controller mode needs a controller
         var shell = new ShellState(library);
         var surface = new FakeSurface();
         library.EnterControllerMode();
@@ -425,6 +426,7 @@ public sealed class ControllerKeyboardTests(WpfStaFixture sta)
         vm.SearchText = "x"; // runs the production filter
         vm.SearchText = "";
         vm.AppearanceTheme = ThemeId.ConsoleRibbon;
+        vm.SetControllerStatus(true, null); // controller mode needs a controller
         var window = ShellTestSupport.OpenMain(vm, 1280, 900);
         window.Activate();
         await ShellTestSupport.SettleAsync();

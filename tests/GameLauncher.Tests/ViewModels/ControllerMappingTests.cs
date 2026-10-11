@@ -347,6 +347,7 @@ public sealed class ControllerMappingTests(WpfStaFixture sta)
         library.SearchText = "x"; // runs the production filter
         library.SearchText = "";
         library.AppearanceTheme = ThemeId.ConsoleRibbon;
+        library.SetControllerStatus(true, null); // controller mode needs a controller
         var shell = new ShellState(library);
         var surface = new FakeSurface();
         return (library, shell, surface, new ControllerRouter(library, shell, surface));

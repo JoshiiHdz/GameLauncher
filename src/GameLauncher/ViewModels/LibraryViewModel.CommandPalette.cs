@@ -96,7 +96,7 @@ public partial class LibraryViewModel
         if (HasDuplicates)
             items.Add(Command("Go to games installed twice", "duplicates copies view", () => SelectViewCommand.Execute("duplicates")));
         items.Add(Command("Open settings", "preferences options configuration", () => ShowSettingsCommand.Execute(null)));
-        if (IsAxisTheme)
+        if (IsAxisTheme && ControllerConnected)
             items.Add(Command("Controller mode (F11)", "gamepad controller pad xbox playstation big screen couch tv full screen switch", () => EnterControllerModeFromAxisCommand.Execute(null)));
 
         // Each setting can be found by name and takes you to the section that holds it.

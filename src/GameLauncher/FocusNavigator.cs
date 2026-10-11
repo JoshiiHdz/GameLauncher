@@ -90,6 +90,77 @@ internal static class FocusNavigator
         return picked < 0 ? null : others[picked];
     }
 
+    /// <summary>The scroll area a control sits in (a side panel and a grid each have their own), or null.</summary>
+    internal static ScrollViewer? ScrollerOf(DependencyObject element)
+    {
+        for (var parent = VisualTreeHelper.GetParent(element); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+        {
+            if (parent is ScrollViewer scroller)
+                return scroller;
+        }
+
+        return null;
+    }
+
+    /// <summary>The control's centre is on screen: inside the viewport of every scroll area it sits in.</summary>
+    internal static bool IsInView(FrameworkElement element, Visual root)
+    {
+        var box = BoundsIn(element, root);
+        if (box.IsEmpty)
+            return false;
+
+        var centre = new Point(box.Left + box.Width / 2, box.Top + box.Height / 2);
+        for (var parent = VisualTreeHelper.GetParent(element); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+        {
+            if (parent is ScrollViewer scroller && !BoundsIn(scroller, root).Contains(centre))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Left and Right stay in their own row, so a side panel (the Library's filters) beside a grid that has been scrolled down, or a grid scrolled away from the panel,
+    /// has nothing level with the focused control: the pad could only get across from the top of the page. When nothing lies that way in the row, this goes to the
+    /// nearest scroll area on that side whose height covers the focused control's row - to the control that is chosen there (the checked filter, the selected row), else the one
+    /// nearest in height, and only among controls that are on screen. Null when there is no such area.</summary>
+    internal static FrameworkElement? NextAcrossPanels(FrameworkElement from, IReadOnlyList<FrameworkElement> controls, ShellDirection direction, Visual root)
+    {
+        if (direction is not (ShellDirection.Left or ShellDirection.Right) || ScrollerOf(from) is not { } fromScroller)
+            return null;
+
+        var origin = BoundsIn(from, root);
+        if (origin.IsEmpty)
+            return null;
+
+        var centreY = origin.Top + origin.Height / 2;
+        var best = new List<(FrameworkElement Control, ScrollViewer Scroller, double Gap)>();
+        foreach (var control in controls)
+        {
+            if (ReferenceEquals(control, from) || ScrollerOf(control) is not { } scroller || ReferenceEquals(scroller, fromScroller) || IsWithin(scroller, fromScroller) || IsWithin(fromScroller, scroller))
+                continue;
+
+            var view = BoundsIn(scroller, root);
+            if (view.IsEmpty || centreY < view.Top || centreY > view.Bottom)
+                continue; // that area is not level with the focused control at all
+
+            var onThatSide = direction == ShellDirection.Left ? view.Right <= origin.Left + 1 : view.Left >= origin.Right - 1;
+            if (onThatSide && IsInView(control, root))
+                best.Add((control, scroller, direction == ShellDirection.Left ? origin.Left - view.Right : view.Left - origin.Right));
+        }
+
+        if (best.Count == 0)
+            return null;
+
+        var nearest = best.OrderBy(b => b.Gap).First().Scroller; // the area closest on that side
+        var inThatArea = best.Where(b => ReferenceEquals(b.Scroller, nearest)).Select(b => b.Control).ToList();
+        return inThatArea.FirstOrDefault(c => c is System.Windows.Controls.Primitives.ToggleButton { IsChecked: true } or ListBoxItem { IsSelected: true })
+            ?? inThatArea.OrderBy(c =>
+            {
+                var box = BoundsIn(c, root);
+                return Math.Abs(box.Top + box.Height / 2 - centreY);
+            }).First();
+    }
+
     /// <summary>Where the pad starts on a screen it has not touched yet: the control nearest the top left.</summary>
     internal static FrameworkElement? FirstInReadingOrder(IReadOnlyList<FrameworkElement> controls, Visual root, Func<FrameworkElement, bool>? skip = null)
     {
@@ -170,6 +241,11 @@ internal static class FocusNavigator
         var neighbours = controls.Where(c => !ReferenceEquals(c, element) && IsWithin(c, scroller)).ToList();
         bool Above(FrameworkElement c) => ContentTop(c, scroller) < contentTop - 1;
         bool Below(FrameworkElement c) => ContentTop(c, scroller) > contentTop + 1;
+
+        // A game card is not "the first control" of its area just because it is the only card that counts as a control (the grid's other cards are reached by the shell state):
+        // the rule is for pages of options, and on a card it threw the grid back to the top.
+        if (IsGameTile(element))
+            return Math.Clamp(target, 0, scroller.ScrollableHeight);
 
         if (!neighbours.Any(Above))
             target = 0;

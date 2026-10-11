@@ -441,7 +441,10 @@
                             Visibility="{Binding ControllerModeAvailable, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                         <StackPanel>
                             <TextBlock Text="Controller mode" Style="{StaticResource GroupTitleStyle}" />
-                            <ui:ToggleSwitch x:Name="ControllerSwitch" Content="Use the launcher with a controller" IsChecked="{Binding IsControllerMode, Mode=TwoWay}" />
+                            <ui:ToggleSwitch x:Name="ControllerSwitch" Content="Use the launcher with a controller" IsChecked="{Binding ControllerModeSwitch, Mode=TwoWay}"
+                                             IsEnabled="{Binding ControllerModeSwitchEnabled}" />
+                            <TextBlock Text="Connect a controller to turn this on. Controller mode ends by itself when the controller is switched off or unplugged."
+                                       Style="{StaticResource NoteStyle}" />
                             <TextBlock Text="Full screen and a little bigger, driven by a gamepad: D-pad or left stick to move, A to choose, B to go back. Xbox controllers work as they are; a PlayStation controller needs Steam Input or DS4Windows. The controller is ignored whenever a game (or another window) is in front."
                                        Style="{StaticResource NoteStyle}" />
 

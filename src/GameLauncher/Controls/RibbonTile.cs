@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using GameLauncher.Services;
 
@@ -30,6 +32,27 @@ public sealed class RibbonTile : Button
     }
 
     private void OnLayoutChanged(object? sender, EventArgs e) => Resize(animate: false);
+
+    /// <summary>The selected tile stays lit while the pad is on Play or any other button, so coming back to it looked like nothing had happened. When the focus lands on it,
+    /// it gives a short pulse: it swells and settles, so the pad's position is plain. (Not with Windows' animations off.)</summary>
+    protected override void OnGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        base.OnGotKeyboardFocus(e);
+        if (IsSelectedItem && IsLoaded && GameLauncher.Behaviors.Motion.AnimationsEnabled())
+            Pulse();
+    }
+
+    /// <summary>How much larger the tile swells to; the test reads the transform it leaves.</summary>
+    internal const double PulseScale = 1.12;
+
+    /// <summary>How many times the tile has pulsed (the tests read it).</summary>
+    internal int PulseCount { get; private set; }
+
+    private void Pulse()
+    {
+        PulseCount++;
+        GameLauncher.Behaviors.PadPulse.Play(this, PulseScale);
+    }
 
     private double Target() =>
         TryFindResource(IsSelectedItem ? "ActiveRibbonItemFocusedSize" : "ActiveRibbonItemSize") is double size ? size : IsSelectedItem ? 216 : 144;

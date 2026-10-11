@@ -358,7 +358,7 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <StackPanel>
-                                <Grid Height="{DynamicResource ActiveCardHeight}" x:Name="Poster" beh:MotionExtensions.FocusScale="{DynamicResource FocusScale}"
+                                <Grid Height="{DynamicResource ActiveCardHeight}" x:Name="Poster" beh:MotionExtensions.FocusScale="1.08"
                                       beh:MotionExtensions.IsFocused="{Binding Path=(beh:MotionExtensions.IsFocused), RelativeSource={RelativeSource TemplatedParent}}">
                                     <Border x:Name="Glow" beh:ThemeRadius.Key="RadiusCard" Background="{DynamicResource Bg}" Opacity="0" IsHitTestVisible="False" />
                                     <Border x:Name="Art" beh:ThemeRadius.Key="RadiusCard" Background="{DynamicResource Surface}">
@@ -629,7 +629,9 @@
             </DataTemplate>
 
             <DataTemplate x:Key="PosterTemplate">
-                <Grid Margin="0,0,18,22">
+                <!-- Each card rises in as the Library appears (the first dozen one after another), and swells when the pad or the pointer is on it. -->
+                <Grid Margin="0,0,18,22" beh:MotionExtensions.Enter="Rise" beh:MotionExtensions.EnterDurationKey="DurPanel"
+                      beh:MotionExtensions.EnterDelay="{Binding Path=(ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ContentPresenter}, Converter={x:Static conv:CardStaggerConverter.Instance}}">
                     <Button Style="{StaticResource PosterButton}" ToolTip="{Binding Name}" Click="Poster_Click" MouseEnter="Poster_MouseEnter" MouseRightButtonUp="Poster_RightClick"
                             GotKeyboardFocus="Poster_GotKeyboardFocus">
                         <beh:MotionExtensions.IsFocused>
@@ -722,7 +724,8 @@
                 </Grid.RowDefinitions>
 
                 <!-- Top bar -->
-                <Grid Grid.Row="1" Margin="{DynamicResource ActiveGutterMargin}">
+                <Grid x:Name="TopBar" Grid.Row="1" Margin="{DynamicResource ActiveGutterMargin}"
+                      GotKeyboardFocus="TopBar_GotKeyboardFocus" LostKeyboardFocus="TopBar_LostKeyboardFocus">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <RadioButton x:Name="HomeTab" Style="{StaticResource RibbonTab}" Content="Home" Command="{Binding ShowHomeCommand}">
                             <RadioButton.IsChecked>
@@ -747,7 +750,8 @@
                         </Button>
                         <controls:ControllerStatusPill x:Name="RibbonControllerPill" DataContext="{Binding Library}" Margin="0,0,12,0" />
                         <Button x:Name="ControllerButton" Style="{StaticResource RoundGlassButton}" Command="{Binding Library.ToggleControllerModeCommand}" ToolTip="Controller mode" Margin="0,0,10,0"
-                                AutomationProperties.Name="Controller mode">
+                                AutomationProperties.Name="Controller mode"
+                                Visibility="{Binding Library.ShowControllerButton, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                             <ui:SymbolIcon Symbol="Games24" FontSize="18" />
                         </Button>
                         <Button x:Name="SettingsButton" Style="{StaticResource RoundGlassButton}" Command="{Binding Library.ShowSettingsCommand}" ToolTip="Settings" Margin="0,0,10,0">
@@ -916,6 +920,17 @@
                                             <StackPanel>
                                                 <TextBlock Text="{Binding Label}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
                                                 <TextBlock Text="{Binding Value}" Margin="0,4,0,0" FontSize="14" Foreground="White" TextTrimming="CharacterEllipsis" ToolTip="{Binding Value}" />
+                                                <TextBlock Text="{Binding Sub}" Margin="0,2,0,0" FontSize="11" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Sub}" Value="">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
                                             </StackPanel>
                                         </Button>
                                     </DataTemplate>
@@ -1116,7 +1131,8 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                    <ScrollViewer x:Name="FilterPanel" Grid.Column="0" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled" Focusable="False"
+                                  GotKeyboardFocus="FilterPanel_GotKeyboardFocus">
                         <StackPanel Margin="{DynamicResource ActiveFilterMargin}">
                             <TextBlock Text="Library" FontSize="28" FontWeight="Light" Foreground="White" Margin="0,0,0,10" />
                             <RadioButton x:Name="FilterAll" Style="{StaticResource FilterPill}" Command="{Binding ShowViewCommand}" CommandParameter="all" IsChecked="{Binding Library.IsAllViewSelected, Mode=OneWay}">
@@ -1179,7 +1195,7 @@
                                         <StackPanel>
                                             <TextBlock Text="{Binding Letter}" Margin="0,6,0,10" FontSize="26" FontWeight="Light" Foreground="White"
                                                        Visibility="{Binding ShowHeader, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                                            <ItemsControl ItemsSource="{Binding Games}" ItemTemplate="{StaticResource PosterTemplate}" Focusable="False">
+                                            <ItemsControl ItemsSource="{Binding Games}" ItemTemplate="{StaticResource PosterTemplate}" Focusable="False" AlternationCount="1000">
                                                 <ItemsControl.ItemsPanel>
                                                     <ItemsPanelTemplate>
                                                         <WrapPanel />
@@ -1201,6 +1217,7 @@
 
                     <!-- The A to Z index: click a letter to jump to the games under it. It scales down to fit a short window, so every letter stays on screen. -->
                     <Viewbox x:Name="LetterRail" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Stretch="Uniform" StretchDirection="DownOnly" Margin="0,8,8,36"
+                             GotKeyboardFocus="LetterRail_GotKeyboardFocus" LostKeyboardFocus="LetterRail_GotKeyboardFocus"
                              Visibility="{Binding ShowLetterIndex, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                         <ItemsControl ItemsSource="{Binding LetterIndex}" Focusable="False">
                             <ItemsControl.ItemTemplate>
@@ -1208,14 +1225,22 @@
                                     <Button Width="28" Height="26" Cursor="Hand" Click="Letter_Click" IsEnabled="{Binding HasGames}" FocusVisualStyle="{x:Null}" AutomationProperties.Name="{Binding Letter}">
                                         <Button.Template>
                                             <ControlTemplate TargetType="Button">
-                                                <Border x:Name="Pill" Background="Transparent" CornerRadius="9">
-                                                    <TextBlock x:Name="Mark" Text="{Binding Letter}" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"
-                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                </Border>
+                                                <Grid>
+                                                    <Border x:Name="Pill" Background="Transparent" CornerRadius="9">
+                                                        <TextBlock x:Name="Mark" Text="{Binding Letter}" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"
+                                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                    </Border>
+                                                    <Border x:Name="Ring" CornerRadius="9" BorderBrush="{StaticResource RingWhite}" BorderThickness="1.5" Opacity="0" IsHitTestVisible="False" />
+                                                </Grid>
                                                 <ControlTemplate.Triggers>
                                                     <Trigger Property="IsMouseOver" Value="True">
                                                         <Setter TargetName="Mark" Property="Foreground" Value="White" />
                                                         <Setter TargetName="Pill" Property="Background" Value="#1AFFFFFF" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                                        <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                                        <Setter TargetName="Mark" Property="Foreground" Value="White" />
+                                                        <Setter TargetName="Pill" Property="Background" Value="#33FFFFFF" />
                                                     </Trigger>
                                                     <Trigger Property="IsEnabled" Value="False">
                                                         <Setter TargetName="Mark" Property="Opacity" Value="0.3" />

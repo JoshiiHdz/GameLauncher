@@ -156,14 +156,21 @@ public sealed class LibraryGroupsAndRibbonTests(WpfStaFixture sta)
             Assert.True(shell.MoveFocus(ShellDirection.Down));                // from the second column of row 1 to the only game of row 2: it clamps to Ac
             Assert.Same(games["Ac"], shell.FocusedGame);
 
-            Assert.True(shell.MoveFocus(ShellDirection.Right));               // past the end of A's last row: B starts a new row
+            Assert.False(shell.MoveFocus(ShellDirection.Right));              // the end of a row is the end of it: rows change with Up and Down, not by running off the side
+            Assert.Same(games["Ac"], shell.FocusedGame);
+
+            Assert.True(shell.MoveFocus(ShellDirection.Down));                // B starts a new row, reached by Down
             Assert.Same(games["Ba"], shell.FocusedGame);
 
             Assert.True(shell.MoveFocus(ShellDirection.Up));                  // back up to A's last row
             Assert.Same(games["Ac"], shell.FocusedGame);
 
+            Assert.False(shell.MoveFocus(ShellDirection.Left));               // the first column: Left leaves the grid for the filters (it no longer wraps to the row above)
+            Assert.Same(games["Ac"], shell.FocusedGame);
+
+            shell.FocusedGame = games["Ab"];
             Assert.True(shell.MoveFocus(ShellDirection.Left));
-            Assert.Same(games["Ab"], shell.FocusedGame);
+            Assert.Same(games["Aa"], shell.FocusedGame);
 
             shell.FocusedGame = games["Bb"];
             Assert.False(shell.MoveFocus(ShellDirection.Down));               // nothing below the last row

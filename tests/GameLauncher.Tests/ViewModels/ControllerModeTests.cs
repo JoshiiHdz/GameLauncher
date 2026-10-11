@@ -33,7 +33,8 @@ public sealed class ControllerModeTests(WpfStaFixture sta)
         public bool TryFocusGameTile() { Calls.Add("try tile"); return true; }
         public bool TryFocusLetterRail() { Calls.Add("letter rail"); return true; }
         public bool HeroHasFocus => HeroFocus;
-        public bool MoveFocus(ShellDirection direction) { Calls.Add("move " + direction); return true; }
+        public bool MoveResult = true;
+        public bool MoveFocus(ShellDirection direction) { Calls.Add("move " + direction); return MoveResult; }
         public bool Activate() { Calls.Add("activate"); return true; }
         public void FocusGameTile() => Calls.Add("focus tile");
         public bool PlayResult = true;
@@ -64,6 +65,8 @@ public sealed class ControllerModeTests(WpfStaFixture sta)
         library.SearchText = "";
         if (ribbon)
             library.AppearanceTheme = ThemeId.ConsoleRibbon;
+
+        library.SetControllerStatus(true, null); // controller mode needs a controller
 
         var shell = new ShellState(library);
         var surface = new FakeSurface();
@@ -486,23 +489,136 @@ public sealed class ControllerModeTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void WhenTheControllerGoesAway_TheModeStaysOn_ButTheHintSaysHowToCarryOnOrLeave() => InRibbon(async () =>
+    public void WhenTheControllerGoesAway_ControllerModeEndsWithIt() => InRibbon(async () =>
     {
         var (library, shell, _, _, _) = Create();
-        library.SetControllerStatus(true, null);
         library.EnterControllerMode();
-        Assert.Contains("Leave", shell.PadHints);
+        Assert.True(shell.HasPadHints);
 
-        library.SetControllerStatus(false, null); // it went to sleep
+        library.SetControllerStatus(false, null); // it went to sleep, or was unplugged
 
-        Assert.True(library.IsControllerMode);                   // still on: a button press wakes it
-        Assert.Contains("Controller disconnected", shell.PadHints);
-        Assert.Contains("wake", shell.PadHints);
-        Assert.Contains("click the controller button", shell.PadHints);
+        Assert.False(library.IsControllerMode);
+        Assert.False(shell.HasPadHints);
+        Assert.False(library.ShowControllerButton); // nothing to enter it with until the controller is back
 
-        library.SetControllerStatus(true, null);                 // and it came back
-        Assert.Contains("Leave", shell.PadHints);
-        Assert.DoesNotContain("disconnected", shell.PadHints);
+        library.SetControllerStatus(true, null);
+        Assert.True(library.ShowControllerButton);
+        Assert.False(library.IsControllerMode);     // coming back does not switch it on by itself
+        await Task.CompletedTask;
+    });
+
+    [Fact]
+    public void WithoutAController_ThereIsNoWayIntoControllerMode() => sta.RunAsync(async () =>
+    {
+        var (library, _, _, router, _) = Create(ribbon: false);
+        library.SetControllerStatus(false, null);
+
+        Assert.False(library.ShowAxisControllerButton);
+        Assert.DoesNotContain(library.BuildPaletteItems(), i => i.Title.StartsWith("Controller mode"));
+        library.EnterControllerModeFromAxisCommand.Execute(null); // F11: says why it did nothing
+        Assert.False(library.IsControllerMode);
+        Assert.Contains("Connect a controller", library.StatusText);
+        Assert.Equal(ThemeId.Axis, library.AppearanceTheme); // not even the theme moves
+
+        library.AppearanceTheme = ThemeId.ConsoleRibbon;
+        Assert.False(library.ShowControllerButton);
+        Assert.False(library.ToggleControllerModeCommand.CanExecute(null));
+        Assert.False(library.ControllerModeSwitchEnabled);
+        library.ControllerModeSwitch = true;                  // the Settings switch
+        Assert.False(library.IsControllerMode);
+        Assert.False(library.ControllerModeSwitch);
+        library.EnterControllerMode();
+        Assert.False(library.IsControllerMode);
+        Assert.Contains("Connect a controller", library.StatusText);
+        router.Handle(PadButton.Start);                       // (a pad that is not there cannot press it, but the router must not care either)
+        Assert.False(library.IsControllerMode);
+
+        library.SetControllerStatus(true, null);
+        Assert.True(library.ToggleControllerModeCommand.CanExecute(null));
+        library.ControllerModeSwitch = true;
+        Assert.True(library.IsControllerMode);
+        await Task.CompletedTask;
+    });
+
+    [Fact]
+    public void TheControllerGoingAwayInAxisBorrowedMode_BringsAxisBack() => sta.RunAsync(async () =>
+    {
+        var (library, _, _, _, _) = Create(ribbon: false);
+        library.EnterControllerModeFromAxisCommand.Execute(null);
+        Assert.Equal(ThemeId.ConsoleRibbon, library.AppearanceTheme);
+
+        library.SetControllerStatus(false, null);
+
+        Assert.False(library.IsControllerMode);
+        Assert.Equal(ThemeId.Axis, library.AppearanceTheme);
+        Assert.False(library.ShowAxisControllerButton);
+        await Task.CompletedTask;
+    });
+
+    [Fact]
+    public void OnTheHeroButtons_LeftAndRightPastTheEndsPickAnotherGame_AndThePadStaysOnPlay() => InRibbon(async () =>
+    {
+        var (library, shell, surface, router, games) = Create();
+        library.EnterControllerMode();
+        shell.FocusRibbonItem(games[1]);
+        surface.TileFocus = false;
+        surface.HeroFocus = true;
+        surface.MoveResult = false; // nothing further along the hero's buttons
+
+        router.Handle(PadButton.Right);
+        Assert.Same(games[2], shell.FocusedGame);
+        Assert.Contains("focus play", surface.Calls);
+
+        surface.Calls.Clear();
+        surface.MoveResult = true;   // there is another button along: the pad just moves
+        router.Handle(PadButton.Left);
+        Assert.Same(games[2], shell.FocusedGame);
+        Assert.DoesNotContain("focus play", surface.Calls);
+        await Task.CompletedTask;
+    });
+
+    [Fact]
+    public void AViewPickedFromAPageWhileTheRibbonHomeShows_OpensTheLibraryTab_AndTheHomeIsNeverFiltered() => InRibbon(async () =>
+    {
+        var (library, shell, _, _, games) = Create();
+        Assert.Equal(ShellTab.Home, shell.Tab);
+        var all = shell.RibbonOrder().Count;
+
+        library.SelectViewCommand.Execute("unplayed"); // Stats' "Show them"
+        Assert.Equal(LibraryView.NeverPlayed, library.SelectedView);
+        Assert.Equal(ShellTab.Library, shell.Tab);     // the games are shown where filters live; the ribbon is left alone
+
+        shell.ShowHomeCommand.Execute(null);
+        Assert.Equal(ShellTab.Home, shell.Tab);
+        Assert.Equal(LibraryView.All, library.SelectedView); // coming home clears the filter
+        Assert.Equal(all, shell.RibbonOrder().Count);
+        Assert.Equal(games.Count, library.Games.Count);
+
+        library.SelectViewCommand.Execute("favorites");
+        Assert.Equal(ShellTab.Library, shell.Tab);
+        library.SelectDriveCommand.Execute("C:");
+        shell.ShowHomeCommand.Execute(null);
+        Assert.Null(library.SelectedDriveLetter);
+        Assert.Equal(LibraryView.All, library.SelectedView);
+        await Task.CompletedTask;
+    });
+
+    [Fact]
+    public void AViewChosenInAxis_DoesNotNarrowTheRibbonWhenTheModeBorrowsThePlayStationTheme() => sta.RunAsync(async () =>
+    {
+        var (library, shell, _, _, games) = Create(ribbon: false);
+        library.SelectViewCommand.Execute("unplayed");
+        Assert.Equal(LibraryView.NeverPlayed, library.SelectedView);
+        try
+        {
+            ThemeManager.Apply(ThemeId.ConsoleRibbon); // the window applies the theme the view model records
+            library.EnterControllerModeFromAxisCommand.Execute(null);
+
+            Assert.Equal(LibraryView.All, library.SelectedView);
+            Assert.Equal(games.Count, library.Games.Count);
+        }
+        finally { ThemeManager.Apply(ThemeId.Axis); }
+
         await Task.CompletedTask;
     });
 

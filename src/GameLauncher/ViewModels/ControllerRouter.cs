@@ -76,8 +76,12 @@ public sealed class ControllerRouter(LibraryViewModel library, ShellState shell,
     /// <summary>The window sets this while the "Switch to controller mode?" question is showing, so the pad can answer it.</summary>
     public bool AskingToEnter { get; set; }
 
+    /// <summary>Which rule decided the last press ("tile", "down-to-play", "spatial"...), for the navigation trace; "none" when nothing was done.</summary>
+    public string LastRule { get; private set; } = "none";
+
     public void Handle(PadButton button)
     {
+        LastRule = "none";
         if (!library.IsControllerMode)
         {
             // The "Switch to controller mode?" question is open (Axis): the pad answers it, like the "Leave controller mode?" one.
@@ -272,10 +276,14 @@ public sealed class ControllerRouter(LibraryViewModel library, ShellState shell,
     private void Move(ShellDirection direction)
     {
         if (surface.EnsureFocus())
+        {
+            LastRule = "first-press";
             return;
+        }
 
         if (surface.GameTileHasFocus && shell.MoveFocus(direction))
         {
+            LastRule = "tile";
             surface.FocusGameTile();
             return;
         }
@@ -283,27 +291,57 @@ public sealed class ControllerRouter(LibraryViewModel library, ShellState shell,
         var onHome = shell.Tab == ShellTab.Home && !library.IsPageOpen && !shell.ModalOpen;
         var onHomeOrLibrary = !library.IsPageOpen && !shell.ModalOpen;
         if (direction == ShellDirection.Down && surface.GameTileHasFocus && onHome && surface.FocusPlay())
+        {
+            LastRule = "down-to-play";
             return;
+        }
 
         // The top bar and the strip (or the Library grid) are one above the other: Up from the top of the strip is the tab for this screen, and Down from any top bar control
         // is the focused game's tile - not whatever lies furthest below that control's own column.
         if (direction == ShellDirection.Up && surface.GameTileHasFocus && onHomeOrLibrary && surface.FocusTopBar())
+        {
+            LastRule = "up-to-tabs";
             return;
+        }
 
         if (direction == ShellDirection.Down && surface.TopBarHasFocus && onHomeOrLibrary && surface.TryFocusGameTile())
+        {
+            LastRule = "down-to-tile";
             return;
+        }
 
         // At the right-hand end of the Library grid the A to Z rail is next, on the letter the focused game is under (whatever height the rail's letters are at).
         if (direction == ShellDirection.Right && surface.GameTileHasFocus && shell.Tab == ShellTab.Library && onHomeOrLibrary && surface.TryFocusLetterRail())
+        {
+            LastRule = "letter-rail";
             return;
+        }
 
         // And back up from the hero's buttons is always the focused game's tile, so Down then Up returns to where you were.
         if (direction == ShellDirection.Up && surface.HeroHasFocus && onHome)
         {
+            LastRule = "up-to-tile";
             surface.FocusGameTile();
             return;
         }
 
+        // Along the hero's buttons (Play, More, the star, Uninstall) Left and Right move between them; past the first or last one they pick the previous or next game, and
+        // the pad stays on Play. Otherwise choosing another game from Play meant going Up to the card first.
+        if (direction is ShellDirection.Left or ShellDirection.Right && surface.HeroHasFocus && onHome)
+        {
+            LastRule = "hero-button";
+            if (!surface.MoveFocus(direction) && shell.MoveFocus(direction))
+            {
+                LastRule = "hero-game";
+                // The Library tile has no Play button: the pad goes to the tile, like moving along the strip.
+                if (shell.LibraryTileFocused || !surface.FocusPlay())
+                    surface.FocusGameTile();
+            }
+
+            return;
+        }
+
+        LastRule = "spatial";
         surface.MoveFocus(direction);
     }
 

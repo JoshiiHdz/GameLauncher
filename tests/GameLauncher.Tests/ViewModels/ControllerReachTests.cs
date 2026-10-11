@@ -28,6 +28,7 @@ public sealed class ControllerReachTests(WpfStaFixture sta)
         vm.SearchText = "x"; // runs the production filter
         vm.SearchText = "";
         vm.AppearanceTheme = ThemeId.ConsoleRibbon;
+        vm.SetControllerStatus(true, null); // controller mode needs a controller
         return (vm, ShellTestSupport.OpenMain(vm, 1280, 720));
     }
 
@@ -266,7 +267,7 @@ public sealed class ControllerReachTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void InSettings_AChoosesACategory_AndMovingOntoOneShowsItsOptions() => sta.RunAsync(async () =>
+    public void InSettings_MovingOverTheCategoriesOnlyMarksThem_AChoosesOneAndDropsThePadOnItsFirstOption_LeftGoesBack() => sta.RunAsync(async () =>
     {
         GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
         ThemeManager.Apply(ThemeId.ConsoleRibbon);
@@ -281,29 +282,101 @@ public sealed class ControllerReachTests(WpfStaFixture sta)
             var page = Walk(window.PageHost).OfType<SettingsPage>().Single();
             var router = window.ControllerRouterForTest;
 
-            // Down onto the Library category shows the Library options at once (the list follows the pad).
+            // Down onto the Library category only marks it: the options on show stay those of the chosen category.
             Keyboard.Focus(page.GeneralCategory);
+            await ShellTestSupport.SettleAsync();
+            page.CategoryList.SelectedItem = page.GeneralCategory;
             await ShellTestSupport.SettleAsync();
             router.Handle(PadButton.Down);
             await ShellTestSupport.SettleAsync();
             Assert.Same(page.LibraryCategory, Keyboard.FocusedElement);
-            Assert.Same(page.LibraryCategory, page.CategoryList.SelectedItem);
-            Assert.True(page.LibrarySection.IsVisible);
+            Assert.Same(page.GeneralCategory, page.CategoryList.SelectedItem);
+            Assert.True(page.GeneralSection.IsVisible);
+            Assert.False(page.LibrarySection.IsVisible);
 
-            // A chooses a category too, even where moving did not (here: put the selection somewhere else first).
-            page.CategoryList.SelectedItem = page.GeneralCategory;
-            await ShellTestSupport.SettleAsync();
-            Keyboard.Focus(page.AboutCategory);
+            // A chooses it and drops the pad on the first option of that section.
             router.Handle(PadButton.Accept);
             await ShellTestSupport.SettleAsync();
-            Assert.Same(page.AboutCategory, page.CategoryList.SelectedItem);
-            Assert.True(page.AboutSection.IsVisible);
+            Assert.Same(page.LibraryCategory, page.CategoryList.SelectedItem);
+            Assert.True(page.LibrarySection.IsVisible);
+            Assert.IsNotType<ListBoxItem>(Keyboard.FocusedElement);
+            Assert.True(Within((DependencyObject)Keyboard.FocusedElement, page.LibrarySection));
 
-            // Right goes into the options.
+            // Left from there - or from any option, whatever lies level to its left - is back on the chosen category.
+            router.Handle(PadButton.Left);
+            await ShellTestSupport.SettleAsync();
+            Assert.Same(page.LibraryCategory, Keyboard.FocusedElement);
+
+            // Right from a category that is only marked chooses it and goes in too.
+            router.Handle(PadButton.Down);
+            await ShellTestSupport.SettleAsync();
+            var marked = Assert.IsType<ListBoxItem>(Keyboard.FocusedElement);
             router.Handle(PadButton.Right);
             await ShellTestSupport.SettleAsync();
+            Assert.True(marked.IsSelected);
             Assert.IsNotType<ListBoxItem>(Keyboard.FocusedElement);
-            Assert.True(Within((DependencyObject)Keyboard.FocusedElement, page.AboutSection));
+
+            // Left from every control of the section lands on the category list.
+            var listRight = FocusNavigator.BoundsIn(page.CategoryList, window.RootGrid).Right;
+            var options = window.PadControls().Where(c => c is not ListBoxItem && c.Name != "PageBackButton" && Within(c, window.PageHost) && FocusNavigator.BoundsIn(c, window.RootGrid).Left >= listRight).Take(6).ToList();
+            Assert.NotEmpty(options);
+            foreach (var option in options)
+            {
+                Keyboard.Focus(option);
+                await ShellTestSupport.SettleAsync();
+                router.Handle(PadButton.Left);
+                await ShellTestSupport.SettleAsync();
+                Assert.IsType<ListBoxItem>(Keyboard.FocusedElement);
+            }
+        }
+        finally
+        {
+            window.Close();
+            ThemeManager.Apply(ThemeId.Axis);
+        }
+    });
+
+    [Fact]
+    public void SettingsOpenedOnACategory_StartsThePadOnThatCategory_AndNavigatingNeverSwitchesIt() => sta.RunAsync(async () =>
+    {
+        GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
+        ThemeManager.Apply(ThemeId.ConsoleRibbon);
+        var (vm, window) = Open();
+        try
+        {
+            window.Activate();
+            await ShellTestSupport.SettleAsync();
+            vm.EnterControllerMode();
+            await ShellTestSupport.SettleAsync();
+            var router = window.ControllerRouterForTest;
+
+            // Every way Settings is opened on a category: the Optimize shortcut, the palette's setting entries, the Appearance one.
+            var ways = new (string Name, Action Open, Func<SettingsPage, ListBoxItem> Expected)[]
+            {
+                ("Optimize shortcut", () => vm.ShowOptimizeSettingsCommand.Execute(null), p => p.PerformanceCategory),
+                ("Appearance", () => vm.OpenSettingsAt(LibraryViewModel.AppearanceSettingsCategory), p => p.AppearanceCategory),
+                ("Library", () => vm.OpenSettingsAt(LibraryViewModel.LibrarySettingsCategory), p => p.LibraryCategory),
+            };
+
+            foreach (var (name, open, expected) in ways)
+            {
+                vm.ClosePage();
+                await ShellTestSupport.SettleAsync();
+                open();
+                await ShellTestSupport.SettleAsync();
+                var page = Walk(window.PageHost).OfType<SettingsPage>().Single();
+                Assert.Same(expected(page), page.CategoryList.SelectedItem);
+
+                // The page gives the pad its place as it opens.
+                Assert.True(ReferenceEquals(expected(page), Keyboard.FocusedElement), $"{name}: the pad should start on the chosen category, not {Keyboard.FocusedElement}");
+                Assert.Same(expected(page), page.CategoryList.SelectedItem);
+
+                router.Handle(PadButton.Down); // and moving never changes what is showing
+                await ShellTestSupport.SettleAsync();
+                router.Handle(PadButton.Up);
+                await ShellTestSupport.SettleAsync();
+                Assert.True(ReferenceEquals(expected(page), page.CategoryList.SelectedItem), $"{name}: moving over the categories must not switch the section");
+            }
         }
         finally
         {

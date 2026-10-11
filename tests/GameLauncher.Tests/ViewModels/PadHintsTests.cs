@@ -200,10 +200,9 @@ public sealed class PadHintsTests(WpfStaFixture sta)
             shell.PaletteOpen = false;
             shell.ModalOpen = false;
 
-            vm.SetControllerStatus(false, null);
-            var asleep = Assert.Single(shell.PadHintItems);
-            Assert.Empty(asleep.Glyphs);               // a sentence, no buttons
-            Assert.Contains("Controller disconnected", asleep.Label);
+            vm.SetControllerStatus(false, null);       // the pad went to sleep: controller mode ends, and with it the guide
+            Assert.False(vm.IsControllerMode);
+            Assert.Empty(shell.PadHintItems);
             await Task.CompletedTask;
         }
         finally { ThemeManager.Apply(ThemeId.Axis); }
@@ -317,9 +316,10 @@ public sealed class PadHintsTests(WpfStaFixture sta)
             vm.ShowStatsCommand.Execute(null);
             await ShellTestSupport.SettleAsync();
             Assert.True(pill.ActualWidth > 300, $"after a page opens the guide is {pill.ActualWidth} wide");
-            vm.SetControllerStatus(false, null);
+            vm.SetControllerStatus(false, null); // the pad is gone: the mode, and its guide, end
             await ShellTestSupport.SettleAsync();
-            Assert.True(pill.ActualWidth > 300, $"with the pad asleep the guide is {pill.ActualWidth} wide");
+            Assert.False(vm.IsControllerMode);
+            Assert.False(window.Shell.HasPadHints);
         }
         finally
         {

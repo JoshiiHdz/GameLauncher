@@ -10,7 +10,7 @@ namespace GameLauncher.ViewModels;
 public partial class LibraryViewModel
 {
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsAxisTheme), nameof(IsConsoleTileTheme), nameof(IsConsoleRibbonTheme), nameof(IsConsoleTheme), nameof(ControllerModeAvailable), nameof(ShowConsoleCaption))]
+    [NotifyPropertyChangedFor(nameof(IsAxisTheme), nameof(IsConsoleTileTheme), nameof(IsConsoleRibbonTheme), nameof(IsConsoleTheme), nameof(ControllerModeAvailable), nameof(ShowConsoleCaption), nameof(ShowControllerButton), nameof(ShowAxisControllerButton))]
     private ThemeId _appearanceTheme = ThemeId.Axis;
 
     /// <summary>Set by the window in the PlayStation style: brings a game up on the home screen with its details showing and Play highlighted.</summary>
@@ -31,6 +31,7 @@ public partial class LibraryViewModel
             ExitControllerMode($"the theme changed to {value}"); // switching to another theme ends controller mode and removes every way back into it
 
         EnterControllerModeFromAxisCommand.NotifyCanExecuteChanged();
+        ToggleControllerModeCommand.NotifyCanExecuteChanged();
         if (_themeChangeIsForController)
             return;
 

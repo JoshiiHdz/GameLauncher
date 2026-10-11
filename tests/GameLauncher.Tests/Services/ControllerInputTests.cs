@@ -79,6 +79,67 @@ public sealed class ControllerInputTests
         Assert.Equal([PadButton.Right], rig.Pressed);
     }
 
+    [Theory]
+    [InlineData(30000, 0, PadButton.Right)]
+    [InlineData(-30000, 0, PadButton.Left)]
+    [InlineData(0, 30000, PadButton.Up)]
+    [InlineData(0, -30000, PadButton.Down)]
+    [InlineData(30000, 9000, PadButton.Right)]     // pushed right with a thumb that wanders a little: still just Right
+    [InlineData(-9000, -30000, PadButton.Down)]
+    public void TheLeftStick_IsOneDirection_TheStrongerAxis(int x, int y, PadButton expected)
+    {
+        var rig = new Rig();
+        rig.Plugged();
+        rig.Hold(0, lx: (short)x, ly: (short)y);
+        rig.Input.Poll();
+        Assert.Equal([expected], rig.Pressed);
+    }
+
+    [Theory]
+    [InlineData(22000, 22000)]   // a corner: neither way is meant
+    [InlineData(-22000, 18000)]
+    [InlineData(20000, -15000)]  // not clearly one axis (1.33 times)
+    public void ADiagonalPush_SaysNothing_InsteadOfTwoDirectionsAtOnce(int x, int y)
+    {
+        var rig = new Rig();
+        rig.Plugged();
+        rig.Hold(0, lx: (short)x, ly: (short)y);
+        rig.Input.Poll();
+        rig.Now += 50;
+        rig.Input.Poll();
+        Assert.Empty(rig.Pressed);
+    }
+
+    [Fact]
+    public void RollingTheThumbRound_StepsThroughTheDirections_OneAtATime()
+    {
+        var rig = new Rig();
+        rig.Plugged();
+
+        rig.Hold(0, lx: 30000, ly: 0);       rig.Input.Poll();               // Right
+        rig.Now += 20; rig.Hold(0, lx: 24000, ly: 20000); rig.Input.Poll();  // through the corner: Right carries on, nothing new
+        rig.Now += 20; rig.Hold(0, lx: 19000, ly: 22000); rig.Input.Poll();  // still the corner
+        Assert.Equal([PadButton.Right], rig.Pressed);
+
+        rig.Now += 20; rig.Hold(0, lx: 6000, ly: 30000); rig.Input.Poll();   // now clearly Up: one new press, and Right is let go
+        Assert.Equal([PadButton.Right, PadButton.Up], rig.Pressed);
+    }
+
+    [Fact]
+    public void TheStick_LetsGoOnlyWhenBackWellInsideWhereItStarted_SoAWobbleDoesNotStutter()
+    {
+        var rig = new Rig();
+        rig.Plugged();
+        rig.Hold(0, lx: 20000); rig.Input.Poll();
+        rig.Now += 20; rig.Hold(0, lx: 14000); rig.Input.Poll();   // eased off a little: still the same hold, not released and pressed again
+        rig.Now += 20; rig.Hold(0, lx: 18000); rig.Input.Poll();
+        Assert.Equal([PadButton.Right], rig.Pressed);
+
+        rig.Now += 20; rig.Hold(0, lx: 9000); rig.Input.Poll();    // let back: released
+        rig.Now += 20; rig.Hold(0, lx: 20000); rig.Input.Poll();   // and pushed again: a new press
+        Assert.Equal([PadButton.Right, PadButton.Right], rig.Pressed);
+    }
+
     [Fact]
     public void Triggers_AreThePageButtons_PastHalfWay()
     {
@@ -160,6 +221,8 @@ public sealed class ControllerInputTests
 
         rig.Slot0 = null;
         rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();
+        Assert.True(rig.Input.IsConnected); // not gone yet: one missed reading is not a pad going away
+        rig.Now += ControllerInput.GoneAfterMs; rig.Input.Poll();
         Assert.False(rig.Input.IsConnected);
         Assert.Equal([true, false], rig.Connection);
     }
@@ -190,6 +253,7 @@ public sealed class ControllerInputTests
 
         rig.Slot0 = null; // the pad goes away
         rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();
+        rig.Now += ControllerInput.GoneAfterMs; rig.Input.Poll();
         Assert.Null(rig.Input.Battery);
     }
 
@@ -234,7 +298,25 @@ public sealed class ControllerInputTests
 
         rig.Slot0 = null;
         rig.Input.Poll();
+        Assert.Equal([true], rig.Connection);
+        rig.Now += ControllerInput.GoneAfterMs;
+        rig.Input.Poll();
         Assert.Equal([true, false], rig.Connection);
+    }
+
+    [Fact]
+    public void AReadingThatFailsOnce_IsNotAPadGoingAway()
+    {
+        var rig = new Rig();
+        rig.Hold(0);
+        rig.Input.Poll();
+        Assert.Equal([true], rig.Connection);
+
+        rig.Slot0 = null; rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll(); // the dongle missed a beat
+        rig.Hold(0); rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();       // and it is back
+        rig.Slot0 = null; rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();  // another miss, a while later: the count starts again
+        Assert.True(rig.Input.IsConnected);
+        Assert.Equal([true], rig.Connection);
     }
 
     [Fact]
@@ -309,6 +391,8 @@ public sealed class ControllerInputTests
         Assert.Equal([true], rig.Connection);
 
         rig.Slot0 = null; rig.Now += 100; rig.Input.Poll();   // it switched itself off
+        Assert.Equal([true], rig.Connection);                 // ...and is only called gone once it has stayed away
+        rig.Now += ControllerInput.GoneAfterMs; rig.Input.Poll();
         Assert.Equal([true, false], rig.Connection);
 
         rig.Hold(0); rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll(); // woken

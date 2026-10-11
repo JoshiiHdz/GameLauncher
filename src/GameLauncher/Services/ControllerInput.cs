@@ -57,7 +57,12 @@ public sealed class ControllerInput : IDisposable
 {
     private const ushort DpadUp = 0x1, DpadDown = 0x2, DpadLeft = 0x4, DpadRight = 0x8, StartButton = 0x10;
     private const ushort LeftShoulder = 0x100, RightShoulder = 0x200, ButtonA = 0x1000, ButtonB = 0x2000, ButtonX = 0x4000, ButtonY = 0x8000;
-    private const short StickThreshold = 16000; // about half of the stick's travel
+    /// <summary>The stick has to be pushed about half way to start a direction, and let back to about a third to stop it (so a thumb that wobbles around the half-way point
+    /// does not stutter), and a diagonal push is not a direction at all: see <see cref="StickDirection"/>.</summary>
+    internal const int StickEngage = 16000, StickRelease = 11000;
+
+    /// <summary>How much stronger one axis must be than the other for the push to count as that way. Below it the push is a diagonal.</summary>
+    internal const double StickDominance = 1.5;
     private const byte TriggerThreshold = 128; // about half of the trigger's travel
     internal const int RepeatDelayMs = 400, RepeatIntervalMs = 120, EmptySlotRecheckMs = 1000;
     private const int MaxControllers = 4;
@@ -107,6 +112,13 @@ public sealed class ControllerInput : IDisposable
     private readonly Dictionary<(int Controller, PadButton Button), long> _lastFired = new();
     private readonly long[] _nextProbe = new long[MaxControllers];
     private readonly bool[] _present = new bool[MaxControllers];
+    private readonly PadButton?[] _stickHeld = new PadButton?[MaxControllers];
+    private readonly bool[] _stickWasDiagonal = new bool[MaxControllers];
+
+    /// <summary>The left stick's last position when it was out at the rim, and how many pushes to a corner were ignored (for the navigation log).</summary>
+    public (int X, int Y) LastStick { get; private set; }
+
+    public int IgnoredDiagonals { get; private set; }
     private DispatcherTimer? _timer;
     private bool _connected;
     private bool _resuming; // the next reading follows a stretch with none: whatever is already down is not a new press
@@ -210,6 +222,9 @@ public sealed class ControllerInput : IDisposable
     /// <summary>Raised when the first controller appears or the last one goes away.</summary>
     public event Action<bool>? ConnectionChanged;
 
+    /// <summary>Raises a press as if the pad had made it (tests of the window's own handling).</summary>
+    internal void PressForTest(PadButton button) => ButtonPressed?.Invoke(button);
+
     /// <summary>A controller is plugged in (as of the last reading; not updated while readings are not allowed).</summary>
     public bool IsConnected => _connected;
 
@@ -255,14 +270,30 @@ public sealed class ControllerInput : IDisposable
         ForgetHeldButtons();
     }
 
-    /// <summary>The buttons down in one reading, with the left stick treated as the D-pad.</summary>
+    /// <summary>The one direction the left stick is saying, or null. Most people navigate with the stick, and a thumb is never exact: with each axis read on its own a
+    /// push towards a corner pressed two directions at once and moved the focus somewhere unexpected. So: only the stronger axis counts, and only when it is clearly stronger
+    /// (<see cref="StickDominance"/>) - a diagonal says nothing - and a direction already held carries on through the diagonal zone until the stick is let back
+    /// (<see cref="StickRelease"/>) or clearly turned to another way. Rolling the thumb round the rim therefore steps through the directions one at a time.</summary>
+    internal static PadButton? StickDirection(int x, int y, PadButton? held)
+    {
+        var ax = Math.Abs(x);
+        var ay = Math.Abs(y);
+        var strong = Math.Max(ax, ay);
+        if (strong < (held is null ? StickEngage : StickRelease))
+            return null;
+
+        var direction = ay >= ax ? (y > 0 ? PadButton.Up : PadButton.Down) : (x > 0 ? PadButton.Right : PadButton.Left);
+        return strong >= Math.Min(ax, ay) * StickDominance ? direction : held;
+    }
+
+    /// <summary>The buttons down in one reading (the left stick is added by <see cref="StickDirection"/>, which needs to know what it said last time).</summary>
     internal static IReadOnlySet<PadButton> Pressed(PadReading state)
     {
         var down = new HashSet<PadButton>();
-        if ((state.Buttons & DpadUp) != 0 || state.ThumbLeftY > StickThreshold) down.Add(PadButton.Up);
-        if ((state.Buttons & DpadDown) != 0 || state.ThumbLeftY < -StickThreshold) down.Add(PadButton.Down);
-        if ((state.Buttons & DpadLeft) != 0 || state.ThumbLeftX < -StickThreshold) down.Add(PadButton.Left);
-        if ((state.Buttons & DpadRight) != 0 || state.ThumbLeftX > StickThreshold) down.Add(PadButton.Right);
+        if ((state.Buttons & DpadUp) != 0) down.Add(PadButton.Up);
+        if ((state.Buttons & DpadDown) != 0) down.Add(PadButton.Down);
+        if ((state.Buttons & DpadLeft) != 0) down.Add(PadButton.Left);
+        if ((state.Buttons & DpadRight) != 0) down.Add(PadButton.Right);
         if ((state.Buttons & ButtonA) != 0) down.Add(PadButton.Accept);
         if ((state.Buttons & ButtonB) != 0) down.Add(PadButton.Back);
         if ((state.Buttons & ButtonY) != 0) down.Add(PadButton.Y);
@@ -306,6 +337,8 @@ public sealed class ControllerInput : IDisposable
             var wasPresent = _present[controller];
             var reading = _read(controller);
             _present[controller] = reading is not null;
+            if (reading is null)
+                _stickHeld[controller] = null;
             var justAppeared = reading is not null && !wasPresent; // a pad that has just woken up or been plugged in: the press that did it is not a command
             if (reading is not { } state)
             {
@@ -319,7 +352,22 @@ public sealed class ControllerInput : IDisposable
             if (Math.Abs(pushX) > Math.Abs(stickX)) stickX = pushX;
             if (Math.Abs(pushY) > Math.Abs(stickY)) stickY = pushY;
 
-            foreach (var button in Pressed(state))
+            var stick = StickDirection(state.ThumbLeftX, state.ThumbLeftY, _stickHeld[controller]);
+            var atRim = Math.Max(Math.Abs((int)state.ThumbLeftX), Math.Abs((int)state.ThumbLeftY)) >= StickEngage;
+            if (atRim)
+            {
+                LastStick = (state.ThumbLeftX, state.ThumbLeftY);
+                if (stick is null && !_stickWasDiagonal[controller])
+                    IgnoredDiagonals++; // pushed out to the rim, but at no direction: once per push
+            }
+
+            _stickWasDiagonal[controller] = atRim && stick is null;
+            _stickHeld[controller] = stick;
+            var pressed = new HashSet<PadButton>(Pressed(state));
+            if (stick is { } direction)
+                pressed.Add(direction);
+
+            foreach (var button in pressed)
             {
                 var key = (controller, button);
                 stillDown.Add(key);
@@ -393,9 +441,30 @@ public sealed class ControllerInput : IDisposable
         UpdateConnection();
     }
 
+    /// <summary>How long a pad that stops answering is still counted as there. Leaving controller mode follows the pad going away, so one reading that fails (a wireless
+    /// dongle does that now and then) must not end it; a pad that went to sleep or was unplugged keeps failing and is gone after this.</summary>
+    internal const int GoneAfterMs = 2500;
+
+    private long _missingSince = -1;
+
     private void UpdateConnection()
     {
-        var connected = _present.Any(p => p);
+        var now = _nowMs();
+        var answering = _present.Any(p => p);
+        bool connected;
+        if (answering || !_connected)
+        {
+            _missingSince = -1;
+            connected = answering;
+        }
+        else
+        {
+            if (_missingSince < 0)
+                _missingSince = now;
+
+            connected = now - _missingSince < GoneAfterMs;
+        }
+
         var changed = connected != _connected;
         _connected = connected;
         RefreshBattery(_nowMs(), force: changed);
@@ -405,6 +474,7 @@ public sealed class ControllerInput : IDisposable
 
     private void ForgetHeldButtons()
     {
+        Array.Clear(_stickHeld);
         _resuming = true;
         _heldSince.Clear();
         _lastFired.Clear();

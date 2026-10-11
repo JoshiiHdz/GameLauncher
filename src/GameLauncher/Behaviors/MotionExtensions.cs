@@ -146,6 +146,19 @@ public static class MotionExtensions
     public static void SetReplayOn(DependencyObject d, object? v) => d.SetValue(ReplayOnProperty, v);
     public static object? GetReplayOn(DependencyObject d) => d.GetValue(ReplayOnProperty);
 
+    /// <summary>Plays the element's entrance now (a card scrolled into view); nothing with animations off or when it has no entrance set.</summary>
+    internal static void Replay(FrameworkElement element)
+    {
+        if (Motion.AnimationsEnabled() && GetEnter(element) != EnterKind.None)
+        {
+            Replays++;
+            Play(element, null!);
+        }
+    }
+
+    /// <summary>How many entrances have been replayed for cards scrolling into view (the tests read it).</summary>
+    internal static int Replays { get; private set; }
+
     private static void OnReplayOnChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is FrameworkElement el && el.IsLoaded && e.OldValue is not null && GetEnter(el) != EnterKind.None)

@@ -447,9 +447,9 @@
 
                 <!-- Axis's way into controller mode (also F11, Ctrl+K, and Start on a pad): puts the PlayStation look on for the session. -->
                 <Button x:Name="AxisControllerModeButton" DockPanel.Dock="Right" Style="{StaticResource CaptionButtonStyle}" Width="38"
-                        Command="{Binding EnterControllerModeFromAxisCommand}" ToolTip="Controller mode (F11)"
+                        Command="{Binding EnterControllerModeFromAxisCommand}" ToolTip="Controller mode (F11) - needs a connected controller"
                         AutomationProperties.Name="Controller mode" AutomationProperties.AutomationId="AxisControllerModeButton"
-                        Visibility="{Binding IsAxisTheme, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        Visibility="{Binding ShowAxisControllerButton, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                     <ui:SymbolIcon Symbol="Games24" FontSize="18" Foreground="#E8FFFFFF" />
                 </Button>
 
