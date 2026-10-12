@@ -51,8 +51,50 @@ public partial class ConsoleRibbonView : UserControl
             {
                 HeroPlay.Focus();
                 Keyboard.Focus(HeroPlay);
+                AnnouncePlay();
             }
         }, DispatcherPriority.Loaded);
+
+    private ToolTip? _playHint;
+    private DispatcherTimer? _playHintTimer;
+
+    /// <summary>A game was just picked and the focus has been sent to Play: say so. Play swells past its size and settles a little larger while it holds the focus (so it
+    /// reads as "you are here", not just a thin ring), and a small tag above it names the key that plays the game. Both go when the focus leaves Play.</summary>
+    private void AnnouncePlay()
+    {
+        Behaviors.PadPulse.Play(HeroPlay, scale: 1.16, originX: 0.5, settle: 1.06);
+
+        var key = State is { Library.IsControllerMode: true } ? "A" : "Enter";
+        _playHint ??= new ToolTip { Placement = System.Windows.Controls.Primitives.PlacementMode.Top, VerticalOffset = -8, StaysOpen = true };
+        _playHint.Content = $"Press {key} to play";
+        _playHint.PlacementTarget = HeroPlay;
+        _playHint.IsOpen = true;
+
+        _playHintTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _playHintTimer.Tick -= PlayHintTimer_Tick;
+        _playHintTimer.Tick += PlayHintTimer_Tick;
+        _playHintTimer.Stop();
+        _playHintTimer.Start();
+    }
+
+    /// <summary>What the tag above Play says while it is showing, or null (the tests read it).</summary>
+    internal string? PlayHintText => _playHint is { IsOpen: true } ? _playHint.Content as string : null;
+
+    private void PlayHintTimer_Tick(object? sender, EventArgs e) => HidePlayHint();
+
+    private void HidePlayHint()
+    {
+        _playHintTimer?.Stop();
+        if (_playHint is not null)
+            _playHint.IsOpen = false;
+    }
+
+    /// <summary>The focus has left Play: it lets go of its larger size and the tag goes.</summary>
+    private void HeroPlay_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        Behaviors.PadPulse.Rest(HeroPlay);
+        HidePlayHint();
+    }
 
     private void OnStateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {

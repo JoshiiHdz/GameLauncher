@@ -148,6 +148,9 @@
                                 </Trigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True">
                                     <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                    <Setter TargetName="Ring" Property="BorderThickness" Value="3" />
+                                    <Setter TargetName="Body" Property="Background" Value="{DynamicResource AccentHover}" />
+                                    <Setter TargetName="Body" Property="Effect" Value="{StaticResource GlowStrong}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -909,7 +912,7 @@
                                        Visibility="{Binding HasRibbonSize, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                         </WrapPanel>
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="HeroPlay" Style="{StaticResource PlayPill}" Content="{Binding RibbonPlayLabel}" Click="HeroPlay_Click" />
+                            <Button x:Name="HeroPlay" Style="{StaticResource PlayPill}" Content="{Binding RibbonPlayLabel}" Click="HeroPlay_Click" LostKeyboardFocus="HeroPlay_LostKeyboardFocus" />
                             <Button x:Name="HeroMore" Margin="10,0,0,0" Width="48" Height="48" ToolTip="More" Click="HeroMore_Click" Style="{StaticResource RoundGlassButton}">
                                 <ui:SymbolIcon Symbol="MoreHorizontal24" FontSize="18" />
                                 <Button.Visibility>

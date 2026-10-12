@@ -631,6 +631,33 @@ public sealed class ControllerNavigationTests(WpfStaFixture sta)
     });
 
     [Fact]
+    public void APickedGame_SendsTheFocusToPlay_AndSaysSo() => sta.RunAsync(async () =>
+    {
+        var (vm, window) = await OpenInMode(1280, 900);
+        try
+        {
+            GameLauncher.Behaviors.Motion.AnimationsEnabled = () => true;             // the swell only plays with Windows' animations on
+            var before = GameLauncher.Behaviors.PadPulse.Total;
+
+            window.Shell.RequestPlayFocus();                                          // what picking a game does
+            await ShellTestSupport.SettleAsync();
+
+            Assert.Same(window.RibbonView.HeroPlay, Keyboard.FocusedElement);
+            Assert.Equal(before + 1, GameLauncher.Behaviors.PadPulse.Total);          // Play swelled so it is seen
+            Assert.Equal("Press A to play", window.RibbonView.PlayHintText);          // and a tag names the button (A on a pad)
+
+            Keyboard.Focus(window.RibbonView.HeroMore);                               // leaving Play takes the tag away
+            await ShellTestSupport.SettleAsync();
+            Assert.Null(window.RibbonView.PlayHintText);
+        }
+        finally
+        {
+            window.Close();
+            ThemeManager.Apply(ThemeId.Axis);
+        }
+    });
+
+    [Fact]
     public void DownThenUpFromThePlayButton_ComesBackToTheSameGame() => sta.RunAsync(async () =>
     {
         var (vm, window) = await OpenInMode(1280, 900);
