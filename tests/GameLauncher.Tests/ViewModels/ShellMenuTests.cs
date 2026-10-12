@@ -32,7 +32,7 @@ public sealed class ShellMenuTests(WpfStaFixture sta)
             shell.OpenCardMenu(game, new Rect(0, 0, 100, 100));
 
             Assert.Equal(
-                new[] { "Play", "Game details...", "-", "Favorite", "Hide", "Collections...", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location", "Uninstall..." },
+                new[] { "Play", "Game details...", "-", "Favorite", "Hide", "Collections...", "Game tweaks...", "Turn on high priority", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location", "Uninstall..." },
                 Rows(shell));
         }
         finally { ThemeManager.Apply(ThemeId.Axis); }
@@ -71,12 +71,12 @@ public sealed class ShellMenuTests(WpfStaFixture sta)
 
             shell.OpenCardMenu(game, new Rect(0, 0, 100, 100));
             var card = Rows(shell);
-            Assert.Equal(new[] { "Play", "-", "Hide", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location" }, card);
+            Assert.Equal(new[] { "Play", "-", "Hide", "Game tweaks...", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location" }, card);
             shell.CloseMenu();
 
             shell.OpenMoreMenu(game, new Rect(0, 0, 48, 48));
             var more = Rows(shell);
-            Assert.Equal(new[] { "Hide", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location" }, more);
+            Assert.Equal(new[] { "Hide", "Game tweaks...", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location" }, more);
         }
         finally { ThemeManager.Apply(ThemeId.Axis); }
 
@@ -102,7 +102,7 @@ public sealed class ShellMenuTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void PlayStationStyle_LibraryTabCardMenu_StillOffersGameDetails() => sta.RunAsync(async () =>
+    public void PlayStationStyle_LibraryTabCardMenu_HasNoSeparateDetailsRow() => sta.RunAsync(async () =>
     {
         ThemeManager.Apply(ThemeId.ConsoleRibbon);
         try
@@ -112,7 +112,7 @@ public sealed class ShellMenuTests(WpfStaFixture sta)
             shell.OpenCardMenu(game, new Rect(0, 0, 100, 100));
 
             var rows = Rows(shell);
-            Assert.Contains("Game details...", rows);
+            Assert.DoesNotContain("Game details...", rows);                  // the Home screen is the details; there is no second page to open
             Assert.Contains("Open install location", rows);
             Assert.Contains("Collections...", rows);
         }
@@ -122,7 +122,7 @@ public sealed class ShellMenuTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void PlayStationStyle_PickingAGameOnTheHome_SendsTheFocusToPlay_ButInTheLibraryTabOpensDetails() => sta.RunAsync(async () =>
+    public void PlayStationStyle_PickingAGameOnTheHome_SendsTheFocusToPlay_AndInTheLibraryTabBringsTheGameUpOnHome() => sta.RunAsync(async () =>
     {
         ThemeManager.Apply(ThemeId.ConsoleRibbon);
         try
@@ -137,7 +137,9 @@ public sealed class ShellMenuTests(WpfStaFixture sta)
 
             shell.ShowLibraryCommand.Execute(null);
             shell.OpenFocused();
-            Assert.Equal(1, playRequests); // the Library tab has no details panel: it opened Game details instead
+            Assert.Equal(2, playRequests);                                   // brought up on Home with Play highlighted, as the palette does
+            Assert.Equal(ShellTab.Home, shell.Tab);                          // the game is shown on the Home screen, where its details are
+            Assert.False(shell.Library.IsPageOpen);                          // and no details page opened
         }
         finally { ThemeManager.Apply(ThemeId.Axis); }
 

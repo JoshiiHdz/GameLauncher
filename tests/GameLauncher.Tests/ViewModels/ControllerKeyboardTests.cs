@@ -450,43 +450,15 @@ public sealed class ControllerKeyboardTests(WpfStaFixture sta)
         await ShellTestSupport.SettleAsync();
     }
 
-    [Fact]
-    public void AOnAGamesNotes_BringsUpTheKeyboard_TypesIntoThem_AndSavesTheNote() => sta.RunAsync(async () =>
+    /// <summary>Opens the search palette (which brings the keyboard up with it: it is no use without typing) and returns the dialog and its handle.</summary>
+    private static async Task<(CommandPaletteDialog Dialog, CommandPaletteViewModel Model, dynamic Shown)> OpenPalette(LibraryViewModel vm, MainWindow window)
     {
-        var (vm, window) = await OpenInMode();
-        try
-        {
-            vm.ShowGameDetailsCommand.Execute(vm.Games.First());
-            await ShellTestSupport.SettleAsync();
-            var page = Walk(window.PageHost).OfType<GameDetailsPage>().Single();
-            var notes = page.NotesBoxRibbon;
-            var details = Assert.IsType<GameDetailsViewModel>(page.DataContext);
-
-            Keyboard.Focus(notes); // the pad is on the notes box
-            await Press(window, PadButton.Accept);
-
-            Assert.True(window.PadKeyboard.IsOpen);
-            Assert.Same(notes, window.PadKeyboard.Target);
-            Assert.True(Keyboard.FocusedElement is Button b && Walk(window.PadKeyboard).Contains(b), "the pad should start on a key");
-
-            await TypeKey(window, "h");
-            await TypeKey(window, "i");
-            await Press(window, PadButton.Y);      // a space
-            await TypeKey(window, "t");
-            await Press(window, PadButton.X);      // backspace: the t is gone
-            Assert.Equal("hi ", notes.Text);
-
-            await Press(window, PadButton.Start);  // done
-            Assert.False(window.PadKeyboard.IsOpen);
-            Assert.Same(notes, Keyboard.FocusedElement);   // back on the notes box
-            Assert.Equal("hi ", details.Notes);            // and the note itself has it
-        }
-        finally
-        {
-            window.Close();
-            ThemeManager.Apply(ThemeId.Axis);
-        }
-    });
+        var model = new CommandPaletteViewModel(vm.BuildPaletteItems());
+        var dialog = new CommandPaletteDialog(model);
+        var shown = await ShellTestSupport.ShowDialogAsync(window, "Search", dialog);
+        await ShellTestSupport.SettleAsync();
+        return (dialog, model, shown);
+    }
 
     [Fact]
     public void TheKeyboardHoldsThePad_EveryKeyIsReachable_AndTheFocusNeverLeavesIt() => sta.RunAsync(async () =>
@@ -494,11 +466,8 @@ public sealed class ControllerKeyboardTests(WpfStaFixture sta)
         var (vm, window) = await OpenInMode();
         try
         {
-            vm.ShowGameDetailsCommand.Execute(vm.Games.First());
-            await ShellTestSupport.SettleAsync();
-            var notes = Walk(window.PageHost).OfType<GameDetailsPage>().Single().NotesBoxRibbon;
-            Keyboard.Focus(notes);
-            await Press(window, PadButton.Accept);
+            await OpenPalette(vm, window);
+            Assert.True(window.PadKeyboard.IsOpen);
             window.UpdateLayout();
 
             var keys = Walk(window.PadKeyboard).OfType<Button>().ToList();
@@ -533,7 +502,6 @@ public sealed class ControllerKeyboardTests(WpfStaFixture sta)
 
             await Press(window, PadButton.Back);   // B puts it away
             Assert.False(window.PadKeyboard.IsOpen);
-            Assert.Same(notes, Keyboard.FocusedElement);
         }
         finally
         {
@@ -548,10 +516,8 @@ public sealed class ControllerKeyboardTests(WpfStaFixture sta)
         var (vm, window) = await OpenInMode();
         try
         {
-            vm.ShowGameDetailsCommand.Execute(vm.Games.First());
-            await ShellTestSupport.SettleAsync();
-            Keyboard.Focus(Walk(window.PageHost).OfType<GameDetailsPage>().Single().NotesBoxRibbon);
-            await Press(window, PadButton.Accept);
+            await OpenPalette(vm, window);
+            Assert.True(window.PadKeyboard.IsOpen);
 
             await Press(window, PadButton.LT); // Shift: the keys are redrawn as capitals
             Assert.Equal(KeyboardLayer.Upper, window.PadKeyboard.Layer);
@@ -627,10 +593,8 @@ public sealed class ControllerKeyboardTests(WpfStaFixture sta)
             await ShellTestSupport.SettleAsync();
             Assert.False(window.PadKeyboard.IsOpen);
 
-            vm.ShowGameDetailsCommand.Execute(vm.Games.First());
+            await ShellTestSupport.ShowDialogAsync(window, "Search", new CommandPaletteDialog(new CommandPaletteViewModel(vm.BuildPaletteItems())));
             await ShellTestSupport.SettleAsync();
-            Keyboard.Focus(Walk(window.PageHost).OfType<GameDetailsPage>().Single().NotesBoxRibbon);
-            await Press(window, PadButton.Accept);
             Assert.True(window.PadKeyboard.IsOpen);
 
             vm.ExitControllerMode();

@@ -49,7 +49,10 @@ public partial class SettingsPage : UserControl
 
             // Focus play is only offered on a PC that can use it, which is found out by trying; the first look at Performance starts that check.
             if (index == LibraryViewModel.PerformanceSettingsCategory)
+            {
                 _ = library.CheckFocusPlayAvailabilityAsync();
+                library.ShowOptimizeTabs(); // the tabs' own details: the health check, startup apps, what Windows has for each tweak
+            }
         }
 
         var sections = Sections;

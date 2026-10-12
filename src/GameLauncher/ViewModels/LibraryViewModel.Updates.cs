@@ -27,11 +27,37 @@ public partial class LibraryViewModel
     private bool _updateAvailable;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(InstallUpdateText), nameof(UpdatePillText))]
     private string _availableUpdateVersion = string.Empty;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(DownloadUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DownloadUpdateCommand), nameof(CheckForUpdateNowCommand))]
+    [NotifyPropertyChangedFor(nameof(InstallUpdateText), nameof(UpdatePillText), nameof(CheckUpdateButtonText))]
     private bool _isUpdating;
+
+    /// <summary>The update state in words, kept where the person is looking: the Settings page's Updates group says it in place (the status line it also updates is
+    /// behind the page), and the top bars show a button when one is ready. Never blank.</summary>
+    [ObservableProperty]
+    private string _updateStatusText = $"You're on version v{AppInfo.Version}. The launcher checks when it starts.";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CheckForUpdateNowCommand))]
+    [NotifyPropertyChangedFor(nameof(CheckUpdateButtonText))]
+    private bool _isCheckingForUpdate;
+
+    /// <summary>The Settings button that installs a found update.</summary>
+    public string InstallUpdateText => IsUpdating ? "Updating..." : $"Install v{AvailableUpdateVersion} and restart";
+
+    /// <summary>The top bar's update button (the PlayStation theme and Axis).</summary>
+    public string UpdatePillText => IsUpdating ? "Updating..." : $"Update v{AvailableUpdateVersion}";
+
+    public string CheckUpdateButtonText => IsCheckingForUpdate ? "Checking..." : "Check for Updates Now";
+
+    private void SetUpdateStatus(string text)
+    {
+        UpdateStatusText = text;
+        StatusText = text;
+    }
 
     /// <summary>Drives the "What's New" dialog - true for exactly one launch, the one right after
     /// DownloadUpdateAsync applied an update and restarted the app. See PendingUpdateNotesService.</summary>
@@ -58,15 +84,31 @@ public partial class LibraryViewModel
     {
         var result = await _updateService.CheckForUpdateAsync();
         if (result.Status == UpdateCheckStatus.UpdateAvailable)
+        {
             ApplyFoundUpdate(result.Update!);
+            UpdateStatusText = $"Update available: v{AvailableUpdateVersion}. It is ready to install.";
+        }
+        else if (result.Status == UpdateCheckStatus.UpToDate)
+        {
+            UpdateStatusText = $"You're on the latest version (v{AppInfo.Version}). Checked when the launcher started.";
+        }
     }
 
     private void ApplyFoundUpdate(UpdateInfo update)
     {
         _pendingUpdate = update;
-        AvailableUpdateVersion = update.TargetFullRelease.Version.ToString();
+        ShowUpdateFound(update.TargetFullRelease.Version.ToString());
+    }
+
+    /// <summary>Records that this version is ready to install: the banner, the top bars' button and the Settings page's Install button all follow.</summary>
+    internal void ShowUpdateFound(string version)
+    {
+        AvailableUpdateVersion = version;
         UpdateAvailable = true;
     }
+
+    /// <summary>Tests answer the check without the network.</summary>
+    internal Func<Task<UpdateCheckResult>>? CheckForUpdateForTest { get; set; }
 
     partial void OnCheckForUpdatesChanged(bool value)
     {
@@ -74,33 +116,48 @@ public partial class LibraryViewModel
         _settingsService.Save(_settings);
     }
 
+    /// <summary>Hides the update notice (the pill's right-click menu). Not while the update is being downloaded - the pill is what shows that.</summary>
     [RelayCommand]
-    private void DismissUpdate() => UpdateAvailable = false;
+    private void DismissUpdate()
+    {
+        if (!IsUpdating)
+            UpdateAvailable = false;
+    }
 
     /// <summary>The Settings window's "Check for Updates Now" button - runs regardless of the
     /// CheckForUpdates toggle (an explicit click is a request to check right now, not a request to
     /// change the toggle), and unlike the silent startup check, gives feedback either way so the
     /// button doesn't look like it did nothing when already up to date.</summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanCheckForUpdateNow))]
     private async Task CheckForUpdateNowAsync()
     {
-        StatusText = "Checking for updates...";
-        var result = await _updateService.CheckForUpdateAsync();
-
-        if (result.Status == UpdateCheckStatus.UpdateAvailable)
+        IsCheckingForUpdate = true;
+        SetUpdateStatus("Checking for updates...");
+        try
         {
-            ApplyFoundUpdate(result.Update!);
-            StatusText = $"Update available: v{AvailableUpdateVersion}";
-            return;
+            var result = await (CheckForUpdateForTest?.Invoke() ?? _updateService.CheckForUpdateAsync());
+
+            if (result.Status == UpdateCheckStatus.UpdateAvailable && result.Update is not null)
+            {
+                ApplyFoundUpdate(result.Update);
+                SetUpdateStatus($"Update available: v{AvailableUpdateVersion}. Install it from here, or from the Update button at the top.");
+                return;
+            }
+
+            SetUpdateStatus(result.Status switch
+            {
+                UpdateCheckStatus.UpToDate => $"You're on the latest version (v{AppInfo.Version}).",
+                UpdateCheckStatus.NotInstalled => "Update checks aren't available for this copy (not an installed build).",
+                _ => "Couldn't check for updates - try again later.",
+            });
         }
-
-        StatusText = result.Status switch
+        finally
         {
-            UpdateCheckStatus.UpToDate => "You're on the latest version.",
-            UpdateCheckStatus.NotInstalled => "Update checks aren't available for this copy (not an installed build).",
-            _ => "Couldn't check for updates - try again later.",
-        };
+            IsCheckingForUpdate = false;
+        }
     }
+
+    private bool CanCheckForUpdateNow() => !IsCheckingForUpdate && !IsUpdating;
 
     [RelayCommand(CanExecute = nameof(CanDownloadUpdate))]
     private async Task DownloadUpdateAsync()
@@ -113,16 +170,16 @@ public partial class LibraryViewModel
         // unlike scanning _allGames it survives a rescan replacing every GameEntry mid-session.
         if (_runningGameId is not null || _passiveSessions.Count > 0)
         {
-            StatusText = "Can't update while a game is running - try again after it closes.";
+            SetUpdateStatus("Can't update while a game is running - try again after it closes.");
             return;
         }
 
         IsUpdating = true;
-        StatusText = $"Downloading update {AvailableUpdateVersion}...";
+        SetUpdateStatus($"Downloading update v{AvailableUpdateVersion}...");
         try
         {
             await _updateService.DownloadAndApplyAsync(update,
-                new Progress<int>(percent => StatusText = $"Downloading update {AvailableUpdateVersion}... {percent}%"));
+                new Progress<int>(percent => SetUpdateStatus($"Downloading update v{AvailableUpdateVersion}... {percent}%")));
 
             // ApplyUpdatesAndRestart exits this process on success - nothing below normally runs.
         }
@@ -133,7 +190,7 @@ public partial class LibraryViewModel
             // escape this command and leave the UI stuck showing "Updating..." forever - see the
             // finally block below, which is what actually guarantees that can't happen.
             Logger.Error("Failed to download/apply the update.", ex);
-            StatusText = $"Update failed: {ex.Message}";
+            SetUpdateStatus($"Update failed: {ex.Message}");
         }
         finally
         {

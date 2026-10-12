@@ -12,6 +12,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Resources/DesignTokens.xaml" />
+                <ResourceDictionary Source="Resources/TweakTemplates.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
             <Style x:Key="SectionHeadingStyle" TargetType="TextBlock">
@@ -25,109 +26,272 @@
                 <Setter Property="TextWrapping" Value="Wrap" />
                 <Setter Property="Margin" Value="0,0,0,12" />
             </Style>
+
+            <!-- The page's tabs: a row of plain words, the one showing underlined in the accent colour. -->
+            <Style x:Key="OptimizeTabStyle" TargetType="RadioButton">
+                <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="0,0,18,0" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Border x:Name="Body" Padding="2,8,2,8" Background="Transparent" BorderBrush="Transparent" BorderThickness="0,0,0,2">
+                                <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Opacity" Value="0.85" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="#14FFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Accent}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
     <!-- Centred in its area in every theme: the Grid is held to the page width and a stretched element that is capped sits in the middle. -->
     <Grid MaxWidth="{DynamicResource PageBodyMaxWidth}">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <ScrollViewer Grid.Row="0" Padding="0,0,14,0" Margin="0,8,0,16" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True">
-            <StackPanel>
-                <!-- Memory -->
-                <Border Style="{StaticResource GroupCard}"><StackPanel>
-                <TextBlock Text="Memory" Style="{StaticResource SectionHeadingStyle}" />
-                <TextBlock Text="Asks Windows to trim the memory other apps are holding but not using, so more is free for a game. It never closes anything, and leaves the app you are using and the running game alone."
-                           Style="{StaticResource SectionNoteStyle}" />
-                <ProgressBar Height="8" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding MemoryUsedFraction, Mode=OneWay}"
-                             Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}" />
-                <TextBlock Text="{Binding MemoryText}" FontSize="12" Opacity="0.75" Margin="0,6,0,10" TextWrapping="Wrap" />
-                <ui:Button Content="Free up memory" Appearance="Primary" Icon="{ui:SymbolIcon Flash24}"
-                           Command="{Binding FreeUpMemoryCommand}" HorizontalAlignment="Left" />
-                <TextBlock Text="{Binding MemoryResultText}" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"
-                           Visibility="{Binding HasMemoryResult, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+        <!-- Tabs: one thing at a time instead of one long scroll. -->
+        <Border Grid.Row="0" Margin="0,8,0,0" BorderBrush="#14FFFFFF" BorderThickness="0,0,0,1">
+            <WrapPanel x:Name="TabBar">
+                <RadioButton x:Name="BoostTab" Style="{StaticResource OptimizeTabStyle}" Content="Game boost" GroupName="OptimizeTabs" IsChecked="{Binding IsBoostTab, Mode=TwoWay}" />
+                <RadioButton x:Name="HealthTab" Style="{StaticResource OptimizeTabStyle}" Content="{Binding HealthTabText}" GroupName="OptimizeTabs" IsChecked="{Binding IsHealthTab, Mode=TwoWay}"
+                             Visibility="{Binding HasAdvisor, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                <RadioButton x:Name="StartupTab" Style="{StaticResource OptimizeTabStyle}" Content="{Binding StartupTabText}" GroupName="OptimizeTabs" IsChecked="{Binding IsStartupTab, Mode=TwoWay}"
+                             Visibility="{Binding HasStartup, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                <RadioButton x:Name="CleanUpTab" Style="{StaticResource OptimizeTabStyle}" Content="Clean up" GroupName="OptimizeTabs" IsChecked="{Binding IsCleanUpTab, Mode=TwoWay}" />
+            </WrapPanel>
+        </Border>
 
-                </StackPanel></Border>
+        <Grid Grid.Row="1">
 
-                <!-- Storage -->
-                <Border Style="{StaticResource GroupCard}"><StackPanel>
-                <TextBlock Text="Storage" Style="{StaticResource SectionHeadingStyle}" />
-                <TextBlock Text="Clears leftovers that are safe to lose. Sizes are shown before anything is deleted, and you are asked first."
-                           Style="{StaticResource SectionNoteStyle}" />
-                <!-- One bar, like the memory one above: full when the clutter is found, draining as it is cleared, ending on what is left. -->
-                <ProgressBar x:Name="StorageBar" Height="8" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding StorageBarFraction, Mode=OneWay}"
-                             Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}"
-                             Visibility="{Binding HasStorageBar, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                <TextBlock x:Name="StorageLine" Text="{Binding StorageText}" FontSize="12" Opacity="0.75" Margin="0,6,0,12" TextWrapping="Wrap"
-                           Visibility="{Binding HasStorageBar, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
-                <ItemsControl ItemsSource="{Binding Items}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="0,0,0,10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Top" MinWidth="0" Margin="0,0,10,0" />
-                                <StackPanel Grid.Column="1">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" Margin="0,0,12,0" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" MaxWidth="150" TextAlignment="Right" />
-                                    </Grid>
-                                    <TextBlock Text="{Binding Description}" FontSize="11.5" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,0" />
-                                </StackPanel>
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <WrapPanel Margin="0,4,0,0">
-                    <ui:Button Content="Scan again" Icon="{ui:SymbolIcon ArrowSync24}" Margin="0,0,8,8" Command="{Binding ScanCommand}" />
-                    <ui:Button Content="{Binding SelectAllText}" Icon="{ui:SymbolIcon CheckboxChecked24}" Margin="0,0,8,8" Command="{Binding ToggleSelectAllCommand}" />
-                    <ui:Button Content="Clear selected" Appearance="Primary" Icon="{ui:SymbolIcon Delete24}" Margin="0,0,8,8" Command="{Binding CleanCommand}" />
-                </WrapPanel>
+            <!-- ================= Game boost: what happens before a game starts ================= -->
+            <ScrollViewer x:Name="BoostSection" Padding="0,10,14,0" Margin="0,0,0,12" VerticalScrollBarVisibility="Auto" beh:Motion.FadeIn="True"
+                          Visibility="{Binding IsBoostTab, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <StackPanel>
+                    <!-- Memory right now, with its button, at the top: one row. -->
+                    <Border Style="{StaticResource GroupCard}" Padding="16,12,16,12"><StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,14,0" VerticalAlignment="Center">
+                            <TextBlock Text="Memory right now" FontSize="13" FontWeight="SemiBold" />
+                            <ProgressBar Height="6" Margin="0,6,0,0" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding MemoryUsedFraction, Mode=OneWay}"
+                                         Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}" />
+                            <TextBlock Text="{Binding MemoryText}" FontSize="11.5" Opacity="0.75" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding MemoryText}" />
+                        </StackPanel>
+                        <ui:Button Grid.Column="1" Content="Free up memory" Appearance="Primary" Icon="{ui:SymbolIcon Flash24}" VerticalAlignment="Center"
+                                   Command="{Binding FreeUpMemoryCommand}"
+                                   ToolTip="Asks Windows to trim the memory other apps hold but are not using. It helps only when memory is short, and never closes anything." />
+                    </Grid>
+                    <TextBlock Text="{Binding MemoryResultText}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding HasMemoryResult, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                    </StackPanel></Border>
 
-                <TextBlock Text="{Binding StorageResultText}" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"
-                           Visibility="{Binding HasStorageResult, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                    <Border Style="{StaticResource GroupCard}" Padding="16,12,16,12" Visibility="{Binding HasTweaks, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
+                    <TextBlock Text="Before a game starts" Style="{StaticResource SectionHeadingStyle}" />
+                    <TextBlock Text="A switch means 'do this when a game starts'; it is put back when the game ends."
+                               Style="{StaticResource SectionNoteStyle}" Margin="0,0,0,6" />
+                    <TextBlock x:Name="TweaksSummary" Text="{Binding Tweaks.GameTweaksSummary}" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,6" TextWrapping="Wrap" />
+                    <WrapPanel>
+                        <ui:Button Content="Turn all on" Icon="{ui:SymbolIcon CheckboxChecked24}" Margin="0,0,8,6" Command="{Binding Tweaks.TurnAllGameTweaksOnCommand}" />
+                        <ui:Button Content="Turn all off" Icon="{ui:SymbolIcon CheckboxUnchecked24}" Margin="0,0,8,6" Command="{Binding Tweaks.TurnAllGameTweaksOffCommand}" />
+                        <ui:Button Content="Try them now" Icon="{ui:SymbolIcon Flash24}" Margin="0,0,8,6" Command="{Binding Tweaks.TryGameTweaksNowCommand}"
+                                   ToolTip="Applies the Windows settings and services that are switched on right now, so you can see them work. Undo puts everything back." />
+                        <ui:Button Content="Undo" Icon="{ui:SymbolIcon ArrowUndo24}" Margin="0,0,8,6" Command="{Binding Tweaks.UndoGameTweaksCommand}" />
+                    </WrapPanel>
 
-                </StackPanel></Border>
+                    <TextBlock Text="MEMORY AND POWER" Style="{StaticResource TweakGroupHeadingStyle}" />
+                    <ItemsControl x:Name="ResourceTweakList" ItemsSource="{Binding Tweaks.MemoryAndPowerRows}" ItemTemplate="{StaticResource TweakRowTemplate}" Focusable="False" />
+                    <!-- Focus play's own options sit with the power plan, not in a card of their own at the bottom. -->
+                    <Grid Margin="0,6,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Margin="14,0,10,0" VerticalAlignment="Center">
+                            <TextBlock Text="Power plan: only when plugged in" FontSize="12.5" />
+                            <TextBlock Text="On a laptop running on battery the power plan is left alone." FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1" x:Name="PluggedInSwitch" IsChecked="{Binding Tweaks.FocusPlayOnlyWhenPluggedIn}" IsEnabled="{Binding Tweaks.FocusPlayAvailable}" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock Text="{Binding Tweaks.FocusPlayStatusText}" FontSize="11.5" Margin="14,0,0,0" TextWrapping="Wrap" Foreground="{DynamicResource Danger}"
+                               Visibility="{Binding Tweaks.HasFocusPlayStatus, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
 
-                <!-- Space saver -->
-                <Border Style="{StaticResource GroupCard}" Visibility="{Binding HasSpaceSaver, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
-                <TextBlock Text="Space saver" Style="{StaticResource SectionHeadingStyle}" />
-                <TextBlock Text="The biggest games you haven't played for 60 days. Uninstall starts the game's own uninstaller - nothing is removed until you confirm there."
-                           Style="{StaticResource SectionNoteStyle}" />
-                <TextBlock Text="{Binding SpaceSaverSummary}" FontSize="12" Opacity="0.75" Margin="0,0,0,10" TextWrapping="Wrap" />
-                <ItemsControl ItemsSource="{Binding SpaceSaverRows}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="0,0,0,10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,12,0" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding LastPlayedText}" FontSize="11.5" Opacity="0.6" Margin="0,2,0,0" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,0" />
-                                <ui:Button Grid.Column="2" Content="Uninstall..." Icon="{ui:SymbolIcon Delete24}" Command="{Binding UninstallCommand}" VerticalAlignment="Center" />
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <ui:Button Content="Check again" Icon="{ui:SymbolIcon ArrowSync24}" Command="{Binding RefreshSpaceSaverCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" />
-                </StackPanel></Border>
-            </StackPanel>
-        </ScrollViewer>
+                    <TextBlock Text="WINDOWS SETTINGS" Style="{StaticResource TweakGroupHeadingStyle}" />
+                    <ItemsControl x:Name="TweakList" ItemsSource="{Binding Tweaks.WindowsSettingRows}" ItemTemplate="{StaticResource TweakRowTemplate}" Focusable="False" />
+
+                    <TextBlock Text="BACKGROUND SERVICES - Windows asks permission once per game" Style="{StaticResource TweakGroupHeadingStyle}" />
+                    <ItemsControl x:Name="ServiceTweakList" ItemsSource="{Binding Tweaks.ServiceRows}" ItemTemplate="{StaticResource TweakRowTemplate}" Focusable="False" />
+                    </StackPanel></Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= Health check ================= -->
+            <ScrollViewer x:Name="HealthSection" Padding="0,12,14,0" Margin="0,0,0,16" VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding IsHealthTab, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <StackPanel>
+                    <Border Style="{StaticResource GroupCard}" Visibility="{Binding HasAdvisor, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
+                    <TextBlock Text="Gaming health check" Style="{StaticResource SectionHeadingStyle}" />
+                    <TextBlock Text="How this PC is set up for games, and what is worth changing - and what is not. It only reads: nothing is changed unless you switch a tweak on."
+                               Style="{StaticResource SectionNoteStyle}" />
+                    <ItemsControl x:Name="AdvisorList" ItemsSource="{Binding AdvisorRows}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ui:SymbolIcon Symbol="{Binding Icon, Converter={x:Static conv:SymbolNameConverter.Instance}}" FontSize="18" Margin="0,2,12,0" VerticalAlignment="Top"
+                                                   Foreground="{DynamicResource Accent}" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Detail}" FontSize="12" Opacity="0.75" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                        <ui:Button Content="{Binding ActionText}" Command="{Binding ApplyCommand}" Margin="0,8,0,0" HorizontalAlignment="Left"
+                                                   Visibility="{Binding HasAction, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ui:Button Content="Check again" Icon="{ui:SymbolIcon ArrowSync24}" Command="{Binding CheckGamingHealthCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" />
+                    </StackPanel></Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= Startup apps ================= -->
+            <ScrollViewer x:Name="StartupSection" Padding="0,12,14,0" Margin="0,0,0,16" VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding IsStartupTab, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <StackPanel>
+                    <Border Style="{StaticResource GroupCard}" Visibility="{Binding HasStartup, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
+                    <TextBlock Text="Startup apps" Style="{StaticResource SectionHeadingStyle}" />
+                    <TextBlock Text="Programs that start when you sign in to Windows compete with a game for memory and the disk from the first minute. Switch off the ones you do not need at once - the same switch as Task Manager's Startup tab, so nothing is deleted."
+                               Style="{StaticResource SectionNoteStyle}" />
+                    <TextBlock x:Name="StartupSummaryText" Text="{Binding StartupSummary}" FontSize="12" Opacity="0.85" Margin="0,0,0,8" TextWrapping="Wrap" />
+                    <ItemsControl x:Name="StartupList" ItemsSource="{Binding StartupRows}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="0,8,0,8" BorderBrush="#14FFFFFF" BorderThickness="0,0,0,1">
+                                    <StackPanel>
+                                        <ui:ToggleSwitch Content="{Binding Name}" IsChecked="{Binding IsOn}" IsEnabled="{Binding CanSwitch}" />
+                                        <TextBlock Text="{Binding About}" FontSize="12" Opacity="0.8" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                        <TextBlock Text="{Binding Command}" FontSize="11" Opacity="0.5" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                                        <TextBlock Text="{Binding Note}" FontSize="11" Opacity="0.7" Margin="0,2,0,0"
+                                                   Visibility="{Binding CanSwitch, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ui:Button Content="Refresh" Icon="{ui:SymbolIcon ArrowSync24}" Command="{Binding RefreshStartupCommand}" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                    </StackPanel></Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ================= Clean up: storage, the previous Windows installation, the space saver ================= -->
+            <ScrollViewer x:Name="CleanUpSection" Padding="0,12,14,0" Margin="0,0,0,16" VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding IsCleanUpTab, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                <StackPanel>
+                    <!-- Storage -->
+                    <Border Style="{StaticResource GroupCard}"><StackPanel>
+                    <TextBlock Text="Storage" Style="{StaticResource SectionHeadingStyle}" />
+                    <TextBlock Text="Clears leftovers that are safe to lose. Sizes are shown before anything is deleted, and you are asked first."
+                               Style="{StaticResource SectionNoteStyle}" />
+                    <!-- One bar, like the memory one: full when the clutter is found, draining as it is cleared, ending on what is left. -->
+                    <ProgressBar x:Name="StorageBar" Height="8" Minimum="0" Maximum="1" beh:Motion.AnimatedValue="{Binding StorageBarFraction, Mode=OneWay}"
+                                 Foreground="{DynamicResource Accent}" Background="{DynamicResource TrackFill}"
+                                 Visibility="{Binding HasStorageBar, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                    <TextBlock x:Name="StorageLine" Text="{Binding StorageText}" FontSize="12" Opacity="0.75" Margin="0,6,0,12" TextWrapping="Wrap"
+                               Visibility="{Binding HasStorageBar, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                    <ItemsControl ItemsSource="{Binding Items}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Top" MinWidth="0" Margin="0,0,10,0" />
+                                    <StackPanel Grid.Column="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" Margin="0,0,12,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" MaxWidth="150" TextAlignment="Right" />
+                                        </Grid>
+                                        <TextBlock Text="{Binding Description}" FontSize="11.5" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <WrapPanel Margin="0,4,0,0">
+                        <ui:Button Content="Scan again" Icon="{ui:SymbolIcon ArrowSync24}" Margin="0,0,8,8" Command="{Binding ScanCommand}" />
+                        <ui:Button Content="{Binding SelectAllText}" Icon="{ui:SymbolIcon CheckboxChecked24}" Margin="0,0,8,8" Command="{Binding ToggleSelectAllCommand}" />
+                        <ui:Button Content="Clear selected" Appearance="Primary" Icon="{ui:SymbolIcon Delete24}" Margin="0,0,8,8" Command="{Binding CleanCommand}" />
+                    </WrapPanel>
+
+                    <TextBlock Text="{Binding StorageResultText}" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding HasStorageResult, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
+                    </StackPanel></Border>
+
+                    <!-- Previous Windows installation -->
+                    <Border Style="{StaticResource GroupCard}" Visibility="{Binding HasWindowsOld, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
+                    <TextBlock Text="Previous Windows installation" Style="{StaticResource SectionHeadingStyle}" />
+                    <TextBlock x:Name="WindowsOldLine" Text="{Binding WindowsOldText}" Style="{StaticResource SectionNoteStyle}" />
+                    <ui:Button Content="Open Windows cleanup" Icon="{ui:SymbolIcon Open24}" Command="{Binding OpenWindowsCleanupCommand}" HorizontalAlignment="Left" />
+                    </StackPanel></Border>
+
+                    <!-- Space saver -->
+                    <Border Style="{StaticResource GroupCard}" Visibility="{Binding HasSpaceSaver, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}"><StackPanel>
+                    <TextBlock Text="Space saver" Style="{StaticResource SectionHeadingStyle}" />
+                    <TextBlock Text="The biggest games you haven't played for 60 days. Uninstall starts the game's own uninstaller - nothing is removed until you confirm there."
+                               Style="{StaticResource SectionNoteStyle}" />
+                    <TextBlock Text="{Binding SpaceSaverSummary}" FontSize="12" Opacity="0.75" Margin="0,0,0,10" TextWrapping="Wrap" />
+                    <ItemsControl ItemsSource="{Binding SpaceSaverRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding LastPlayedText}" FontSize="11.5" Opacity="0.6" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,0" />
+                                    <ui:Button Grid.Column="2" Content="Uninstall..." Icon="{ui:SymbolIcon Delete24}" Command="{Binding UninstallCommand}" VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ui:Button Content="Check again" Icon="{ui:SymbolIcon ArrowSync24}" Command="{Binding RefreshSpaceSaverCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" />
+                    </StackPanel></Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
     </Grid>
 </UserControl>

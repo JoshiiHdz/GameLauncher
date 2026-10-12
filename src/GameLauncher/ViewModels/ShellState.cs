@@ -14,7 +14,7 @@ public enum ShellTab { Home, Library }
 
 public enum GuideTab { Views, Launchers, Tools, Drives }
 
-public enum ShellMenuKind { None, Card, More, Drive, Sort }
+public enum ShellMenuKind { None, Card, More, Drive, Sort, Collection }
 
 public enum ShellDirection { Left, Right, Up, Down }
 
@@ -31,7 +31,7 @@ public sealed class RibbonMoreItem
 }
 
 /// <summary>One of the four cards under the Console-ribbon hero (a label, a value, a line of detail, and what clicking does).</summary>
-public sealed partial class ActivityCard(string label, string value, string sub, Action run, bool clickable = true) : ObservableObject
+public sealed partial class ActivityCard(string label, string value, string sub, Action run, bool clickable = true, bool? state = null) : ObservableObject
 {
     /// <summary>The card does something when clicked (the Game details page's Collections card does; its other facts are plain panels).</summary>
     public bool Clickable { get; private set; } = clickable;
@@ -47,6 +47,15 @@ public sealed partial class ActivityCard(string label, string value, string sub,
 
     public Action Run { get; private set; } = run;
 
+    /// <summary>For a card that is a switch (High priority): on or off, drawn as an ON / OFF pill so it reads as a button that can be pressed. Null for the others.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasState), nameof(StateText))]
+    private bool? _state = state;
+
+    public bool HasState => State is not null;
+
+    public string StateText => State is true ? "ON" : "OFF";
+
     /// <summary>Takes another card's text and action, so a card on screen is updated in place rather than rebuilt (rebuilding four cards on every hover was slow).</summary>
     public void CopyFrom(ActivityCard other)
     {
@@ -55,6 +64,7 @@ public sealed partial class ActivityCard(string label, string value, string sub,
         Sub = other.Sub;
         Run = other.Run;
         Clickable = other.Clickable;
+        State = other.State;
         OnPropertyChanged(nameof(Clickable));
     }
 }
@@ -243,6 +253,11 @@ public sealed partial class ShellState : ObservableObject
             groups.Add(new LetterGroup("", games, showHeader: false));
         }
 
+        // Games the person hid, when they asked to see them (the eye in Axis's library header; the "Show hidden games" button in the filters here): a last group, so
+        // there is a way to unhide them from this theme too.
+        if (Library.ShowHiddenSection && Library.HiddenGames.Count > 0)
+            groups.Add(new LetterGroup("Hidden", Library.HiddenGames.ToList(), showHeader: true));
+
         LibraryGroups.Clear();
         foreach (var group in groups)
             LibraryGroups.Add(group);
@@ -368,15 +383,22 @@ public sealed partial class ShellState : ObservableObject
         else if (HeroGame is { } g)
         {
             // Two columns, filled row by row: every card you can press is on the left (so the D-pad goes straight down them, and Up from Quick access lands on the last one),
-            // the plain facts beside them on the right. The date it was added is the Installed card's second line.
-            // The launcher is not a card any more (the facts line already shows it). One play-time card: it opens the Play time page, which has the sessions.
-            var details = new GameDetailsViewModel(g, null);
+            // the plain facts beside them on the right. High priority is first - the switch people reach for - and the date added is a card of its own (it was the second line
+            // of the Installed card; with that line gone the path has the room it needs, and the six cards make three even rows).
+            var details = new GameDetailsViewModel(g);
             HeroPlayTime = Library.BuildPlayTime(g);
-            var added = details.AddedText == "Unknown" ? "" : $"Added {details.AddedText}";
-            cards.Add(new("PLAY TIME ›", HeroPlayTime.CardText, "", () => Library.ShowPlayTimeCommand.Execute(g)));
-            cards.Add(new("INSTALLED IN", g.InstallDir, added, () => { }, clickable: false));
-            cards.Add(new("COLLECTIONS ›", details.CollectionsText, "", () => Library.EditCollectionsCommand.Execute(g)));
+            Library.EnsureInstallSizeMeasured(g); // started now, and the card fills in as it is found
+            var raised = Library.GetRaiseGamePriority(g.Id);
+            cards.Add(new("HIGH PRIORITY", raised ? "High priority while playing" : "Normal priority", "Press to switch", () =>
+            {
+                Library.SetRaiseGamePriority(g.Id, !Library.GetRaiseGamePriority(g.Id));
+                RefreshRibbonCards();
+            }, state: raised));
+            cards.Add(new("INSTALLED IN", g.InstallDir, "", () => { }, clickable: false));
+            cards.Add(new("PLAY TIME", HeroPlayTime.CardText, "", () => Library.ShowPlayTimeCommand.Execute(g)));
             cards.Add(new("SIZE ON DISK", details.SizeText, "", () => { }, clickable: false));
+            cards.Add(new("COLLECTIONS", details.CollectionsText, "", () => Library.EditCollectionsCommand.Execute(g)));
+            cards.Add(new("ADDED", details.AddedText, "", () => { }, clickable: false));
             details.Dispose();
         }
 
@@ -409,7 +431,11 @@ public sealed partial class ShellState : ObservableObject
 
     /// <summary>The menu's heading: the game's name, or the drive's name.</summary>
     public string MenuHeader => MenuKind == ShellMenuKind.Sort ? "Sort by"
+        : MenuKind == ShellMenuKind.Collection ? MenuCollection
         : MenuKind == ShellMenuKind.Drive && MenuDrive is { } drive ? $"{drive.Label} ({drive.Letter})" : MenuGame?.Name ?? string.Empty;
+
+    /// <summary>The collection a collection menu is for.</summary>
+    public string MenuCollection { get; private set; } = string.Empty;
 
     /// <summary>The sort list centres its heading and its rows.</summary>
     public bool MenuCentered => MenuKind == ShellMenuKind.Sort;
@@ -417,7 +443,8 @@ public sealed partial class ShellState : ObservableObject
     public string MenuHeaderUpper => MenuHeader.ToUpperInvariant();
 
     /// <summary>The line under the heading in the Console-ribbon menu: "Steam - 1.5 h tracked - Today", or "380 GB free" for a drive.</summary>
-    public string MenuSubHeader => MenuKind == ShellMenuKind.Drive && MenuDrive is { } drive
+    public string MenuSubHeader => MenuKind == ShellMenuKind.Collection ? "Collection"
+        : MenuKind == ShellMenuKind.Drive && MenuDrive is { } drive
         ? $"{ByteFormat.Size(drive.FreeBytes)} free"
         : MenuGame is { } game ? LauncherText.CardMeta(game).Replace(" · ", " - ", StringComparison.Ordinal) : string.Empty;
 
@@ -614,7 +641,7 @@ public sealed partial class ShellState : ObservableObject
         if (LibraryTileFocused && Tab == ShellTab.Home)
             return; // the Library item itself is the focus: nothing to fix
 
-        if (FocusedGame is { } focused && Library.Games.Contains(focused))
+        if (FocusedGame is { } focused && (Library.Games.Contains(focused) || (Library.ShowHiddenSection && Library.HiddenGames.Contains(focused))))
             return;
 
         if (FocusedGame is null && Tab == ShellTab.Home)
@@ -710,6 +737,11 @@ public sealed partial class ShellState : ObservableObject
             case nameof(LibraryViewModel.ControllerConnected):
                 NotifyPadHints();
                 break;
+            case nameof(LibraryViewModel.UpdateAvailable):
+                // Found by the check at startup or by Settings' button: say so wherever the person is (the Settings page covers the status line).
+                if (Library.UpdateAvailable)
+                    ShowFeedback("Update available", ThemeState.Instance.IsRibbon ? $"v{Library.AvailableUpdateVersion} - choose Update in the top bar" : $"v{Library.AvailableUpdateVersion} is ready to install");
+                break;
             case nameof(LibraryViewModel.AllGamesCount):
             case nameof(LibraryViewModel.FavoritesCount):
             case nameof(LibraryViewModel.RecentCount):
@@ -723,6 +755,9 @@ public sealed partial class ShellState : ObservableObject
                 break;
             case nameof(LibraryViewModel.SortOption):
                 OnPropertyChanged(nameof(SortLabel));
+                RebuildLibraryGroups();
+                break;
+            case nameof(LibraryViewModel.ShowHiddenSection):
                 RebuildLibraryGroups();
                 break;
             case nameof(LibraryViewModel.FeaturedGame):
@@ -761,12 +796,13 @@ public sealed partial class ShellState : ObservableObject
         MenuKind = ShellMenuKind.None;
         MenuGame = null;
         MenuDrive = null;
+        MenuCollection = string.Empty;
         MenuActiveIndex = -1;
     }
 
     /// <summary>The rows of a game's menu, in groups split by separators: Play and Game details, then Favorite / Hide / Collections, then the cover rows and Identify, then
     /// Open install location and Uninstall. A menu opened from a screen that already has a button for something leaves that row out, so nothing is offered twice.</summary>
-    private List<ShellMenuItem> GameMenuRows(GameEntry game, bool play, bool details, bool openFolder, bool collections = true, bool favorite = true, bool uninstall = true)
+    private List<ShellMenuItem> GameMenuRows(GameEntry game, bool play, bool details, bool openFolder, bool collections = true, bool favorite = true, bool uninstall = true, bool priority = true)
     {
         var groups = new List<List<ShellMenuItem>>
         {
@@ -788,6 +824,10 @@ public sealed partial class ShellState : ObservableObject
 
         if (collections)
             groups[1].Add(new ShellMenuItem("Collections...", () => Library.EditCollectionsCommand.Execute(game)));
+
+        groups[1].Add(new ShellMenuItem("Game tweaks...", () => Library.EditGameTweaksCommand.Execute(game)));
+        if (priority) // (the PlayStation home shows it as a card)
+            groups[1].Add(new ShellMenuItem(game.HighPriority ? "Turn off high priority" : "Turn on high priority", () => Library.ToggleHighPriorityCommand.Execute(game)));
 
         if (play)
             groups[0].Add(new ShellMenuItem("Play", () => Play(game)));
@@ -822,7 +862,7 @@ public sealed partial class ShellState : ObservableObject
     {
         FocusedGame = game;
         var onHome = DetailsAreOnScreen;
-        Open(ShellMenuKind.Card, game, null, anchor, GameMenuRows(game, play: true, details: !onHome, openFolder: true, collections: !onHome, favorite: !onHome, uninstall: !onHome));
+        Open(ShellMenuKind.Card, game, null, anchor, GameMenuRows(game, play: true, details: !onHome && !ThemeState.Instance.IsRibbon, openFolder: true, collections: !onHome, favorite: !onHome, uninstall: !onHome, priority: !onHome));
     }
 
     /// <summary>The More menu on a hero and on Game details: the same rows minus Play and Game details (the hero or page has those) and, in the PlayStation style,
@@ -833,7 +873,7 @@ public sealed partial class ShellState : ObservableObject
         var ribbon = ThemeState.Instance.IsRibbon;
         var onHero = ribbon && !onDetailsPage;
         Open(ShellMenuKind.More, game, null, anchor,
-            GameMenuRows(game, play: false, details: false, openFolder: onHero || !ribbon, collections: !ribbon, favorite: !onHero, uninstall: !onHero));
+            GameMenuRows(game, play: false, details: false, openFolder: onHero || !ribbon, collections: !ribbon, favorite: !onHero, uninstall: !onHero, priority: !onHero));
     }
 
     /// <summary>The drive menu (Guide and Control center): what is using the drive, and stop or resume searching it.</summary>
@@ -843,6 +883,16 @@ public sealed partial class ShellState : ObservableObject
             new("What's using this drive?", () => Library.ShowStorageCommand.Execute(drive.Letter)),
             new(drive.IsIgnored ? "Search this drive again" : "Stop searching this drive", () => ToggleDriveSearch(drive), destructive: !drive.IsIgnored),
         ]);
+
+    /// <summary>A collection's menu: delete it (its games stay in the library). Axis has this on a collection's right-click menu.</summary>
+    public void OpenCollectionMenu(string name, Rect anchor)
+    {
+        MenuCollection = name;
+        Open(ShellMenuKind.Collection, null, null, anchor,
+        [
+            new("Delete collection", () => Library.DeleteCollectionCommand.Execute(name), destructive: true),
+        ]);
+    }
 
     /// <summary>The sort list under the Sort chip: every sort order, the one in use marked, text centred.</summary>
     public void OpenSortMenu(Rect anchor)
@@ -1204,8 +1254,9 @@ public sealed partial class ShellState : ObservableObject
         RequestPlayFocus();
     }
 
-    /// <summary>What Enter (or a click on the focused item) does: the Xbox style opens Game details for a game; the PlayStation style, whose home already shows the details,
-    /// sends the focus to the Play button (but a game in its Library tab still opens Game details). The Library tile opens the Library tab.</summary>
+    /// <summary>What Enter (or a click on the focused item) does: the PlayStation style, whose home already shows the details, sends the focus to the Play button (a game in
+    /// its Library tab is brought up on the home screen instead - there is no separate details page in that style); the Xbox style (not offered) opens Game details.
+    /// The Library tile opens the Library tab.</summary>
     public void OpenFocused()
     {
         if (LibraryTileFocused)
@@ -1217,11 +1268,20 @@ public sealed partial class ShellState : ObservableObject
         if (FocusedGame is not { } game)
             return;
 
-        // PlayStation style: on the home screen the details are already showing, so the focus goes to Play; in the Library tab, which has no details panel,
-        // a game opens its Game details page.
-        if (ThemeState.Instance.IsRibbon && Tab != ShellTab.Library)
+        // PlayStation style: on the home screen the details are already showing, so the focus goes to Play; a game in the Library tab is brought up on the home
+        // screen (there is no separate details page in this style).
+        if (ThemeState.Instance.IsRibbon)
         {
-            RequestPlayFocus();
+            if (Tab != ShellTab.Library)
+            {
+                RequestPlayFocus();
+                return;
+            }
+
+            if (Library.ShowGameOnRibbonHome is { } showOnHome)
+                showOnHome(game);
+            else
+                ShowGameOnHome(game);
             return;
         }
 

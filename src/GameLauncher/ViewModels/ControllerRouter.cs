@@ -22,6 +22,9 @@ public interface IControllerSurface
     /// <summary>The focus is on one of the hero's buttons (Play, More, the favorite star, Uninstall) on the home screen.</summary>
     bool HeroHasFocus { get; }
 
+    /// <summary>The name of the collection whose filter the pad is on, or null.</summary>
+    string? FocusedCollection => null;
+
     /// <summary>The focus is on one of the top bar's controls (the Home and Library tabs, Search, the controller button, Settings, Power).</summary>
     bool TopBarHasFocus { get; }
 
@@ -384,7 +387,12 @@ public sealed class ControllerRouter(LibraryViewModel library, ShellState shell,
                 library.ShowCommandPaletteCommand.Execute(null);
                 break;
             case PadFunction.GameMenu:
-                if (!library.IsPageOpen && !shell.LibraryTileFocused && shell.HeroGame is { } game)
+                if (!library.IsPageOpen && surface.FocusedCollection is { } collection)
+                {
+                    shell.OpenCollectionMenu(collection, surface.FocusedAnchor());
+                    shell.MoveMenuSelection(1);
+                }
+                else if (!library.IsPageOpen && !shell.LibraryTileFocused && shell.HeroGame is { } game)
                 {
                     shell.OpenCardMenu(game, surface.FocusedAnchor());
                     shell.MoveMenuSelection(1); // the first row is lit, so A runs it at once

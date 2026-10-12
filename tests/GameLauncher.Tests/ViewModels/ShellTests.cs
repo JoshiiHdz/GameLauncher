@@ -100,7 +100,7 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
         try
         {
             // No icon buttons any more: every one of the old eight lives in the sidebar, the library header or Settings.
-            Assert.Empty(Descendants<Wpf.Ui.Controls.Button>(window.TitleBarDock).Where(b => !b.IsDescendantOf(window.SearchBox)));
+            Assert.Empty(Descendants<Wpf.Ui.Controls.Button>(window.TitleBarDock).Where(b => !b.IsDescendantOf(window.SearchBox) && b.Name != "AxisUpdateButton")); // (the update button is there only while an update is ready)
             var tooltips = Descendants<Button>(window.TitleBarDock).Select(b => b.ToolTip as string).ToList();
             Assert.Equal(["Minimize", "Close"], tooltips.Where(t => t is "Minimize" or "Close").OrderByDescending(t => t));
             Assert.DoesNotContain(tooltips, t => t is not null && (t.Contains("Stats") || t.Contains("Optimize") || t.Contains("Pick") || t.Contains("Shut down")
@@ -256,7 +256,7 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
         {
             foreach (var (command, title) in new (System.Windows.Input.ICommand, string)[]
             {
-                (vm.ShowOptimizeCommand, "Optimize"), (vm.ShowStatsCommand, "Stats"), (vm.PickGameCommand, "Pick a game"),
+                (vm.ShowOptimizeCommand, "Settings"), (vm.ShowStatsCommand, "Stats"), (vm.PickGameCommand, "Pick a game"),
             })
             {
                 command.Execute(null);
@@ -364,11 +364,13 @@ public sealed class ShellTests(WpfStaFixture sta) : IDisposable
             [
                 "Add folder", "Rescan library", "Start with Windows", "Check for updates on startup", "Hide to tray while gaming",
                 "Track games opened outside the launcher", "Vibrant background", "Open maximized",
-                "Open the command palette from anywhere with Ctrl+Alt+Space", "Open Optimize", "Free up memory before launching a game",
+                "Open the command palette from anywhere with Ctrl+Alt+Space",
                 "Export library data...", "Import library data...", "Clear cache and refresh covers", "Reset all settings and cache...", "Check for Updates Now", "Open Logs Folder",
                 "Send Feedback or Report a Bug",
             ];
             Assert.Empty(expected.Except(labels));
+            Assert.Contains(vm.GameTweakRows, r => r.Name == "Free up memory before launching a game"); // now a row in the Performance tabs, not a switch of its own
+            Assert.DoesNotContain("Open Optimize", labels);                                           // the button that only led to the tabs is gone: they are there
             Assert.Contains(labels, l => l.Contains("shortcut", StringComparison.OrdinalIgnoreCase)); // the desktop-shortcut button
             Assert.Equal(0, boxes); // no free-text settings left (the Discord application id went with Discord)
         }

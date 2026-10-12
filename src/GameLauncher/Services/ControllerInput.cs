@@ -51,8 +51,9 @@ public readonly record struct PadBattery(bool Wired, PadBatteryLevel Level)
 /// through XInput - Windows' own API, the one every PC game uses. XInput is read system-wide, so buttons are read only while the launcher is the
 /// window in front (the caller decides): otherwise pressing A in a game would press A here too. Directions and page keys repeat while held, like a
 /// keyboard; everything else fires once per press. Whether a pad is plugged in (and its battery) is still checked about once a second when buttons are
-/// not being read, so the status pill is right in every theme. Empty slots are asked about at most once a second each: a question about an empty slot
-/// costs a little more than one about a pad, and four of them a second is negligible.</summary>
+/// not being read, so the status pill is right in every theme. An EMPTY slot is not asked about on a timer: on some PCs a question about an empty slot makes Windows
+/// show its busy pointer, and once a second that is a pointer that never stops. Empty slots are asked about at start, when Windows says a device came or went
+/// (<see cref="RequestProbe"/>), when the launcher is brought to the front, and - as a net under those - once a minute.</summary>
 public sealed class ControllerInput : IDisposable
 {
     private const ushort DpadUp = 0x1, DpadDown = 0x2, DpadLeft = 0x4, DpadRight = 0x8, StartButton = 0x10;
@@ -64,7 +65,7 @@ public sealed class ControllerInput : IDisposable
     /// <summary>How much stronger one axis must be than the other for the push to count as that way. Below it the push is a diagonal.</summary>
     internal const double StickDominance = 1.5;
     private const byte TriggerThreshold = 128; // about half of the trigger's travel
-    internal const int RepeatDelayMs = 400, RepeatIntervalMs = 120, EmptySlotRecheckMs = 1000;
+    internal const int RepeatDelayMs = 400, RepeatIntervalMs = 120, PresenceRecheckMs = 1000, EmptySlotSafetyRecheckMs = 60_000;
     private const int MaxControllers = 4;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -202,6 +203,14 @@ public sealed class ControllerInput : IDisposable
         BatteryChanged?.Invoke(current);
     }
 
+    private int _probeRequested = 1; // the first reading looks in every slot
+
+    /// <summary>Asks the next reading to look in the empty slots too: Windows said a device came or went, or the launcher has just been brought to the front. Safe from any thread.</summary>
+    public void RequestProbe() => Interlocked.Exchange(ref _probeRequested, 1);
+
+    /// <summary>How many times an empty slot has been asked about (for the log's busy-pointer summary).</summary>
+    public long EmptySlotProbes { get; private set; }
+
     /// <summary>Raised for each press (and each repeat of a held direction), on the thread that calls <see cref="Poll"/>.</summary>
     public event Action<PadButton>? ButtonPressed;
 
@@ -328,21 +337,22 @@ public sealed class ControllerInput : IDisposable
         var stillDown = new HashSet<(int, PadButton)>();
         var fired = new List<PadButton>(); // raised only after the bookkeeping is done: a press can open a dialog that pumps messages and polls again
         double stickX = 0, stickY = 0;
+        var probeEmpty = Interlocked.Exchange(ref _probeRequested, 0) != 0;
         for (var controller = 0; controller < MaxControllers; controller++)
         {
-            // An empty slot is only asked about now and then.
-            if (!_present[controller] && now < _nextProbe[controller])
+            // An empty slot is only asked about when something says it may have changed (see RequestProbe), and as a net once a minute.
+            if (!_present[controller] && !probeEmpty && now < _nextProbe[controller])
                 continue;
 
             var wasPresent = _present[controller];
-            var reading = _read(controller);
+            var reading = ReadNoted(controller, wasPresent);
             _present[controller] = reading is not null;
             if (reading is null)
                 _stickHeld[controller] = null;
             var justAppeared = reading is not null && !wasPresent; // a pad that has just woken up or been plugged in: the press that did it is not a command
             if (reading is not { } state)
             {
-                _nextProbe[controller] = now + EmptySlotRecheckMs;
+                _nextProbe[controller] = now + EmptySlotSafetyRecheckMs;
                 continue;
             }
 
@@ -431,14 +441,40 @@ public sealed class ControllerInput : IDisposable
         if (now < _nextPresenceCheck)
             return;
 
-        _nextPresenceCheck = now + EmptySlotRecheckMs;
+        _nextPresenceCheck = now + PresenceRecheckMs;
+        var probeEmpty = Interlocked.Exchange(ref _probeRequested, 0) != 0;
         for (var controller = 0; controller < MaxControllers; controller++)
         {
-            _present[controller] = _read(controller) is not null;
-            _nextProbe[controller] = now + EmptySlotRecheckMs;
+            // A pad that is there is asked about every second; an empty slot only as in Poll.
+            if (!_present[controller] && !probeEmpty && now < _nextProbe[controller])
+                continue;
+
+            _present[controller] = ReadNoted(controller, _present[controller]) is not null;
+            if (!_present[controller])
+                _nextProbe[controller] = now + EmptySlotSafetyRecheckMs;
         }
 
         UpdateConnection();
+    }
+
+    /// <summary>One reading of one slot, with a note in the trail (see <see cref="Trail"/>) when it was an empty slot being asked about, or when it was slow: if Windows
+    /// answers slowly, or shows its busy pointer, for these questions, the log says so.</summary>
+    private PadReading? ReadNoted(int controller, bool wasPresent)
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var reading = _read(controller);
+        var ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        if (!wasPresent)
+        {
+            EmptySlotProbes++;
+            Trail.Note($"controller probe: slot {controller} {(reading is null ? "empty" : "has a pad")} in {ms:0.0} ms");
+        }
+        else if (ms >= 8)
+        {
+            Trail.Note($"controller read: slot {controller} took {ms:0.0} ms");
+        }
+
+        return reading;
     }
 
     /// <summary>How long a pad that stops answering is still counted as there. Leaving controller mode follows the pad going away, so one reading that fails (a wireless

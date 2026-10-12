@@ -29,19 +29,36 @@ public partial class LibraryViewModel
 
     /// <summary>Which page is open (one of the *PageKey constants), so the sidebar can mark its entry.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSettingsPageOpen), nameof(IsStatsPageOpen), nameof(IsOptimizePageOpen), nameof(IsPickPageOpen), nameof(IsMyPcPageOpen))]
+    [NotifyPropertyChangedFor(nameof(IsSettingsPageOpen), nameof(IsSettingsHighlighted), nameof(IsStatsPageOpen), nameof(IsOptimizePageOpen), nameof(IsPickPageOpen), nameof(IsMyPcPageOpen))]
     private string _currentPageKey = "";
 
     public bool IsPageOpen => CurrentPage is not null;
     public bool IsSettingsPageOpen => CurrentPageKey == SettingsPageKey;
     public bool IsStatsPageOpen => CurrentPageKey == StatsPageKey;
-    public bool IsOptimizePageOpen => CurrentPageKey == OptimizePageKey;
+    /// <summary>Optimize lives in Settings > Performance (the tabs), so its sidebar entry is marked while Settings is on that category - and Settings itself is not.</summary>
+    public bool IsOptimizePageOpen => IsSettingsPageOpen && SettingsCategory == PerformanceSettingsCategory;
+
+    public bool IsSettingsHighlighted => IsSettingsPageOpen && SettingsCategory != PerformanceSettingsCategory;
     public bool IsPickPageOpen => CurrentPageKey == PickPageKey;
     public bool IsMyPcPageOpen => CurrentPageKey == MyPcPageKey;
 
     /// <summary>The Settings category last open (an index into its category list), so reopening Settings lands where the user left off.
     /// Not saved: a new session starts on General.</summary>
-    internal int SettingsCategory { get; set; }
+    internal int SettingsCategory
+    {
+        get => _settingsCategory;
+        set
+        {
+            if (_settingsCategory == value)
+                return;
+
+            _settingsCategory = value;
+            OnPropertyChanged(nameof(IsOptimizePageOpen));
+            OnPropertyChanged(nameof(IsSettingsHighlighted));
+        }
+    }
+
+    private int _settingsCategory;
 
     /// <summary>What to do once the open page has closed - read the answer back out of its view model, launch a game, and so on.</summary>
     private Action? _pageClosed;

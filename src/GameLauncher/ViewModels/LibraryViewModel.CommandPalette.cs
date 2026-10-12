@@ -24,6 +24,16 @@ public partial class LibraryViewModel
         _settingsService.Save(_settings);
     }
 
+    /// <summary>Whether the busy-pointer watch writes to the log (Settings > About). The window starts and stops the watch as this changes.</summary>
+    [ObservableProperty]
+    private bool _busyCursorLog = true;
+
+    partial void OnBusyCursorLogChanged(bool value)
+    {
+        _settings.BusyCursorLog = value;
+        _settingsService.Save(_settings);
+    }
+
     private static PaletteItem Command(string title, string keywords, Action run, string subtitle = "Command", bool showWhenEmpty = false) =>
         new(title, subtitle, keywords, PaletteKind.Command, run, ShowWhenEmpty: showWhenEmpty, Detail: "Command");
 
@@ -96,8 +106,9 @@ public partial class LibraryViewModel
         if (HasDuplicates)
             items.Add(Command("Go to games installed twice", "duplicates copies view", () => SelectViewCommand.Execute("duplicates")));
         items.Add(Command("Open settings", "preferences options configuration", () => ShowSettingsCommand.Execute(null)));
-        if (IsAxisTheme && ControllerConnected)
-            items.Add(Command("Controller mode (F11)", "gamepad controller pad xbox playstation big screen couch tv full screen switch", () => EnterControllerModeFromAxisCommand.Execute(null)));
+        if (ControllerConnected || IsControllerMode)
+            items.Add(Command(IsControllerMode ? "Leave controller mode (F11)" : "Controller mode (F11)", "gamepad controller pad xbox playstation big screen couch tv full screen switch leave exit",
+                () => ControllerModeKeyCommand.Execute(null)));
 
         // Each setting can be found by name and takes you to the section that holds it.
         foreach (var (title, keywords, section, sectionName) in SettingsPaletteEntries)

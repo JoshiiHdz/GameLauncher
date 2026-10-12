@@ -287,7 +287,8 @@
                 </Setter>
             </Style>
 
-            <!-- A fact card (the Game details page's panels): a dim panel; a clickable one lights its ring on hover. -->
+            <!-- A fact card (the About cards on the home screen). A plain fact is a dim panel. A card that can be pressed (Focusable here: the template turns focus
+                 off for plain facts) reads as a button at rest: a lighter body, a clear outline, a chevron - and a switch (High priority) wears its ON / OFF pill. -->
             <Style x:Key="FactCard" TargetType="Button">
                 <Setter Property="Cursor" Value="Arrow" />
                 <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -296,15 +297,50 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Grid>
-                                <Border beh:ThemeRadius.Key="RadiusPanel" Background="#CC22252F" BorderBrush="#0FFFFFFF" BorderThickness="1" Padding="14,12">
-                                    <ContentPresenter />
+                                <Border x:Name="Body" beh:ThemeRadius.Key="RadiusPanel" Background="#CC22252F" BorderBrush="#0FFFFFFF" BorderThickness="1" Padding="14,12">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <ContentPresenter Grid.Column="0" VerticalAlignment="Center" />
+                                        <Border x:Name="StatePill" Grid.Column="1" Visibility="Collapsed" Margin="10,0,0,0" Padding="10,3" VerticalAlignment="Center" beh:ThemeRadius.Key="Pill"
+                                                Background="#26FFFFFF" BorderBrush="#55FFFFFF" BorderThickness="1">
+                                            <TextBlock x:Name="StateText" Text="{Binding StateText}" FontSize="11" FontWeight="Bold" Foreground="White" />
+                                        </Border>
+                                        <ui:SymbolIcon x:Name="Chevron" Grid.Column="2" Symbol="ChevronRight24" FontSize="16" Margin="10,0,0,0" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Accent}" Visibility="Collapsed" />
+                                    </Grid>
                                 </Border>
-                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusPanel" BorderBrush="#E6FFFFFF" BorderThickness="1" Opacity="0" IsHitTestVisible="False" />
+                                <Border x:Name="Ring" beh:ThemeRadius.Key="RadiusPanel" BorderBrush="#E6FFFFFF" BorderThickness="2" Opacity="0" IsHitTestVisible="False" />
                             </Grid>
                             <ControlTemplate.Triggers>
+                                <Trigger Property="Focusable" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="#E62C3140" />
+                                    <Setter TargetName="Body" Property="BorderBrush" Value="#66FFFFFF" />
+                                    <Setter TargetName="Chevron" Property="Visibility" Value="Visible" />
+                                    <Setter Property="Cursor" Value="Hand" />
+                                </Trigger>
+                                <DataTrigger Binding="{Binding HasState}" Value="True">
+                                    <Setter TargetName="StatePill" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="Chevron" Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding HasState}" Value="True" />
+                                        <Condition Binding="{Binding State}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter TargetName="StatePill" Property="Background" Value="{DynamicResource Accent}" />
+                                    <Setter TargetName="StatePill" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                    <Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                </MultiDataTrigger>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="Ring" Property="Opacity" Value="1" />
-                                    <Setter Property="Cursor" Value="Hand" />
+                                    <Setter TargetName="Body" Property="Background" Value="#F2363C4F" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Body" Property="Background" Value="#F2202431" />
                                 </Trigger>
                                 <Trigger Property="IsKeyboardFocused" Value="True">
                                     <Setter TargetName="Ring" Property="Opacity" Value="1" />
@@ -748,6 +784,11 @@
                         <Button x:Name="SearchButton" Style="{StaticResource RoundGlassButton}" Command="{Binding Library.ShowCommandPaletteCommand}" ToolTip="{Binding SearchTooltip, Source={x:Static services:ThemeState.Instance}}" Margin="0,0,10,0">
                             <ui:SymbolIcon Symbol="Search24" FontSize="18" />
                         </Button>
+                        <!-- A new version is ready: install it and restart. Only while there is one. -->
+                        <Button x:Name="UpdateButton" Style="{StaticResource PlayPill}" Height="34" MinWidth="0" FontSize="13" Margin="0,0,12,0"
+                                Command="{Binding Library.DownloadUpdateCommand}" Content="{Binding Library.UpdatePillText}"
+                                ToolTip="A new version is ready: install it and restart" AutomationProperties.Name="Install update"
+                                Visibility="{Binding Library.UpdateAvailable, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                         <controls:ControllerStatusPill x:Name="RibbonControllerPill" DataContext="{Binding Library}" Margin="0,0,12,0" />
                         <Button x:Name="ControllerButton" Style="{StaticResource RoundGlassButton}" Command="{Binding Library.ToggleControllerModeCommand}" ToolTip="Controller mode" Margin="0,0,10,0"
                                 AutomationProperties.Name="Controller mode"
@@ -911,7 +952,8 @@
                             <ItemsControl x:Name="ActivityRow" ItemsSource="{Binding ActivityCards}" Margin="0" Width="560" HorizontalAlignment="Left" Focusable="False">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <UniformGrid Columns="2" />
+                                        <!-- Two cards a row; a row is as tall as its tallest card (a long install path takes more lines), not every row. -->
+                                        <WrapPanel ItemWidth="280" />
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
@@ -919,7 +961,7 @@
                                         <Button Style="{StaticResource FactCard}" Margin="0,0,10,10" Click="ActivityCard_Click" IsHitTestVisible="{Binding Clickable}" Focusable="{Binding Clickable}">
                                             <StackPanel>
                                                 <TextBlock Text="{Binding Label}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" />
-                                                <TextBlock Text="{Binding Value}" Margin="0,4,0,0" FontSize="14" Foreground="White" TextTrimming="CharacterEllipsis" ToolTip="{Binding Value}" />
+                                                <TextBlock Text="{Binding Value, Converter={x:Static conv:PathWrapConverter.Instance}}" Margin="0,4,0,0" FontSize="14" Foreground="White" TextWrapping="Wrap" MaxHeight="58" TextTrimming="CharacterEllipsis" ToolTip="{Binding Value}" />
                                                 <TextBlock Text="{Binding Sub}" Margin="0,2,0,0" FontSize="11" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis">
                                                     <TextBlock.Style>
                                                         <Style TargetType="TextBlock">
@@ -955,7 +997,7 @@
                                 <Button x:Name="QuickStats" Style="{StaticResource QuickTile}" Command="{Binding Library.ShowStatsCommand}" ToolTip="Stats - play time and library figures">
                                     <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="DataBarVertical24" FontSize="18" /><TextBlock Text="Stats" Style="{StaticResource QuickLabel}" /></StackPanel>
                                 </Button>
-                                <Button x:Name="QuickOptimize" Style="{StaticResource QuickTile}" Command="{Binding Library.ShowOptimizeSettingsCommand}" ToolTip="Optimize settings - free up memory before launching a game, and more">
+                                <Button x:Name="QuickOptimize" Style="{StaticResource QuickTile}" Command="{Binding Library.ShowOptimizeCommand}" ToolTip="Optimize - game tweaks, memory, storage and startup apps">
                                     <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Flash24" FontSize="18" /><TextBlock Text="Optimize" Style="{StaticResource QuickLabel}" /></StackPanel>
                                 </Button>
                                 <Button x:Name="QuickPick" Style="{StaticResource QuickTile}" Command="{Binding Library.PickGameCommand}" ToolTip="Pick a game for me">
@@ -992,7 +1034,7 @@
                                                 <Grid Width="40" Height="40">
                                                     <Ellipse Width="34" Height="34" Stroke="#2A2D3A" StrokeThickness="4" />
                                                     <Path Stroke="#60A5FA" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                                          Data="{Binding UsedFraction, Converter={x:Static conv:UsedFractionToArcConverter.Instance}}" />
+                                                          Data="{Binding UsedFraction, Converter={x:Static conv:UsedFractionToArcConverter.Instance}, ConverterParameter='40,40,34,4'}" />
                                                 </Grid>
                                                 <Button Grid.Column="1" Background="Transparent" BorderThickness="0" Padding="0" Margin="10,0,0,0" Cursor="Hand" HorizontalContentAlignment="Left" FocusVisualStyle="{x:Null}"
                                                         Command="{Binding DataContext.ShowDriveCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding Letter}"
@@ -1147,11 +1189,15 @@
                             <RadioButton x:Name="FilterUnplayed" Style="{StaticResource FilterPill}" Command="{Binding ShowViewCommand}" CommandParameter="unplayed" IsChecked="{Binding Library.IsNeverPlayedViewSelected, Mode=OneWay}">
                                 <Grid><TextBlock Text="Not played yet" /><TextBlock Text="{Binding Library.UnplayedCount}" FontSize="12" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" /></Grid>
                             </RadioButton>
+                            <RadioButton x:Name="FilterDuplicates" Style="{StaticResource FilterPill}" Command="{Binding ShowViewCommand}" CommandParameter="duplicates" IsChecked="{Binding Library.IsDuplicatesViewSelected, Mode=OneWay}"
+                                         Visibility="{Binding Library.HasDuplicates, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                <Grid><TextBlock Text="Installed twice" /></Grid>
+                            </RadioButton>
                             <TextBlock Text="COLLECTIONS" FontSize="10" FontWeight="SemiBold" Foreground="#6B7280" Margin="14,14,14,4" Visibility="{Binding Library.HasCollections, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}" />
                             <ItemsControl ItemsSource="{Binding Library.Collections}" Focusable="False">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <RadioButton Style="{StaticResource FilterPill}" ToolTip="{Binding ToolTip}" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        <RadioButton Style="{StaticResource FilterPill}" ToolTip="{Binding ToolTip}" IsChecked="{Binding IsSelected, Mode=OneWay}" MouseRightButtonUp="Collection_RightClick"
                                                      Command="{Binding DataContext.ShowCollectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding Name}">
                                             <Grid><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" Margin="0,0,30,0" /><TextBlock Text="{Binding Count}" FontSize="12" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" /></Grid>
                                         </RadioButton>
@@ -1159,6 +1205,16 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                             <Border Height="1" Background="#14FFFFFF" Margin="0,12" />
+                            <Button x:Name="HiddenToggle" Command="{Binding Library.ToggleShowHiddenCommand}" Height="32" Margin="0,6,0,0" Cursor="Hand" FocusVisualStyle="{x:Null}"
+                                    HorizontalAlignment="Left" ToolTip="Show or hide the games you have hidden, so they can be unhidden"
+                                    Visibility="{Binding Library.HasHiddenGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <TextBlock x:Name="Label" FontSize="13" Foreground="{DynamicResource Muted}" Margin="14,0" VerticalAlignment="Center"
+                                                   Text="{Binding Library.ShowHiddenGames, Converter={x:Static conv:HiddenGamesButtonTextConverter.Instance}}" />
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
                             <Button x:Name="SortPill" Command="{Binding CycleSortCommand}" Height="36" Cursor="Hand" FocusVisualStyle="{x:Null}" ToolTip="Change the sort order">
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">

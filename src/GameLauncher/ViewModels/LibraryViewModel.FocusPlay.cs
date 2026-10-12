@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using GameLauncher.Models;
 using GameLauncher.Services;
 
@@ -61,9 +62,17 @@ public partial class LibraryViewModel
 
     public bool HasFocusPlayStatus => FocusPlayStatusText.Length > 0;
 
-    partial void OnFocusPlayAvailableChanged(bool value) => OnPropertyChanged(nameof(HasFocusPlayStatus));
+    partial void OnFocusPlayAvailableChanged(bool value)
+    {
+        OnPropertyChanged(nameof(HasFocusPlayStatus));
+        UpdatePowerRow();
+    }
 
-    partial void OnFocusPlayCheckedChanged(bool value) => OnPropertyChanged(nameof(HasFocusPlayStatus));
+    partial void OnFocusPlayCheckedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(HasFocusPlayStatus));
+        UpdatePowerRow();
+    }
 
     /// <summary>Starts the check (once; asking again while it runs or after it has run does nothing). It runs off the UI thread, because switching the
     /// power plan can take a moment.</summary>
@@ -103,6 +112,7 @@ public partial class LibraryViewModel
     {
         _settings.FocusPlay = value;
         _settingsService.Save(_settings);
+        RefreshGameTweakRows(); // the list shows the same switch
         if (!value)
             EndFocusPlay(); // turned off mid-game: the plan goes back now
     }
@@ -118,9 +128,12 @@ public partial class LibraryViewModel
 
     /// <summary>Called just before a game is launched from here. True when this launch switched the power plan (so it, and only it, may undo the switch if the
     /// launch fails: a switch already in force belongs to a game that is still running).</summary>
-    internal bool BeginFocusPlay()
+    internal bool BeginFocusPlay() => BeginFocusPlay(FocusPlayEnabled);
+
+    /// <summary>Same, for a launch that was asked for the plan (a game's own list can ask for it while the default list does not).</summary>
+    internal bool BeginFocusPlay(bool wanted)
     {
-        if (!FocusPlayEnabled)
+        if (!wanted)
             return false;
 
         try
@@ -158,7 +171,8 @@ public partial class LibraryViewModel
     /// game is set to it. Best effort - a game that refuses (run as administrator, anti-cheat) is reported, not treated as an error.</summary>
     internal void OnGameProcessesFound(GameEntry game, IReadOnlySet<int> processIds)
     {
-        if (!FocusPlayEnabled || processIds.Count == 0 || !GetRaiseGamePriority(game.Id))
+        // The per-game switch is the person's own choice for this game: it does not wait on the power plan being on as well.
+        if (processIds.Count == 0 || !GetRaiseGamePriority(game.Id))
             return;
 
         var raised = GamePriority.Raise(processIds);
@@ -182,5 +196,21 @@ public partial class LibraryViewModel
 
         over.RaiseGamePriority = value;
         _settingsService.Save(_settings);
+        foreach (var game in _allGames.Where(g => g.Id == gameId))
+            game.HighPriority = value;
+    }
+
+    /// <summary>The "High priority" item of a game's menu (Axis's card menu, the More menus, the home cards): one click, no page to open first.</summary>
+    [RelayCommand]
+    private void ToggleHighPriority(GameEntry? game)
+    {
+        if (game is null)
+            return;
+
+        var on = !GetRaiseGamePriority(game.Id);
+        SetRaiseGamePriority(game.Id, on);
+        StatusText = on
+            ? $"{game.Name} will run at high priority while it plays (some games refuse it)."
+            : $"{game.Name} runs at normal priority.";
     }
 }

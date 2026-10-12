@@ -111,6 +111,16 @@ public partial class LibraryViewModel
     // title-bar button and the palette entry are what stay out of sight until a controller is there.
     private bool CanEnterControllerModeFromAxis() => IsAxisTheme;
 
+    /// <summary>F11 and the palette's "Controller mode": switches the mode on or off in any theme. With no controller connected it says so instead of doing nothing.</summary>
+    [RelayCommand]
+    private void ControllerModeKey()
+    {
+        if (IsControllerMode)
+            ExitControllerMode();
+        else
+            EnterControllerMode();
+    }
+
     internal void ExitControllerMode(string reason = "asked to")
     {
         if (IsControllerMode)

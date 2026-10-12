@@ -251,11 +251,7 @@ public sealed class DiscoveryWindowTests(WpfStaFixture sta) : IDisposable
             Assert.Contains("12 GB", texts);
             Assert.Contains("Backlog, Co-op", texts);
             Assert.Contains(texts, t => t.StartsWith("1.5 h tracked"));
-            Assert.Equal("", page.NotesBox.Text);
-
-            page.NotesBox.Text = "second boss next";
-            Assert.Equal("second boss next", details.Notes);
-            Assert.True(details.NotesChanged);
+            Assert.Contains("Run this game at high priority", string.Join("|", texts)); // the priority switch is on the page (and there is no notes box)
 
             var openedFolder = false;
             var editedCollections = false;
@@ -271,11 +267,10 @@ public sealed class DiscoveryWindowTests(WpfStaFixture sta) : IDisposable
             await Settle(window);
             Assert.Contains("Finished", Texts(window.PageContent));
 
-            // Notes are saved when the page closes, and Play launches after it has.
+            // Play launches after the page has closed.
             await Invoke(window, ButtonNamed(window.PageContent, "Play"));
             Assert.True(details.PlayRequested);
             Assert.False(vm.IsPageOpen);
-            Assert.Equal("second boss next", vm.GetGameNotes("Apex"));
             Assert.StartsWith("Failed to launch Apex", vm.StatusText);
         }
         finally { window.Close(); }
@@ -428,7 +423,7 @@ public sealed class DiscoveryWindowTests(WpfStaFixture sta) : IDisposable
     });
 
     [Fact]
-    public void TheHeroMoreMenu_OffersGameDetails_ForTheFeaturedGame() => sta.RunAsync(async () =>
+    public void TheHeroDetailsButton_OpensTheQuickView_ForTheFeaturedGame() => sta.RunAsync(async () =>
     {
         var vm = CreateModel();
         Populate(vm);
@@ -436,18 +431,11 @@ public sealed class DiscoveryWindowTests(WpfStaFixture sta) : IDisposable
         try
         {
             await Settle(window);
-            // The hero's menu is the short one: the game cards' menus carry the same row but also "Collections...".
-            var more = Descendants<Button>(window).Single(b => b.ContextMenu?.Items.OfType<MenuItem>().Select(i => i.Header as string).ToList() is { } headers
-                && headers.Contains("Game details...") && !headers.Contains("Collections..."));
-            var menu = more.ContextMenu!;
-            menu.PlacementTarget = more;
-            menu.IsOpen = true;
-            await Settle(window);
-
-            var item = menu.Items.OfType<MenuItem>().Single(i => i.Header as string == "Game details...");
-            Assert.Same(vm.ShowGameDetailsCommand, item.Command);
-            Assert.Same(vm.FeaturedGame, item.CommandParameter);
-            menu.IsOpen = false;
+            // The hero has no menu of its own any more: its Details button is the game's quick view (Open install location and Uninstall are in there).
+            var button = Descendants<Button>(window).Single(b => b.Name == "HeroDetailsButton");
+            Assert.Same(vm.ShowGameQuickViewCommand, button.Command);
+            Assert.Same(vm.FeaturedGame, button.CommandParameter);
+            Assert.Null(button.ContextMenu);
         }
         finally { window.Close(); }
     });

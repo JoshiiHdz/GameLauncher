@@ -5,38 +5,27 @@ using GameLauncher.Models;
 
 namespace GameLauncher.ViewModels;
 
-/// <summary>The game details page: cover, facts about the install and play time, collections, and the user's own notes. Notes are
-/// edited here and saved by the library when the page closes, so nothing in this class touches settings.</summary>
+/// <summary>The game details page: cover, facts about the install and play time, collections and the priority switch. The priority choice is
+/// made here and saved by the library when the page closes, so nothing in this class touches settings.</summary>
 public sealed partial class GameDetailsViewModel : ObservableObject, IDisposable
 {
+    /// <summary>Notes were taken out of the launcher (there is no box to type them in any more). Text a person already saved is kept untouched in their settings and backups,
+    /// and this is the cap that is still applied to it when a backup is merged.</summary>
     internal const int MaxNotesLength = 4000;
-
-    private readonly string _originalNotes;
 
     private readonly bool _originalRaisePriority;
 
-    public GameDetailsViewModel(GameEntry game, string? notes, bool raisePriority = false)
+    public GameDetailsViewModel(GameEntry game, bool raisePriority = false)
     {
         Game = game;
         _originalRaisePriority = raisePriority;
         _raiseGamePriority = raisePriority;
-        _originalNotes = notes ?? "";
-        _notes = _originalNotes;
         game.PropertyChanged += OnGamePropertyChanged;
     }
 
     public GameEntry Game { get; }
 
-    [ObservableProperty]
-    private string _notes;
-
-    public int NotesLimit => MaxNotesLength;
-
-    public bool NotesChanged => !string.Equals(Notes, _originalNotes, StringComparison.Ordinal);
-
-    partial void OnNotesChanged(string value) => OnPropertyChanged(nameof(NotesChanged));
-
-    /// <summary>Focus play, for this game: run it at High priority while it is open. Saved by the library when the page closes, like the notes.</summary>
+    /// <summary>Run this game at High priority while it plays. Saved by the library when the page closes.</summary>
     [ObservableProperty]
     private bool _raiseGamePriority;
 
@@ -44,6 +33,9 @@ public sealed partial class GameDetailsViewModel : ObservableObject, IDisposable
 
     /// <summary>Set by the window's Play button; a page that is closed any other way launches nothing.</summary>
     public bool PlayRequested { get; set; }
+
+    /// <summary>Set by the quick-view panel's "Game tweaks" button: once the panel has closed, the library opens Settings > Performance, where the game tweaks are.</summary>
+    public bool TweaksRequested { get; set; }
 
     /// <summary>Raised when the user asks to open the install folder; the library does the opening.</summary>
     public event Action? OpenInstallLocationRequested;
@@ -64,6 +56,11 @@ public sealed partial class GameDetailsViewModel : ObservableObject, IDisposable
     public void RequestUninstall() => UninstallRequested?.Invoke();
 
     public void RequestEditCollections() => EditCollectionsRequested?.Invoke();
+
+    /// <summary>Raised when the user asks for the game tweaks; the library opens Settings > Performance (they are the same for every game).</summary>
+    public event Action? GameTweaksRequested;
+
+    public void RequestGameTweaks() => GameTweaksRequested?.Invoke();
 
     public string SourceText => LauncherText.Name(Game.Source);
 
@@ -93,7 +90,19 @@ public sealed partial class GameDetailsViewModel : ObservableObject, IDisposable
         return string.Join(" · ", parts);
     }
 
-    public string SizeText => Game.HasInstallSize ? Game.InstallSizeDisplay : "Not measured yet";
+    /// <summary>The size, or what is happening to it: "Measuring..." while the folder is being walked (it starts the moment a game is on screen - see
+    /// LibraryViewModel.EnsureInstallSizeMeasured), "Install folder not found" when there is nothing to measure.</summary>
+    public string SizeText
+    {
+        get
+        {
+            var folderThere = !string.IsNullOrWhiteSpace(Game.InstallDir) && System.IO.Directory.Exists(Game.InstallDir);
+            if (Game.HasInstallSize)
+                return Game.InstallSizeBytes is 0 && !folderThere ? "Install folder not found" : Game.InstallSizeDisplay;
+
+            return folderThere ? "Measuring..." : "Install folder not found";
+        }
+    }
 
     public string PlayTimeText => Game.HasPlayTime
         ? $"{PlayTimeFormat.Duration(Game.TotalPlaySeconds)} tracked, last played {Game.LastPlayedDisplay.ToLowerInvariant()}"

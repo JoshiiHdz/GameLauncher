@@ -56,6 +56,7 @@ public static class XboxPackageDiscovery
                 },
             };
 
+            Trail.Note("starting powershell.exe (Get-AppxPackage)");
             var rawOutput = StartAppsResolver.RunAndReadStdout(process, TimeSpan.FromSeconds(20), ct);
             if (rawOutput is null)
             {

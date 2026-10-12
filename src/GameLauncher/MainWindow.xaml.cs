@@ -48,6 +48,14 @@ public partial class MainWindow : FluentWindow
         if ((openPerSetting ?? startRuntimeServices) && viewModel.StartMaximized)
             WindowState = WindowState.Maximized;
 
+        // The last state the window was SHOWN in (maximized or normal, never minimized): what it comes back to when it returns from the tray or the taskbar.
+        _shownState = WindowState == WindowState.Minimized ? WindowState.Normal : WindowState;
+        StateChanged += (_, _) =>
+        {
+            if (WindowState != WindowState.Minimized)
+                _shownState = WindowState;
+        };
+
         // Restoring from maximized (or reopening where it was left on another monitor or resolution) must not leave the bottom of the window under the
         // taskbar: keep a normal window inside its monitor's work area. Tests place their windows off screen on purpose, so only the real app does this.
         if (startRuntimeServices)
@@ -132,6 +140,7 @@ public partial class MainWindow : FluentWindow
             _externalMonitorCts.Cancel();
             viewModel.StopPassiveTracking();
             viewModel.EndFocusPlay();
+            viewModel.EndGameTweaks();
             if (_watchedGame is { } game) viewModel.MarkGameNotRunning(game, _watchedSessionId);
             _sessionCts?.Cancel();
             TrayIcon.Dispose();
@@ -139,6 +148,10 @@ public partial class MainWindow : FluentWindow
     }
 
     private GlobalHotkeyService? _hotkey;
+
+    /// <summary>Maximized or Normal: how the window was last on screen, so putting it away (to the tray, or minimized while a game runs) and bringing it back
+    /// does not change its size.</summary>
+    private WindowState _shownState = WindowState.Normal;
 
     /// <summary>Registers (or gives back) Ctrl+Alt+Space to match the setting. If another program already has the combination the
     /// launcher simply runs without a hotkey - Ctrl+K inside the window still works.</summary>
@@ -233,6 +246,7 @@ public partial class MainWindow : FluentWindow
 
         // The game has ended, or was never found (nothing more to wait for either way): Focus play puts the power plan back.
         vm.EndFocusPlay();
+        vm.EndGameTweaks();
 
         // If the game's processes were never found, leave the window hidden (and the badge showing)
         // rather than assuming it's closed - it's most likely still running, and the tray icon is
@@ -276,7 +290,9 @@ public partial class MainWindow : FluentWindow
     {
         Logger.Info("Restoring window from tray.");
         Show();
-        WindowState = WindowState.Normal;
+
+        // Back to how it was shown before it was put away: a launcher that was full-screen when the game started comes back full-screen, not as a smaller window.
+        WindowState = _shownState;
         Activate();
 
         Topmost = true;

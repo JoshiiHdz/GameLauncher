@@ -19,6 +19,53 @@ public partial class MainWindow
     /// <summary>View state for the console themes (focus, tab, menus, feedback). Created once; it survives theme switches.</summary>
     internal ShellState Shell { get; private set; } = null!;
 
+    private readonly List<(UIElement Element, object Mask)> _menuOnlyHidden = new();
+    private Brush? _menuOnlyBackground;
+    private Grid? _menuOnlyRoot;
+
+    /// <summary>A menu opened from a page (the Game details page's More button) used to open behind the page: the menu belongs to the PlayStation (or Xbox) shell, which sits
+    /// under the page host. While such a menu is open the shell is raised above the page and shows only its menu (everything else of it hidden, its background cleared), so
+    /// the page is still what is seen and the menu is on top of it.</summary>
+    internal void UpdateMenuOverPage()
+    {
+        var on = Shell.IsMenuOpen && DataContext is LibraryViewModel { IsPageOpen: true, IsConsoleTheme: true } library;
+        var host = ConsoleHost;
+        if (on && _menuOnlyRoot is null)
+        {
+            var root = ((DataContext as LibraryViewModel)?.IsConsoleRibbonTheme == true ? RibbonView.Shell : TileView.Shell) as Grid;
+            if (root is null)
+                return;
+
+            _menuOnlyRoot = root;
+            _menuOnlyBackground = root.Background;
+            root.Background = null;
+            foreach (var child in root.Children.OfType<UIElement>().Where(c => c is not FrameworkElement { Name: "MenuLayer" }).ToList())
+            {
+                // Made transparent with an opacity mask, not hidden: Visibility is bound or set by style triggers on these, and a value set here would have replaced those.
+                _menuOnlyHidden.Add((child, child.ReadLocalValue(UIElement.OpacityMaskProperty)));
+                child.OpacityMask = Brushes.Transparent;
+            }
+
+            Panel.SetZIndex(host, 20);
+        }
+        else if (!on && _menuOnlyRoot is not null)
+        {
+            foreach (var (element, mask) in _menuOnlyHidden)
+            {
+                if (ReferenceEquals(mask, DependencyProperty.UnsetValue))
+                    element.ClearValue(UIElement.OpacityMaskProperty);
+                else
+                    element.OpacityMask = mask as Brush;
+            }
+
+            _menuOnlyHidden.Clear();
+            _menuOnlyRoot.Background = _menuOnlyBackground;
+            _menuOnlyRoot = null;
+            _menuOnlyBackground = null;
+            Panel.SetZIndex(host, 0);
+        }
+    }
+
     /// <summary>The caption (drag area and window buttons) is 44 px in Axis, where it is the title bar, and 32 px in the console themes.</summary>
     private double CurrentCaptionHeight => ThemeManager.Current == ThemeId.Axis ? 44 : 32;
 
@@ -32,6 +79,16 @@ public partial class MainWindow
         };
 
         library.PropertyChanged += OnAppearanceChanged;
+        Shell.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ShellState.IsMenuOpen))
+                UpdateMenuOverPage();
+        };
+        library.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(LibraryViewModel.IsPageOpen))
+                UpdateMenuOverPage();
+        };
         SizeChanged += (_, _) => UpdateLayoutMetrics();
         Closed += (_, _) => library.PropertyChanged -= OnAppearanceChanged;
         Loaded += (_, _) => UpdateLayoutMetrics();

@@ -12,7 +12,7 @@ namespace GameLauncher;
 /// <summary>Console-ribbon's home and library (see ConsoleRibbonView.xaml). DataContext is the <see cref="ShellState"/>. In the ribbon strip a
 /// click on an item focuses it and a click on the focused item opens it; hovering an icon also focuses it at once (only when the
 /// pointer actually moves; the title sits under the icon, so nothing slides sideways beneath a resting pointer). In the Library
-/// grid hover moves focus at once and a click opens Game details.</summary>
+/// grid hover moves focus at once and a click brings the game up on the Home screen.</summary>
 public partial class ConsoleRibbonView : UserControl
 {
     private Point _lastMouse = new(double.NaN, double.NaN);
@@ -132,6 +132,15 @@ public partial class ConsoleRibbonView : UserControl
     {
         if (State is { } state && GameOf(sender) is { } game)
             state.FocusRibbonItem(game);
+    }
+
+    private void Collection_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (State is not { } state || sender is not FrameworkElement { DataContext: CollectionItem collection } pill)
+            return;
+
+        e.Handled = true;
+        state.OpenCollectionMenu(collection.Name, ShellGeometry.RectOf(pill, this));
     }
 
     private void RibbonItem_RightClick(object sender, MouseButtonEventArgs e)
@@ -376,8 +385,13 @@ public partial class ConsoleRibbonView : UserControl
     {
         if (State is { } state && GameOf(sender) is { } game)
         {
+            // The Home screen already shows a game's details (the newer, fuller layout), so a poster in the Library tab brings the game up there - there is no
+            // second details page to land on.
             state.FocusRibbonItem(game);
-            state.Library.ShowGameDetailsCommand.Execute(game); // the Library tab has no details panel, so a poster opens Game details
+            if (state.Library.ShowGameOnRibbonHome is { } showOnHome)
+                showOnHome(game);
+            else
+                state.ShowGameOnHome(game);
         }
     }
 

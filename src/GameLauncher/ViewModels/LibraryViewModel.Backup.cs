@@ -137,6 +137,8 @@ public partial class LibraryViewModel
         OptimizeBeforeLaunch = s.OptimizeBeforeLaunch;
         FocusPlayEnabled = s.FocusPlay;
         FocusPlayOnlyWhenPluggedIn = s.FocusPlayOnlyWhenPluggedIn;
+        _settings.GameTweaksOnLaunch = s.GameTweaksOnLaunch.Where(id => GameTweakCatalog.ById(id) is not null).Distinct().ToList(); // only tweaks this app knows
+        RefreshGameTweakRows();
     }
 
     /// <summary>Pushes the (just merged) overrides onto the games already on screen, the same fields a rescan re-applies.</summary>
@@ -149,6 +151,7 @@ public partial class LibraryViewModel
                 game.Name = over.CustomName;
             game.Hidden = over?.Hidden ?? false;
             game.Favorite = over?.Favorite ?? false;
+            game.HighPriority = over?.RaiseGamePriority ?? false;
             game.Collections = over?.Collections is { Count: > 0 } collections ? [.. collections] : [];
             if (over?.DateAdded is { } dateAdded)
                 game.DateAdded = dateAdded;

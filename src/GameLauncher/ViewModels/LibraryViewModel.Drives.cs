@@ -134,7 +134,7 @@ public partial class LibraryViewModel
     /// is itself bounded and cancellable (see InstallSizeEstimator). Already-known sizes are skipped, so
     /// re-running this after a view change costs nothing. Cancel-and-replace (the same shape as
     /// RefreshAsync's _refreshCts) means a slower, now-stale pass can never overwrite a newer one.</summary>
-    private async Task EstimateInstallSizesAsync(string? priorityLetter = null)
+    private async Task EstimateInstallSizesAsync(string? priorityLetter = null, string? priorityGameId = null)
     {
         _sizeEstimationCts?.Cancel();
 
@@ -145,7 +145,8 @@ public partial class LibraryViewModel
         var letter = priorityLetter ?? SelectedDriveLetter;
         var targets = _allGames
             .Where(g => g.InstallSizeBytes is null && !_sizeEstimationInFlight.Contains(g.Id))
-            .OrderByDescending(g => letter is not null
+            .OrderByDescending(g => priorityGameId is not null && g.Id == priorityGameId) // the game being looked at goes first
+            .ThenByDescending(g => letter is not null
                 && string.Equals(DriveLetterOf(g.InstallDir), letter, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
@@ -167,7 +168,9 @@ public partial class LibraryViewModel
             {
                 bytes = InstallSizeEstimatorForTest is { } forTest
                     ? forTest(game.InstallDir, token)
-                    : await Task.Run(() => InstallSizeEstimator.Estimate(game.InstallDir, token).Bytes, token);
+                    : await Task.Run(() => (game.Id == priorityGameId
+                        ? InstallSizeEstimator.Estimate(game.InstallDir, token, 250_000, TimeSpan.FromSeconds(40)) // the one being looked at gets time to be measured properly
+                        : InstallSizeEstimator.Estimate(game.InstallDir, token)).Bytes, token);
             }
             catch (OperationCanceledException)
             {
@@ -183,6 +186,16 @@ public partial class LibraryViewModel
 
             game.InstallSizeBytes = bytes;
         }
+    }
+
+    /// <summary>A game is on screen (its details page, the home card) and has no size yet: measure it NOW rather than wherever it falls in the library-wide queue. Without
+    /// this the opened game waited behind every other unmeasured one, and showed "Not measured yet" for minutes. Does nothing when it is measured or being measured.</summary>
+    internal void EnsureInstallSizeMeasured(GameEntry game)
+    {
+        if (game.HasInstallSize || _sizeEstimationInFlight.Contains(game.Id) || string.IsNullOrWhiteSpace(game.InstallDir))
+            return;
+
+        _ = EstimateInstallSizesAsync(priorityGameId: game.Id);
     }
 
     // Game ids currently being measured, so overlapping passes never walk the same folder twice (and

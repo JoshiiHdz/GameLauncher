@@ -332,53 +332,7 @@ public class LibraryViewModelDiscoveryTests : IDisposable
         Assert.Equal(game.InstallDir, opened);
     }
 
-    // ---- Game details and notes --------------------------------------------------------------------
-
-    [Fact]
-    public void Notes_TypedOnTheDetailsPage_AreSavedWhenItCloses_AndComeBack()
-    {
-        var (a, _, _) = ThreeGames();
-        _sut.GameDetailsDialogForTest = vm =>
-        {
-            Assert.Equal("", vm.Notes);
-            vm.Notes = "  Left off at the second boss.  ";
-        };
-
-        _sut.ShowGameDetailsCommand.Execute(a);
-
-        Assert.Equal("Left off at the second boss.", _sut.GetGameNotes("a"));
-        Assert.Equal("Left off at the second boss.", new SettingsService(_dataDir).Load().Overrides["a"].Notes);
-
-        string? reopened = null;
-        _sut.GameDetailsDialogForTest = vm => reopened = vm.Notes;
-        _sut.ShowGameDetailsCommand.Execute(a);
-        Assert.Equal("Left off at the second boss.", reopened);
-    }
-
-    [Fact]
-    public void ClearingTheNotes_RemovesThem_AndWhitespaceAloneIsNotSaved()
-    {
-        var (a, _, _) = ThreeGames();
-        _sut.SetGameNotes("a", "something");
-
-        _sut.GameDetailsDialogForTest = vm => vm.Notes = "   ";
-        _sut.ShowGameDetailsCommand.Execute(a);
-        Assert.Equal("", _sut.GetGameNotes("a"));
-        Assert.Null(_sut.GetOverride("a")!.Notes);
-
-        _sut.SetGameNotes("b", "   ");
-        Assert.Null(_sut.GetOverride("b"));
-    }
-
-    [Fact]
-    public void Notes_AreCappedAtTheLimit()
-    {
-        ThreeGames();
-
-        _sut.SetGameNotes("a", new string('x', GameDetailsViewModel.MaxNotesLength + 500));
-
-        Assert.Equal(GameDetailsViewModel.MaxNotesLength, _sut.GetGameNotes("a").Length);
-    }
+    // ---- Game details ----------------------------------------------------------------------------------
 
     [Fact]
     public void ClosingTheDetailsPageUnchanged_WritesNothing()
@@ -444,7 +398,7 @@ public class LibraryViewModelDiscoveryTests : IDisposable
 
         _sut.ShowGameDetailsCommand.Execute(a);
 
-        Assert.Equal("Not measured yet", shown!.SizeText);
+        Assert.Equal("Install folder not found", shown!.SizeText); // the test folders are not on disk: the page says why there is no size, not just "not measured"
         Assert.StartsWith("Not played yet", shown.PlayTimeText);
     }
 
@@ -462,12 +416,14 @@ public class LibraryViewModelDiscoveryTests : IDisposable
     public void ADedupMerge_CarriesTheLosersNotesOver()
     {
         ThreeGames();
-        _sut.SetGameNotes("a", "winner notes");
-        _sut.SetGameNotes("b", "loser notes");
+        _sut.ToggleFavoriteCommand.Execute(_sut.Games.Single(g => g.Id == "a")); // an override each, as a game with saved data has
+        _sut.ToggleFavoriteCommand.Execute(_sut.Games.Single(g => g.Id == "b"));
+        _sut.GetOverride("a")!.Notes = "winner notes"; // notes written before they were taken out are kept when two entries merge
+        _sut.GetOverride("b")!.Notes = "loser notes";
 
         _sut.MigrateMergedOverrides(new Dictionary<string, string> { ["b"] = "a" });
 
-        Assert.Equal("winner notes\n\nloser notes", _sut.GetGameNotes("a"));
+        Assert.Equal("winner notes\n\nloser notes", _sut.GetOverride("a")!.Notes);
         Assert.Null(_sut.GetOverride("b"));
     }
 }

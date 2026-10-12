@@ -26,6 +26,10 @@ public partial class App : Application
         if (args.Contains(ElevatedCleaner.Switch))
             return ElevatedCleaner.RunFromArguments(args);
 
+        // The elevated copy that pauses Windows services while a game runs and starts them again after (see ServiceGuard).
+        if (args.Contains(ServiceGuard.Switch))
+            return ServiceGuard.RunFromArguments(args);
+
         VelopackApp.Build().Run();
 
         var app = new App();

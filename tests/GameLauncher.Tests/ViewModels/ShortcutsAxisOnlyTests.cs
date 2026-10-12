@@ -8,8 +8,8 @@ using GameLauncher.ViewModels;
 
 namespace GameLauncher.Tests.ViewModels;
 
-/// <summary>Keyboard shortcuts, command keys and the commands in the palette are an Axis feature. The PlayStation theme has none of them (and names no keys on screen);
-/// Axis keeps every one.</summary>
+/// <summary>Keyboard shortcuts, command keys and the commands in the palette work the same in every theme: the themes differ in how they look and are driven, not in what
+/// they can do.</summary>
 [Collection(WpfStaCollection.Name)]
 public sealed class ShortcutsAxisOnlyTests(WpfStaFixture sta)
 {
@@ -29,22 +29,18 @@ public sealed class ShortcutsAxisOnlyTests(WpfStaFixture sta)
     }
 
     [Fact]
-    public void OnlyAxisHasShortcuts_AndOnlyAxisNamesKeysOnScreen() => sta.RunAsync(async () =>
+    public void EveryTheme_HasTheShortcuts_AndNamesTheirKeys() => sta.RunAsync(async () =>
     {
         try
         {
-            ThemeManager.Apply(ThemeId.Axis);
-            Assert.True(ThemeState.Instance.ShortcutsEnabled);
-            Assert.Contains("Ctrl+K", ThemeState.Instance.SearchHint);
-            Assert.Contains("Esc", ThemeState.Instance.BackTooltip);
-
-            ThemeManager.Apply(ThemeId.ConsoleRibbon);
-            Assert.False(ThemeState.Instance.ShortcutsEnabled);
-            Assert.DoesNotContain("Ctrl", ThemeState.Instance.SearchHint);
-            Assert.DoesNotContain("Esc", ThemeState.Instance.BackTooltip);
-            Assert.DoesNotContain("Esc", ThemeState.Instance.CloseTooltip);
-            Assert.DoesNotContain("Esc", ThemeState.Instance.MenuCloseTooltip);
-            Assert.DoesNotContain("Ctrl", ThemeState.Instance.SearchTooltip);
+            foreach (var theme in new[] { ThemeId.Axis, ThemeId.ConsoleTile, ThemeId.ConsoleRibbon })
+            {
+                ThemeManager.Apply(theme);
+                Assert.True(ThemeState.Instance.ShortcutsEnabled, theme.ToString());
+                Assert.Contains("Ctrl+K", ThemeState.Instance.SearchHint);
+                Assert.Contains("Esc", ThemeState.Instance.BackTooltip);
+                Assert.Contains("Ctrl+K", ThemeState.Instance.SearchTooltip);
+            }
         }
         finally { ThemeManager.Apply(ThemeId.Axis); }
 
@@ -52,19 +48,22 @@ public sealed class ShortcutsAxisOnlyTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void ThePalette_OffersCommandsAndSettings_InAxis_ButOnlyGames_InThePlayStationTheme() => sta.RunAsync(async () =>
+    public void ThePalette_OffersTheSameCommandsAndSettings_InEveryTheme() => sta.RunAsync(async () =>
     {
         try
         {
             var vm = NewLibrary();
+            var titles = new List<string[]>();
+            foreach (var theme in new[] { ThemeId.Axis, ThemeId.ConsoleTile, ThemeId.ConsoleRibbon })
+            {
+                ThemeManager.Apply(theme);
+                var commands = vm.BuildPaletteItems().Where(i => i.Kind == PaletteKind.Command).Select(i => i.Title).OrderBy(t => t, StringComparer.Ordinal).ToArray();
+                Assert.NotEmpty(commands);
+                titles.Add(commands);
+            }
 
-            ThemeManager.Apply(ThemeId.Axis);
-            Assert.Contains(vm.BuildPaletteItems(), i => i.Kind == PaletteKind.Command);
-
-            ThemeManager.Apply(ThemeId.ConsoleRibbon);
-            var items = vm.BuildPaletteItems();
-            Assert.NotEmpty(items);
-            Assert.All(items, i => Assert.Equal(PaletteKind.Game, i.Kind));
+            Assert.Equal(titles[0], titles[1]);
+            Assert.Equal(titles[0], titles[2]);
         }
         finally { ThemeManager.Apply(ThemeId.Axis); }
 
@@ -72,7 +71,7 @@ public sealed class ShortcutsAxisOnlyTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void InThePlayStationTheme_EscapeAndTheShortcutKeysDoNothing() => sta.RunAsync(async () =>
+    public void InThePlayStationTheme_EscapeGoesBack_LikeInAxis() => sta.RunAsync(async () =>
     {
         GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
         ThemeManager.Apply(ThemeId.ConsoleRibbon);
@@ -88,9 +87,6 @@ public sealed class ShortcutsAxisOnlyTests(WpfStaFixture sta)
             Press(window, Key.Escape, Keyboard.KeyDownEvent);
             await ShellTestSupport.SettleAsync();
 
-            Assert.True(vm.IsPageOpen);                                              // Esc is not a way back here: the back button is
-
-            vm.ClosePageCommand.Execute(null);                                       // the back button's command still works
             Assert.False(vm.IsPageOpen);
         }
         finally

@@ -25,6 +25,9 @@ public sealed class GameOverride
 
     public DateTime? DateAdded { get; set; }
 
+    /// <summary>Legacy: a list of game tweaks an earlier build let a game have of its own. It is no longer used (the one list in Settings > Performance applies to every game) but is kept so nothing saved is lost.</summary>
+    public List<string>? GameTweaks { get; set; }
+
     /// <summary>Part of Focus play: run this game's processes at High priority. Off unless chosen; never Realtime.</summary>
     public bool RaiseGamePriority { get; set; }
 

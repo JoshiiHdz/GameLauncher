@@ -52,6 +52,7 @@ public static class StartAppsResolver
                 },
             };
 
+            Trail.Note("starting powershell.exe (Get-StartApps)");
             var rawOutput = RunAndReadStdout(process, TimeSpan.FromSeconds(10), ct);
             if (rawOutput is null)
             {

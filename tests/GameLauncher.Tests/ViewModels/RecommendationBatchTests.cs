@@ -187,7 +187,7 @@ public sealed class RecommendationBatchTests(WpfStaFixture sta)
     public void DetailsForAGame_SplitTheFactsLineIntoPlayTimeDriveAndSize()
     {
         var game = Game("1", "Apex", installDir: @"E:\Games\Apex");
-        using var details = new GameDetailsViewModel(game, null);
+        using var details = new GameDetailsViewModel(game);
 
         Assert.Equal("E:", details.DriveLetter);
         Assert.True(details.HasDriveLetter);

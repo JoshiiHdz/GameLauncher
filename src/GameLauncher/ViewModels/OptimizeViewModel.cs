@@ -6,6 +6,22 @@ using GameLauncher.Services;
 
 namespace GameLauncher.ViewModels;
 
+/// <summary>The tabs of the Optimize page.</summary>
+public enum OptimizeTab
+{
+    /// <summary>What happens before a game starts (memory, power plan, Windows settings, services) and memory right now.</summary>
+    Boost,
+
+    /// <summary>The read-only gaming health check.</summary>
+    Health,
+
+    /// <summary>Programs that start with Windows.</summary>
+    Startup,
+
+    /// <summary>Storage clutter, the previous Windows installation and the space saver.</summary>
+    CleanUp,
+}
+
 /// <summary>One tick-box row on the Optimize page: a kind of leftover, how much of it there is, and whether to clear it.</summary>
 public sealed partial class CleanItem : ObservableObject
 {
@@ -41,6 +57,170 @@ public sealed partial class OptimizeViewModel : ObservableObject
     private readonly Func<IReadOnlyList<GameEntry>>? _games;
     private readonly Action<GameEntry>? _uninstall;
     private readonly string? _runningGameId;
+
+    /// <summary>The library, for the game tweaks card (its switches and buttons live there, shared with Settings); null when the page was made without one.</summary>
+    public LibraryViewModel? Tweaks { get; init; }
+
+    public bool HasTweaks => Tweaks is not null;
+
+    // ---- The page is four tabs instead of one long scroll: what to do before a game, the health check, startup apps, clean-up ----------
+
+    private bool _scanRequested;
+
+    /// <summary>Measures the storage clutter once, the first time the page is in view (an Optimize page nobody looks at does not walk the disk).</summary>
+    internal void EnsureScanned()
+    {
+        if (_scanRequested)
+            return;
+
+        _scanRequested = true;
+        ScanCommand.Execute(null);
+    }
+
+    /// <summary>The page is shown again: read what can have changed since (the health check, the startup list, what Windows has for each tweak, memory). The storage scan
+    /// is the person's to repeat.</summary>
+    internal void Revisit()
+    {
+        CheckGamingHealth();
+        RefreshStartup();
+        RefreshMemory();
+    }
+
+    /// <summary>The tab showing. Game boost is first because it is the thing the page is for.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBoostTab), nameof(IsHealthTab), nameof(IsStartupTab), nameof(IsCleanUpTab))]
+    private OptimizeTab _tab = OptimizeTab.Boost;
+
+    public bool IsBoostTab
+    {
+        get => Tab == OptimizeTab.Boost;
+        set { if (value) Tab = OptimizeTab.Boost; }
+    }
+
+    public bool IsHealthTab
+    {
+        get => Tab == OptimizeTab.Health;
+        set { if (value) Tab = OptimizeTab.Health; }
+    }
+
+    public bool IsStartupTab
+    {
+        get => Tab == OptimizeTab.Startup;
+        set { if (value) Tab = OptimizeTab.Startup; }
+    }
+
+    public bool IsCleanUpTab
+    {
+        get => Tab == OptimizeTab.CleanUp;
+        set { if (value) Tab = OptimizeTab.CleanUp; }
+    }
+
+    /// <summary>The tab names carry a number where there is one to give: what the health check says can be improved, how many programs start with Windows.</summary>
+    public string HealthTabText => AdvisorRows.Count(r => r.IsAdvice) is > 0 and var n ? $"Health check ({n})" : "Health check";
+
+    public string StartupTabText => StartupRows.Count > 0 ? $"Startup apps ({StartupRows.Count(r => r.IsOn)})" : "Startup apps";
+
+    // ---- The previous Windows installation (Windows.old): its size, and the way to remove it with Windows' own tool ----------------
+
+    /// <summary>Measures the folder (null when there is none). Null here leaves the card out.</summary>
+    public Func<long?>? WindowsOldSizer { get; init; }
+
+    /// <summary>Opens Windows' own cleanup; replaced in tests.</summary>
+    public Action OpenWindowsCleanupAction { get; init; } = WindowsOld.OpenWindowsCleanup;
+
+    [ObservableProperty]
+    private bool _hasWindowsOld;
+
+    [ObservableProperty]
+    private string _windowsOldText = "";
+
+    [RelayCommand]
+    internal async Task RefreshWindowsOldAsync()
+    {
+        if (WindowsOldSizer is not { } sizer)
+            return;
+
+        try
+        {
+            HasWindowsOld = false;
+            var size = await Task.Run(sizer);
+            if (size is { } bytes)
+            {
+                WindowsOldText = $"About {ByteFormat.Size(bytes)}. A Windows upgrade keeps your previous installation for a few days in case you want to go back; Windows removes it by itself after about ten days. To get the space back sooner, use Windows' own cleanup (it needs administrator rights, and going back is no longer possible afterwards).";
+                HasWindowsOld = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn("Optimize: measuring Windows.old failed.", ex);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenWindowsCleanup() => OpenWindowsCleanupAction();
+
+    // ---- Startup apps: what starts with Windows, each with a switch (the Task Manager way: reversible, nothing deleted) ----------
+
+    /// <summary>The startup entries; null leaves the card out.</summary>
+    public IStartupSource? StartupSource { get; init; }
+
+    public bool HasStartup => StartupSource is not null;
+
+    public ObservableCollection<StartupRow> StartupRows { get; } = new();
+
+    [ObservableProperty]
+    private string _startupSummary = "";
+
+    [RelayCommand]
+    internal void RefreshStartup()
+    {
+        StartupRows.Clear();
+        if (StartupSource is null)
+            return;
+
+        var service = new StartupAppsService(StartupSource);
+        foreach (var app in service.List())
+        {
+            var row = new StartupRow(app, service, UpdateStartupSummary);
+            StartupRows.Add(row);
+            _ = row.LoadAboutAsync(); // what the program says it is: read from the file in the background
+        }
+
+        UpdateStartupSummary();
+    }
+
+    private void UpdateStartupSummary()
+    {
+        OnPropertyChanged(nameof(StartupTabText));
+        var on = StartupRows.Count(r => r.IsOn);
+        StartupSummary = StartupRows.Count == 0
+            ? "Nothing is set to start with Windows."
+            : $"{on} of {StartupRows.Count} start when you sign in. Switching one off only stops it starting with Windows - it is not uninstalled, and you can switch it back on.";
+    }
+
+    // ---- The gaming health check: what is worth changing on this PC, read-only ----------------------------------------------
+
+    /// <summary>What the check reads; null leaves the card out.</summary>
+    public IAdvisorFacts? AdvisorFacts { get; init; }
+
+    public bool HasAdvisor => AdvisorFacts is not null;
+
+    public ObservableCollection<AdvisorRow> AdvisorRows { get; } = new();
+
+    /// <summary>Reads the PC again and lists what it found: what can be improved first, then what is already right, then what is only worth knowing.</summary>
+    [RelayCommand]
+    internal void CheckGamingHealth()
+    {
+        _ = Tweaks?.RefreshTweakStatesAsync(); // what Windows has for each tweak is read again with the check
+        AdvisorRows.Clear();
+        if (AdvisorFacts is not null)
+        {
+            foreach (var finding in GamingAdvisor.Check(AdvisorFacts).OrderBy(f => f.Level switch { AdviceLevel.Advice => 0, AdviceLevel.Good => 1, _ => 2 }))
+                AdvisorRows.Add(new AdvisorRow(finding, Tweaks, CheckGamingHealth));
+        }
+
+        OnPropertyChanged(nameof(HealthTabText));
+    }
 
     /// <summary>True when the launcher already runs with administrator rights (then a refused file is simply in use, and asking again would change nothing).</summary>
     internal Func<bool> IsAdministrator { get; set; } = ElevatedCleaner.IsAdministrator;
@@ -333,7 +513,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
                     var elevated = await Task.Run(() => RunElevated(refused.Select(i => i.Category.Id).ToList()));
                     if (elevated is null)
                     {
-                        elevatedNote = " Administrator permission was not given, so those files stay.";
+                        elevatedNote = $" Those files stay: {ElevatedCleaner.LastProblem ?? "administrator permission was not given"}.";
                     }
                     else
                     {

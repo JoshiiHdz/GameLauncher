@@ -66,9 +66,12 @@ public partial class LibraryViewModel
         try
         {
             Logger.Info($"Launching '{game.Name}' ({game.Source}) - {game.LaunchUri ?? game.ExecutablePath}");
-            if (OptimizeBeforeLaunch)
+            // What happens before the game starts: the game tweaks list from Settings > Performance (see TweaksForGame).
+            var before = TweaksForGame(game.Id);
+            if (before.Contains(GameTweakCatalog.MemoryTrimId))
                 FreeMemoryBeforeLaunch();
-            switchedPowerPlan = BeginFocusPlay();
+            switchedPowerPlan = BeginFocusPlay(before.Contains(GameTweakCatalog.PowerPlanId));
+            BeginGameTweaks(game.Name, game.ExecutablePath, before);
             var started = GameLauncherService.Launch(game);
             GameLaunched?.Invoke(game, started);
         }
@@ -76,6 +79,7 @@ public partial class LibraryViewModel
         {
             if (switchedPowerPlan)
                 EndFocusPlay(); // the game never started: do not leave the PC on the fast plan (a switch made for another running game is left alone)
+            EndGameTweaks();
             Logger.Error($"Failed to launch '{game.Name}'.", ex);
             StatusText = $"Failed to launch {game.Name}: {ex.Message}";
         }

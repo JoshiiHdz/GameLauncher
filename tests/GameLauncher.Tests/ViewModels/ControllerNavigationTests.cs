@@ -504,13 +504,25 @@ public sealed class ControllerNavigationTests(WpfStaFixture sta)
             shell.FocusRibbonItem(vm.Games.First());
 
             var cards = shell.ActivityCards.ToList();
-            Assert.Equal(["PLAY TIME ›", "INSTALLED IN", "COLLECTIONS ›", "SIZE ON DISK"], cards.Select(c => c.Label));
+            Assert.Equal(["HIGH PRIORITY", "INSTALLED IN", "PLAY TIME", "SIZE ON DISK", "COLLECTIONS", "ADDED"], cards.Select(c => c.Label)); // priority first; no notes; six cards, three even rows
             Assert.DoesNotContain(cards, c => c.Label == "LAUNCHER");
             Assert.DoesNotContain(cards, c => c.Label.StartsWith("SESSION")); // one play-time card: the Play time page has the sessions
 
             // Two columns filled row by row: the left column (even places) is every card you can press, the right column the plain facts.
             Assert.All(cards.Where((_, i) => i % 2 == 0), c => Assert.True(c.Clickable, c.Label));
             Assert.All(cards.Where((_, i) => i % 2 == 1), c => Assert.False(c.Clickable, c.Label));
+
+            // The home screen has the game's priority, switched with a press (there is no notes card: notes were taken out of the launcher).
+            var priority = cards.Single(c => c.Label == "HIGH PRIORITY");
+            Assert.Equal("Normal priority", priority.Value);
+            Assert.False(priority.State);                                   // a switch, drawn with its ON / OFF pill
+            priority.Run();
+            Assert.True(vm.GetRaiseGamePriority(vm.Games.First().Id));
+            Assert.True(shell.ActivityCards.Single(c => c.Label == "HIGH PRIORITY").State);
+            Assert.Contains("High priority", shell.ActivityCards.Single(c => c.Label == "HIGH PRIORITY").Value);
+            priority.Run();
+            Assert.False(vm.GetRaiseGamePriority(vm.Games.First().Id));
+            Assert.DoesNotContain(shell.ActivityCards, c => c.Label == "NOTES");
             await Task.CompletedTask;
         }
         finally { ThemeManager.Apply(ThemeId.Axis); }
@@ -527,7 +539,7 @@ public sealed class ControllerNavigationTests(WpfStaFixture sta)
             shell.FocusRibbonItem(vm.Games.First());
 
             var card = shell.ActivityCards.Single(c => c.Label.Contains("PLAY TIME"));
-            Assert.Equal("PLAY TIME ›", card.Label);
+            Assert.Equal("PLAY TIME", card.Label);
             Assert.True(card.Clickable);
 
             card.Run();

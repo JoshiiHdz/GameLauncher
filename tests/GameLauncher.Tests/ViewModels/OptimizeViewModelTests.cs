@@ -221,7 +221,7 @@ public class OptimizeViewModelTests : IDisposable
 
         await page.CleanCommand.ExecuteAsync(null);
 
-        Assert.Contains("Administrator permission was not given", page.StorageResultText);
+        Assert.Contains("Those files stay: administrator permission was not given", page.StorageResultText);
     }
 
     [Fact]

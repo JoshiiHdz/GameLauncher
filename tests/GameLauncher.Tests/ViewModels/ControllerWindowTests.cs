@@ -143,7 +143,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void SettingsAppearance_OffersControllerMode_OnlyInThePlayStationTheme() => sta.RunAsync(async () =>
+    public void SettingsAppearance_OffersControllerMode_InEveryTheme() => sta.RunAsync(async () =>
     {
         GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
         try
@@ -163,12 +163,10 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
                     await ShellTestSupport.SettleAsync();
                     window.UpdateLayout();
 
-                    Assert.Equal(ribbon, page.ControllerCard.IsVisible);
-                    if (ribbon)
-                    {
-                        page.ControllerSwitch.IsChecked = true;
-                        Assert.True(vm.IsControllerMode);
-                    }
+                    Assert.True(page.ControllerCard.IsVisible);                // in every theme: controller mode is entered from Axis too
+                    page.ControllerSwitch.IsChecked = true;
+                    Assert.True(vm.IsControllerMode);
+                    Assert.Equal(ThemeId.ConsoleRibbon, vm.AppearanceTheme);   // from Axis it borrows the PlayStation look for the session
                 }
                 finally { window.Close(); }
             }
@@ -434,6 +432,37 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
     });
 
     [Fact]
+    public void ComingBackFromTheTray_ReturnsTheWindowToTheStateItWasIn() => sta.RunAsync(async () =>
+    {
+        var vm = NewLibrary(ribbon: false);
+        var window = ShellTestSupport.OpenMain(vm);
+        try
+        {
+            await ShellTestSupport.SettleAsync();
+
+            window.WindowState = WindowState.Maximized;      // full screen when the game starts
+            await ShellTestSupport.SettleAsync();
+            window.WindowState = WindowState.Minimized;      // put away while it runs
+            await ShellTestSupport.SettleAsync();
+            window.RestoreFromTray();                        // the game closes
+            await ShellTestSupport.SettleAsync();
+            Assert.Equal(WindowState.Maximized, window.WindowState);
+
+            window.WindowState = WindowState.Normal;         // and a window that was a normal one stays a normal one
+            await ShellTestSupport.SettleAsync();
+            window.WindowState = WindowState.Minimized;
+            await ShellTestSupport.SettleAsync();
+            window.RestoreFromTray();
+            await ShellTestSupport.SettleAsync();
+            Assert.Equal(WindowState.Normal, window.WindowState);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact]
     public void ThePad_ReachesTheRealControls_ThroughWpfFocus() => sta.RunAsync(async () =>
     {
         GameLauncher.Behaviors.Motion.AnimationsEnabled = () => false;
@@ -569,7 +598,7 @@ public sealed class ControllerWindowTests(WpfStaFixture sta)
         {
             await ShellTestSupport.SettleAsync();
             Assert.True(window.AxisControllerModeButton.IsVisible);
-            Assert.Contains(window.InputBindings.OfType<KeyBinding>(), b => b.Key == Key.F11 && b.Command == vm.EnterControllerModeFromAxisCommand);
+            Assert.Contains(window.InputBindings.OfType<KeyBinding>(), b => b.Key == Key.F11 && b.Command == vm.ControllerModeKeyCommand);
             var palette = vm.BuildPaletteItems().Single(i => i.Title.StartsWith("Controller mode"));
 
             window.AxisControllerModeButton.Command.Execute(null);

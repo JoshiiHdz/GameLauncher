@@ -1,0 +1,132 @@
+<UserControl x:Class="GameLauncher.GameQuickViewDialog"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:local="clr-namespace:GameLauncher"
+             xmlns:beh="clr-namespace:GameLauncher.Behaviors"
+             xmlns:conv="clr-namespace:GameLauncher.Converters"
+             xmlns:controls="clr-namespace:GameLauncher.Controls"
+             Width="704"
+             local:AppShell.LightDismiss="True">
+
+    <!-- The quick view: what a click on an Axis game card opens. A floating card over the library (the window's own dialog layer: Esc or a click outside closes it,
+         the game's name is its title). Top to bottom: the game with Play and the High priority switch, what is known about it, a grid of equal buttons for the things
+         people do (tweaks, collections, folder, play time), and a footer with the whole details page on the left and Uninstall on the right. It shares
+         GameDetailsViewModel with that page, so the priority choice is saved the same way when it closes. -->
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <Style x:Key="QuickFactLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+                <Setter Property="VerticalAlignment" Value="Top" />
+                <Setter Property="Margin" Value="0,0,0,10" />
+            </Style>
+            <Style x:Key="QuickFactValue" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="13.5" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="VerticalAlignment" Value="Top" />
+                <Setter Property="Margin" Value="0,0,0,10" />
+            </Style>
+
+            <!-- One action: the same size and left edge as the others, an icon and a label. -->
+            <Style x:Key="QuickAction" TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="Height" Value="44" />
+                <Setter Property="Padding" Value="16,0" />
+                <Setter Property="Margin" Value="6" />
+                <Setter Property="FontSize" Value="13.5" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <StackPanel Margin="24,8,24,26">
+        <!-- The game: cover on the left, then who it is from, how long it has been played, Play and the priority switch. -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Width="170" Height="224" beh:ThemeRadius.Key="RadiusPanel" Margin="0,0,24,0" VerticalAlignment="Top" ClipToBounds="True"
+                    Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Stroke}" BorderThickness="1">
+                <Grid DataContext="{Binding Game}">
+                    <ui:SymbolIcon Symbol="Games24" FontSize="32" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Visibility="{Binding Icon, Converter={x:Static conv:NullToVisibilityConverter.Instance}}" />
+                    <Border Visibility="{Binding IsCoverArt, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                        <Border.Background>
+                            <ImageBrush ImageSource="{Binding Icon}" Stretch="UniformToFill" AlignmentX="Center" AlignmentY="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+                        </Border.Background>
+                    </Border>
+                    <Image Source="{Binding Icon}" Width="60" Height="60" Stretch="Uniform"
+                           Visibility="{Binding IsCoverArt, Converter={x:Static conv:InverseBoolToVisibilityConverter.Instance}}" RenderOptions.BitmapScalingMode="HighQuality" />
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Top">
+                <Border HorizontalAlignment="Left" Height="28" Padding="4,0,12,0" beh:ThemeRadius.Key="Pill" Background="{DynamicResource ChipFill}"
+                        BorderBrush="{DynamicResource Stroke}" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <controls:LauncherIcon DataContext="{Binding Game}" Width="18" Height="18" />
+                        <TextBlock Text="{Binding SourceText}" Margin="7,0,0,0" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="{Binding PlayMetaText}" Margin="0,12,0,0" FontSize="14" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" />
+
+                <!-- Play: first in the tab order and as wide as the column, so Enter starts the game and it is the obvious thing to press. -->
+                <ui:Button x:Name="PlayButton" Content="Play" Icon="{ui:SymbolIcon Play24}" Appearance="Primary" Height="54" Padding="26,0"
+                           FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,20,0,0" Click="Play_Click"
+                           ToolTip="Start the game" />
+
+                <!-- The High priority switch, boxed so it reads as something to press. -->
+                <Border Margin="0,14,0,0" beh:ThemeRadius.Key="RadiusPanel" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Stroke}" BorderThickness="1"
+                        Padding="16,11"
+                        ToolTip="Runs this game at High priority while it plays, so Windows gives it the processor first. Some games refuse it.">
+                    <ui:ToggleSwitch Content="Run at high priority" IsChecked="{Binding RaiseGamePriority}" FontSize="14" />
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- What is known about the game (read-only; the buttons below change things). -->
+        <Border Margin="0,22,0,0" beh:ThemeRadius.Key="RadiusPanel" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Stroke}" BorderThickness="1"
+                Padding="18,18,18,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Installed in" Style="{StaticResource QuickFactLabel}" />
+                <TextBlock x:Name="InstalledIn" Grid.Row="0" Grid.Column="1"
+                           Text="{Binding Game.InstallDir, Converter={x:Static conv:PathWrapConverter.Instance}}" ToolTip="{Binding Game.InstallDir}"
+                           Style="{StaticResource QuickFactValue}" />
+                <TextBlock Grid.Row="1" Text="Size on disk" Style="{StaticResource QuickFactLabel}" />
+                <TextBlock x:Name="SizeOnDisk" Grid.Row="1" Grid.Column="1" Text="{Binding SizeText}" Style="{StaticResource QuickFactValue}" />
+                <TextBlock Grid.Row="2" Text="Play time" Style="{StaticResource QuickFactLabel}" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PlayTimeText}" Style="{StaticResource QuickFactValue}" />
+                <TextBlock Grid.Row="3" Text="Collections" Style="{StaticResource QuickFactLabel}" />
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding CollectionsText}" Style="{StaticResource QuickFactValue}" />
+            </Grid>
+        </Border>
+
+        <!-- The actions: four equal buttons in two columns. -->
+        <UniformGrid Columns="2" Margin="-6,14,-6,0">
+            <ui:Button Style="{StaticResource QuickAction}" Content="Game tweaks..." Icon="{ui:SymbolIcon Flash24}" Click="GameTweaks_Click"
+                       ToolTip="Opens Settings > Performance, where the game tweaks are set for every game" />
+            <ui:Button Style="{StaticResource QuickAction}" Content="Collections..." Icon="{ui:SymbolIcon Album24}" Click="EditCollections_Click"
+                       ToolTip="Choose which collections this game is in" />
+            <ui:Button Style="{StaticResource QuickAction}" Content="Open install location" Icon="{ui:SymbolIcon FolderOpen24}" Click="OpenFolder_Click" />
+            <ui:Button Style="{StaticResource QuickAction}" Content="Play time..." Icon="{ui:SymbolIcon Clock24}" Click="PlayTime_Click"
+                       ToolTip="Today, the last 7 days and all time" />
+        </UniformGrid>
+
+        <!-- The foot: the one destructive thing, on its own at the right. -->
+        <Grid Margin="0,12,0,0">
+            <ui:Button Content="Uninstall..." Icon="{ui:SymbolIcon Delete24}" Appearance="Caution" HorizontalAlignment="Right" Height="40" Padding="16,0"
+                       Click="Uninstall_Click" ToolTip="Opens this game's launcher so you can uninstall it there." />
+        </Grid>
+    </StackPanel>
+</UserControl>

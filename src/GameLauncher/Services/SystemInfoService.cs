@@ -88,6 +88,7 @@ public static class SystemInfoService
 
     public static SystemInfoSnapshot Collect()
     {
+        Trail.Note("reading system information for My PC");
         string cpuName = string.Empty, memory = string.Empty, gpuName = string.Empty;
 
         // Each section asks Windows its own questions, and Windows answers slowly (a few seconds in all if asked one after another), so they run side by side.

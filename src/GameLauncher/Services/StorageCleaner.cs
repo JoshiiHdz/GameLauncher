@@ -494,7 +494,7 @@ public static class StorageCleaner
                  Path.Combine(programData, "Microsoft", "Windows", "WER", "ReportArchive"), Path.Combine(programData, "Microsoft", "Windows", "WER", "ReportQueue"),
                  Path.Combine(programData, "Microsoft", "Windows", "WER", "Temp")], TimeSpan.Zero, selectedByDefault: true),
             Directories("shader-cache", "Graphics shader caches",
-                "DirectX, NVIDIA, AMD, Intel and Steam shader caches. They rebuild on their own - the first launch of each game may stutter once while they do.",
+                "DirectX, NVIDIA, AMD, Intel and Steam shader caches. They rebuild on their own, but until they do each game stutters while its shaders compile - so leave this off unless a game misbehaves or you need the space.",
                 ShaderCaches, TimeSpan.Zero),
             Directories("browser-caches", "Browser caches",
                 "Cached pages and images in Edge, Chrome, Firefox, Brave, Opera and Vivaldi. Passwords, history, cookies and logins are never touched. Pages load a little slower once while the cache refills; close the browser first for the best result.",

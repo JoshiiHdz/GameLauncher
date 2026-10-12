@@ -76,6 +76,10 @@ public sealed partial class GameEntry : ObservableObject
     [ObservableProperty]
     private bool _favorite;
 
+    /// <summary>Run this game at High priority while it plays (its override's RaiseGamePriority, mirrored here so a menu can show the state).</summary>
+    [ObservableProperty]
+    private bool _highPriority;
+
     /// <summary>The collections this game is in, as saved on its override. Replaced wholesale, never mutated in place.</summary>
     [ObservableProperty]
     private IReadOnlyList<string> _collections = [];
@@ -153,15 +157,17 @@ public sealed partial class GameEntry : ObservableObject
     {
         HasPlayTime = TotalPlaySeconds > 0;
         PlayTimeDisplay = FormatTracked(TotalPlaySeconds);
-        LastPlayedDisplay = LastPlayedUtc is { } last ? FormatRelative(last) : "";
+        LastPlayedDisplay = LastPlayedUtc is { } last ? FormatRelative(last, DateTime.Now) : "";
     }
 
     private static string FormatTracked(long seconds) =>
         seconds <= 0 ? "" : $"{PlayTimeFormat.Duration(seconds)} tracked";
 
-    private static string FormatRelative(DateTime utc)
+    /// <summary>How long ago, in days of the PERSON'S calendar: both ends are local dates. (It used to take today's date in UTC and the last session's in local time, so in the
+    /// evening anywhere west of Greenwich a game played that day was "Yesterday" - while the Play time page, which converts both the same way, said "Today".)</summary>
+    internal static string FormatRelative(DateTime utc, DateTime nowLocal)
     {
-        var days = (int)(DateTime.UtcNow.Date - utc.ToLocalTime().Date).TotalDays;
+        var days = (int)(nowLocal.Date - utc.ToLocalTime().Date).TotalDays;
         return days switch
         {
             <= 0 => "Today",

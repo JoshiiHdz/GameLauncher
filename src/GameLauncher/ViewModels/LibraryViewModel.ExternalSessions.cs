@@ -60,6 +60,7 @@ public partial class LibraryViewModel
                     var generation = _sessionActivityGeneration;
                     try
                     {
+                        Trail.Note("external game check");
                         var watch = System.Diagnostics.Stopwatch.StartNew();
                         var matches = await Task.Run(() => detector.Detect(index!, ct), ct);
                         ct.ThrowIfCancellationRequested();

@@ -274,7 +274,9 @@ public partial class LibraryViewModel : ObservableObject
         _focusPlayEnabled = _settings.FocusPlay;
         _focusPlayOnlyWhenPluggedIn = _settings.FocusPlayOnlyWhenPluggedIn;
         EndFocusPlay(); // a switch an earlier crash or power cut never undid: put the power plan back now
+        InitializeGameTweaks();
         _globalHotkeyEnabled = _settings.GlobalHotkeyEnabled;
+        _busyCursorLog = _settings.BusyCursorLog;
         _trackExternalGames = _settings.TrackExternalGames;
         _detectSteam = _settings.DetectSteam;
         _detectEpic = _settings.DetectEpic;

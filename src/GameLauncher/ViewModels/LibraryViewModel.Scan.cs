@@ -468,6 +468,7 @@ public partial class LibraryViewModel
                 game.Name = over.CustomName;
             game.Hidden = over?.Hidden ?? false;
             game.Favorite = over?.Favorite ?? false;
+            game.HighPriority = over?.RaiseGamePriority ?? false;
             game.Collections = over?.Collections is { Count: > 0 } collections ? [.. collections] : [];
             if (over?.DateAdded is { } dateAdded)
                 game.DateAdded = dateAdded;
@@ -712,6 +713,7 @@ public partial class LibraryViewModel
     [RelayCommand]
     private async Task RefreshAsync()
     {
+        Trail.Note("library scan started");
         // Cancel-and-replace: AddFolder/RemoveFolder and a manual Refresh can each trigger a scan
         // while a previous one is still running (e.g. adding a folder before the initial startup scan
         // finishes). Both used to run to completion and write _allGames/Games/Drives/IsLoading in

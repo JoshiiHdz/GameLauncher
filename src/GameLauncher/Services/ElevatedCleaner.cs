@@ -18,6 +18,18 @@ public static class ElevatedCleaner
     /// <summary>One category's outcome as the elevated copy reports it.</summary>
     internal sealed record Result(string Id, long Freed, int Deleted, int Skipped);
 
+    /// <summary>True when this process is the launcher itself (a copy of it may be given any file name - a test build is "GameLauncher-controller-test.exe" - so the
+    /// entry assembly is what is asked, not the exe's name), and not a test host or anything else that happens to run this code. Only the launcher may start an elevated
+    /// copy of itself.</summary>
+    internal static bool IsTheLauncher => IsLauncherProcess(System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name, Environment.ProcessPath);
+
+    /// <summary>The rule behind <see cref="IsTheLauncher"/>: the entry assembly is the launcher's, whatever the exe is called, and the process has a file to start again.</summary>
+    internal static bool IsLauncherProcess(string? entryAssemblyName, string? processPath) =>
+        entryAssemblyName == "GameLauncher" && !string.IsNullOrEmpty(processPath);
+
+    /// <summary>Why the last <see cref="Run"/> returned nothing: it could not start the helper, or the permission prompt was declined. For the sentence the person reads.</summary>
+    internal static string? LastProblem { get; private set; }
+
     internal static bool IsAdministrator()
     {
         try
@@ -78,9 +90,16 @@ public static class ElevatedCleaner
     internal static IReadOnlyDictionary<string, CleanOutcome>? Run(IReadOnlyList<string> categoryIds)
     {
         var ids = categoryIds.Where(i => IdPattern.IsMatch(i)).Distinct().ToList();
-        // Only the launcher itself can be started this way: a test host, or anything else that happens to be running this code, must never raise a permission prompt.
-        if (ids.Count == 0 || Environment.ProcessPath is not { } exe || !string.Equals(Path.GetFileNameWithoutExtension(exe), "GameLauncher", StringComparison.OrdinalIgnoreCase))
+        LastProblem = null;
+        if (ids.Count == 0)
             return null;
+
+        // Only the launcher itself can be started this way: a test host, or anything else that happens to be running this code, must never raise a permission prompt.
+        if (!IsTheLauncher || Environment.ProcessPath is not { } exe)
+        {
+            LastProblem = "this copy of the launcher cannot start its administrator helper";
+            return null;
+        }
 
         var resultPath = Path.Combine(Path.GetTempPath(), "axis-clean-" + Guid.NewGuid().ToString("N") + ".json");
         try
@@ -107,6 +126,7 @@ public static class ElevatedCleaner
         catch (Win32Exception ex)
         {
             Logger.Info($"Elevated clean: not started ({ex.Message}) - the permission prompt was probably declined.");
+            LastProblem = ex.NativeErrorCode == 1223 ? "the Windows permission prompt was declined" : $"Windows would not start the helper ({ex.Message})";
             return null;
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or InvalidOperationException)

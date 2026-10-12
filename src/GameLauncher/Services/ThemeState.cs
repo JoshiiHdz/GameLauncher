@@ -20,9 +20,9 @@ public sealed class ThemeState : INotifyPropertyChanged
 
     public bool IsConsole => Current != ThemeId.Axis;
 
-    /// <summary>Keyboard shortcuts, command keys, the Esc way back and the system-wide hotkey exist in the Axis theme only. The console themes are driven by the mouse
-    /// (and, later, a controller), so nothing there should ask for a key press or tell the user about one.</summary>
-    public bool ShortcutsEnabled => IsAxis;
+    /// <summary>Keyboard shortcuts, command keys, the Esc way back, the command palette's commands and the system-wide hotkey work in every theme: the themes differ in
+    /// how they look and are driven, not in what they can do. (They once were Axis-only; a pad has none of them, and nothing in a controller layout depends on them.)</summary>
+    public bool ShortcutsEnabled => true;
 
     // Text that names a key only where keys work.
     public string SearchHint => ShortcutsEnabled ? "Search your library...  (Ctrl+K for commands)" : "Search your games...";

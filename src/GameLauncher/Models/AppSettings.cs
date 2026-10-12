@@ -72,6 +72,16 @@ public sealed class AppSettings
     /// <summary>Trim other apps' idle memory just before a game is launched from here (see MemoryOptimizer). Off by default.</summary>
     public bool OptimizeBeforeLaunch { get; set; }
 
+    /// <summary>The ids of the game tweaks (see GameTweakCatalog) to apply every time a game is launched from here. Empty by default: nothing is applied unasked.</summary>
+    public List<string> GameTweaksOnLaunch { get; set; } = new();
+
+    /// <summary>Game tweak values to put back, written to disk BEFORE each value is changed ("tweak|key|name" to the original, or "&lt;missing&gt;"), so a crash or power
+    /// cut cannot leave a setting changed: the next start restores it. PC-specific, never exported in a backup.</summary>
+    public Dictionary<string, string> GameTweakUndo { get; set; } = new();
+
+    /// <summary>What each tweak wrote ("tweak|key|name" to the value), so a value the person changed since is not overwritten by the restore.</summary>
+    public Dictionary<string, string> GameTweakApplied { get; set; } = new();
+
     /// <summary>Focus play: while a game launched from here runs, use a high performance power plan, then put the old one back. Off by default.</summary>
     public bool FocusPlay { get; set; }
 
@@ -90,6 +100,10 @@ public sealed class AppSettings
 
     /// <summary>Ctrl+Alt+Space from anywhere brings the launcher forward with the command palette open. On by default.</summary>
     public bool GlobalHotkeyEnabled { get; set; } = true;
+
+    /// <summary>Writes to the log when Windows shows its busy pointer over the launcher, with what the launcher did just before (BusyCursorWatch). On by default; it
+    /// only reads, a few times a second, and only while the window is in view.</summary>
+    public bool BusyCursorLog { get; set; } = true;
 
     public bool TrackExternalGames { get; set; } = true;
     public bool StartWithWindows { get; set; }

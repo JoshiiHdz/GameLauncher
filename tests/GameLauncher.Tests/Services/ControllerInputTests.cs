@@ -214,13 +214,13 @@ public sealed class ControllerInputTests
         Assert.False(rig.Input.IsConnected);
 
         rig.Hold(A);
-        rig.Now = ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();
+        rig.Now = ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll();
         Assert.True(rig.Input.IsConnected);
         Assert.Equal([true], rig.Connection);
         Assert.Empty(rig.Pressed);
 
         rig.Slot0 = null;
-        rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();
+        rig.Now += ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll();
         Assert.True(rig.Input.IsConnected); // not gone yet: one missed reading is not a pad going away
         rig.Now += ControllerInput.GoneAfterMs; rig.Input.Poll();
         Assert.False(rig.Input.IsConnected);
@@ -252,7 +252,7 @@ public sealed class ControllerInputTests
         Assert.False(rig.Input.Battery!.Value.NeedsCharging);
 
         rig.Slot0 = null; // the pad goes away
-        rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();
+        rig.Now += ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll();
         rig.Now += ControllerInput.GoneAfterMs; rig.Input.Poll();
         Assert.Null(rig.Input.Battery);
     }
@@ -291,7 +291,7 @@ public sealed class ControllerInputTests
         Assert.False(rig.Input.IsConnected);
 
         rig.Hold(0);
-        rig.Now = ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();
+        rig.Now = ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll();
         rig.Input.Poll();
         Assert.Equal([true], rig.Connection);
         Assert.True(rig.Input.IsConnected);
@@ -312,9 +312,9 @@ public sealed class ControllerInputTests
         rig.Input.Poll();
         Assert.Equal([true], rig.Connection);
 
-        rig.Slot0 = null; rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll(); // the dongle missed a beat
-        rig.Hold(0); rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();       // and it is back
-        rig.Slot0 = null; rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();  // another miss, a while later: the count starts again
+        rig.Slot0 = null; rig.Now += ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll(); // the dongle missed a beat
+        rig.Hold(0); rig.Now += ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll();       // and it is back
+        rig.Slot0 = null; rig.Now += ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll();  // another miss, a while later: the count starts again
         Assert.True(rig.Input.IsConnected);
         Assert.Equal([true], rig.Connection);
     }
@@ -329,7 +329,7 @@ public sealed class ControllerInputTests
         rig.Now = 500; rig.Input.Poll();
         Assert.Equal(first, rig.Asked.Count);   // nothing new asked
 
-        rig.Now = ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();
+        rig.Now = ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll();
         Assert.Equal(first * 2, rig.Asked.Count);
     }
 
@@ -372,7 +372,7 @@ public sealed class ControllerInputTests
         var rig = new Rig();
         rig.Input.Poll();                       // no pad yet
         rig.Hold(A);                            // woken with A
-        rig.Now = ControllerInput.EmptySlotRecheckMs; rig.Input.Poll();
+        rig.Now = ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll();
         rig.Now += 50; rig.Input.Poll();
         Assert.True(rig.Input.IsConnected);
         Assert.Empty(rig.Pressed);              // not counted, however long it is held
@@ -395,7 +395,7 @@ public sealed class ControllerInputTests
         rig.Now += ControllerInput.GoneAfterMs; rig.Input.Poll();
         Assert.Equal([true, false], rig.Connection);
 
-        rig.Hold(0); rig.Now += ControllerInput.EmptySlotRecheckMs; rig.Input.Poll(); // woken
+        rig.Hold(0); rig.Now += ControllerInput.PresenceRecheckMs; rig.Input.RequestProbe(); rig.Input.Poll(); // woken
         Assert.Equal([true, false, true], rig.Connection);
     }
 }

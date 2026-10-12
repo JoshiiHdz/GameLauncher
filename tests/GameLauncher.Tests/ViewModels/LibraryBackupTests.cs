@@ -266,7 +266,7 @@ public class LibraryBackupTests : IDisposable
         source.SimulateRefreshResult([a]);
         source.ToggleFavoriteCommand.Execute(a);
         source.SetGameCollections(a, ["Co-op"]);
-        source.SetGameNotes("a", "left off at level 4");
+        source.GetOverride("a")!.Notes = "left off at level 4"; // written before notes were taken out: still carried across
         source.OptimizeBeforeLaunch = true;
         source.ExportPathPickerForTest = _ => path;
         source.ExportLibraryDataCommand.Execute(null);
@@ -287,7 +287,7 @@ public class LibraryBackupTests : IDisposable
         Assert.Contains("Import data for 1 game", asked);
         Assert.True(onScreen.Favorite);
         Assert.Equal(["Co-op"], onScreen.Collections);
-        Assert.Equal("left off at level 4", target.GetGameNotes("a"));
+        Assert.Equal("left off at level 4", target.GetOverride("a")!.Notes);
         Assert.True(target.OptimizeBeforeLaunch);
         Assert.Equal(["Co-op"], target.Collections.Select(c => c.Name));
         Assert.Single(target.FavoriteGames);

@@ -80,9 +80,6 @@
         <MenuItem Header="Play"
                   Command="{Binding PlacementTarget.Tag.LaunchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                   CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-        <MenuItem Header="Game details..."
-                  Command="{Binding PlacementTarget.Tag.ShowGameDetailsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
         <Separator />
         <MenuItem Header="{Binding PlacementTarget.DataContext.Favorite, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={x:Static conv:FavoriteToMenuTextConverter.Instance}}"
                   Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -93,6 +90,13 @@
         <MenuItem Header="Collections..."
                   Command="{Binding PlacementTarget.Tag.EditCollectionsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                   CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+        <MenuItem Header="Game tweaks..."
+                  Command="{Binding PlacementTarget.Tag.EditGameTweaksCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+        <MenuItem Header="{Binding PlacementTarget.DataContext.HighPriority, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={x:Static conv:HighPriorityToMenuTextConverter.Instance}}"
+                  Command="{Binding PlacementTarget.Tag.ToggleHighPriorityCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                  ToolTip="Runs this game at High priority while it plays. Some games refuse it." />
         <Separator />
         <MenuItem Header="Change Cover Manually"
                   Command="{Binding PlacementTarget.Tag.ChangeCoverCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -178,12 +182,12 @@
 
     <!-- One card definition shared by the Favorites section and the main library grid (the Axis card, spec 03 section 3.3): a poster with the favourite star at the top
          right and a launcher pill at the bottom left, then the name and "Steam · 1.5 h · Today" underneath. Hovering lifts it 2 px; keyboard focus draws a ring around
-         the art. Everything the card could do before still works: a click plays the game (the Axis way of opening a game), the hover overlay, the menu button, the
-         star and the right-click menu. -->
+         the art. A click on the card opens its quick view (a floating card: Play, High priority, tweaks, collections, install folder); Play is in there, and in the
+         right-click menu. The hover overlay, the menu button, the star and the right-click menu are as they were. -->
     <DataTemplate x:Key="GameCardTemplate">
         <Button x:Name="CardButton" Style="{StaticResource GameCardStyle}"
                    Margin="0,0,16,22" Width="{DynamicResource ActiveCardWidth}"
-                   Command="{Binding DataContext.LaunchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                   Command="{Binding DataContext.ShowGameQuickViewCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                    CommandParameter="{Binding}"
                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
             <!-- ContextMenu is a separate visual-tree root (a Popup), so bindings inside it can't walk up to the Window the way the card's own elements do -
@@ -231,33 +235,33 @@
                                     </Grid>
                                 </Border>
 
-                                <!-- Identity badge (top left): shown only when automatic identification could not settle which game this is. It invites the
-                                     user to identify it; it says nothing about the cover being displayed. -->
-                                <Border HorizontalAlignment="Left" VerticalAlignment="Top"
-                                        Margin="8,8,0,0" Padding="4,2" CornerRadius="6"
-                                        Background="{DynamicResource ArtPlate}"
-                                        ToolTip="{Binding IdentityBadgeText}"
-                                        Visibility="{Binding NeedsIdentity, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                                    <ui:SymbolIcon Symbol="QuestionCircle24" FontSize="12" Foreground="#CCFFFFFF" />
-                                </Border>
-
-                                <!-- Favourite (top right) and Running (below it): a round plate with the star - always there once favourited, otherwise on hover. -->
-                                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0" Panel.ZIndex="1">
-                                    <Button x:Name="FavoriteButton" Style="{StaticResource FavoriteStarStyle}"
-                                               Content="{Binding Favorite, Converter={StaticResource BoolToStarConverter}}"
-                                               ToolTip="Favorite" Visibility="Collapsed"
-                                               Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                               CommandParameter="{Binding}" />
-
-                                    <Border Padding="6,3" CornerRadius="999" Margin="0,4,0,0"
-                                            Background="{DynamicResource ArtPlate}" HorizontalAlignment="Right"
+                                <!-- Top left: the Running pill (a game that is on right now, in the accent so it is seen at a glance) and, below it when it applies, the
+                                     identity badge - shown only when automatic identification could not settle which game this is; it invites the user to identify it
+                                     and says nothing about the cover being displayed. The star has the top right to itself. -->
+                                <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8,8,0,0">
+                                    <Border x:Name="RunningPill" Padding="8,3" CornerRadius="999" HorizontalAlignment="Left"
+                                            Background="{DynamicResource Accent}" ToolTip="This game is running now"
                                             Visibility="{Binding IsRunning, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                                         <StackPanel Orientation="Horizontal">
-                                            <Ellipse Width="6" Height="6" Fill="{DynamicResource Accent}" VerticalAlignment="Center" />
-                                            <TextBlock Text="Running" FontSize="9" FontWeight="SemiBold" Foreground="White" Margin="4,0,0,0" />
+                                            <Ellipse Width="7" Height="7" Fill="{DynamicResource AccentInk}" VerticalAlignment="Center" />
+                                            <TextBlock Text="Running" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource AccentInk}" Margin="5,0,0,0" />
                                         </StackPanel>
                                     </Border>
+                                    <Border HorizontalAlignment="Left" Margin="0,4,0,0" Padding="4,2" CornerRadius="6"
+                                            Background="{DynamicResource ArtPlate}"
+                                            ToolTip="{Binding IdentityBadgeText}"
+                                            Visibility="{Binding NeedsIdentity, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                                        <ui:SymbolIcon Symbol="QuestionCircle24" FontSize="12" Foreground="#CCFFFFFF" />
+                                    </Border>
                                 </StackPanel>
+
+                                <!-- Favourite (top right): a round plate with the star - always there once favourited, otherwise on hover. -->
+                                <Button x:Name="FavoriteButton" Style="{StaticResource FavoriteStarStyle}"
+                                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0" Panel.ZIndex="1"
+                                        Content="{Binding Favorite, Converter={StaticResource BoolToStarConverter}}"
+                                        ToolTip="Favorite" Visibility="Collapsed"
+                                        Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}" />
 
                                 <!-- The launcher pill (bottom left): an initials chip and the launcher's name on a dark plate, readable on any art. -->
                                 <Border x:Name="LauncherPill" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8" Height="22" Padding="3,0,8,0"
@@ -269,16 +273,9 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- Hover reveal: a dimming overlay, a centred round Play button, and the "..." overflow button - all toggled by the SAME CardRoot hover
-                                     trigger below, so they can never drift out of sync. Only CardMenuButton is itself interactive. -->
+                                <!-- Hover reveal: a dimming overlay and the "..." overflow button - both toggled by the SAME CardRoot hover trigger below, so they can
+                                     never drift out of sync. Only CardMenuButton is itself interactive (there is no Play circle: a click opens the quick view). -->
                                 <Border x:Name="HoverOverlay" Background="#A6000000" Visibility="Collapsed" IsHitTestVisible="False" />
-
-                                <Border x:Name="HoverPlayButton" Width="40" Height="40" CornerRadius="20"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center"
-                                        Background="{DynamicResource Accent}" Visibility="Collapsed" IsHitTestVisible="False">
-                                    <ui:SymbolIcon Symbol="Play24" FontSize="16" Foreground="{DynamicResource AccentInk}"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                </Border>
 
                                 <!-- Overflow "..." menu: the same actions as the right-click menu, discoverable on hover. A Border, not a nested Button (see
                                      ContextMenuButtonBehavior's remarks); Tag/ContextMenu mirror the card's own right-click menu since PlacementTarget here is this Border. -->
@@ -370,7 +367,6 @@
             </MultiDataTrigger>
             <Trigger SourceName="CardRoot" Property="IsMouseOver" Value="True">
                 <Setter TargetName="HoverOverlay" Property="Visibility" Value="Visible" />
-                <Setter TargetName="HoverPlayButton" Property="Visibility" Value="Visible" />
                 <Setter TargetName="CardMenuButton" Property="Visibility" Value="Visible" />
                 <Setter TargetName="FavoriteButton" Property="Visibility" Value="Visible" />
             </Trigger>

@@ -213,7 +213,7 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 PumpDispatcher();
 
                 Assert.Equal(
-                    new[] { "[name + close X]", "-", "Play", "Game details...", "-", "Favorite", "Hide", "Collections...", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location", "Uninstall..." },
+                    new[] { "[name + close X]", "-", "Play", "-", "Favorite", "Hide", "Collections...", "Game tweaks...", "Turn on high priority", "-", "Change Cover Manually", "Reset cover to automatic", "Identify game...", "-", "Open install location", "Uninstall..." },
                     MenuShape(menu));
                 var uninstall = menu.Items.OfType<MenuItem>().Last();
                 Assert.Equal("Destructive", uninstall.Tag);
@@ -700,7 +700,7 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.Same(overflow, menu.PlacementTarget);
 
                 var items = menu.Items.OfType<MenuItem>().ToList();
-                Assert.Equal(11, items.Count); // the 10 actions, plus the name header with its close X
+                Assert.Equal(12, items.Count); // the 11 actions, plus the name header with its close X
                 var play = items.Single(i => i.Header as string == "Play");
                 var openLocation = items.Single(i => i.Header as string == "Open install location");
                 var favorite = items.Single(i => i.Header as string == "Favorite"); // game starts un-favorited
@@ -709,13 +709,10 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 var reset = items.Single(i => i.Header as string == "Reset cover to automatic");
                 var identify = items.Single(i => i.Header as string == "Identify game...");
                 var collections = items.Single(i => i.Header as string == "Collections...");
-                var details = items.Single(i => i.Header as string == "Game details...");
                 var uninstall = items.Single(i => i.Header as string == "Uninstall...");
 
                 Assert.Same(game, uninstall.CommandParameter);
                 Assert.Same(vm.UninstallGameCommand, uninstall.Command);
-                Assert.Same(game, details.CommandParameter);
-                Assert.Same(vm.ShowGameDetailsCommand, details.Command);
                 Assert.Same(game, collections.CommandParameter);
                 Assert.Same(vm.EditCollectionsCommand, collections.Command);
                 Assert.Same(game, play.CommandParameter);
@@ -961,6 +958,191 @@ public class LibraryViewModelGameCardWiringTests : IDisposable
                 Assert.False(opened, "A missing folder must never reach the explorer-opening seam.");
                 Assert.Contains("Game A", vm.StatusText);
                 Assert.Contains("Can't find", vm.StatusText);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    // ---- A click opens the quick view ----------------------------------------
+
+    private static FrameworkElement? FindByContent(DependencyObject root, string content)
+    {
+        if (root is ContentControl { Content: string text } control && text == content)
+            return control;
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            if (FindByContent(VisualTreeHelper.GetChild(root, i), content) is { } found)
+                return found;
+        }
+
+        return null;
+    }
+
+    private static FrameworkElement? FindByName(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement { Name: var n } element && n == name)
+            return element;
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            if (FindByName(VisualTreeHelper.GetChild(root, i), name) is { } found)
+                return found;
+        }
+
+        return null;
+    }
+
+    private static void Press(FrameworkElement button) =>
+        button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+
+    [Fact]
+    public void ClickingTheCard_OpensTheQuickView_AndThereIsNoPlayCircle()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("game-a", "Game A");
+            vm.SimulateRefreshResult([game]);
+            vm.Games.Add(game);
+            GameEntry? shown = null;
+            vm.GameQuickViewDialogForTest = details => shown = details.Game;
+
+            var (window, _, main, _) = BuildHostWindow(vm);
+            try
+            {
+                var button = FindCardButton(main, game);
+                Assert.Same(vm.ShowGameQuickViewCommand, button.Command);   // a click on the card: the quick view
+                Assert.Same(game, button.CommandParameter);
+
+                Assert.Null(FindByName(button, "HoverPlayButton"));          // no Play circle on the card: Play is in the quick view and the menu
+
+                button.Command!.Execute(button.CommandParameter);
+                Assert.Same(game, shown);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void TheQuickView_PriorityPlayAndTweaks_ReachTheLibrary()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var vm = MakeViewModel();
+            var game = MakeGame("game-a", "Game A");
+            vm.SimulateRefreshResult([game]);
+
+            // Nothing chosen: nothing written and nothing launched.
+            vm.GameQuickViewDialogForTest = _ => { };
+            vm.ShowGameQuickViewCommand.Execute(game);
+            Assert.Null(vm.GetOverride("game-a"));
+            Assert.DoesNotContain("Failed to launch", vm.StatusText);
+
+            // The priority switch is saved when the panel closes.
+            vm.GameQuickViewDialogForTest = details => details.RaiseGamePriority = true;
+            vm.ShowGameQuickViewCommand.Execute(game);
+            Assert.True(vm.GetRaiseGamePriority("game-a"));
+
+            // Play: the panel closes and the game starts (this one cannot - the exe is missing - which is how the test sees it was tried).
+            vm.GameQuickViewDialogForTest = details => details.PlayRequested = true;
+            vm.ShowGameQuickViewCommand.Execute(game);
+            Assert.StartsWith("Failed to launch Game A", vm.StatusText);
+
+            // Game tweaks: the panel closes and Settings opens on Performance (the tweaks are one list for every game); no details page opens.
+            vm.GameQuickViewDialogForTest = details => details.TweaksRequested = true;
+            vm.ShowGameQuickViewCommand.Execute(game);
+            Assert.True(vm.IsOptimizePageOpen);
+            Assert.IsNotType<GameDetailsViewModel>(vm.CurrentPage);
+            vm.ClosePage();
+
+            await Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void TheQuickViewPanel_ShowsTheGame_AndItsButtonsReachTheViewModel()
+    {
+        _sta.RunAsync(async () =>
+        {
+            var game = new GameEntry
+            {
+                Id = "game-a",
+                Name = "Game A",
+                Source = GameSource.Steam,
+                ExecutablePath = @"C:\Games\DoesNotExist\game.exe",
+                InstallDir = @"C:\Program Files (x86)\Steam\steamapps\common\A Very Long Game Folder Name",
+            };
+            game.InstallSizeBytes = 7L << 30;
+            using var details = new GameDetailsViewModel(game);
+            var opened = 0;
+            var collections = 0;
+            details.OpenInstallLocationRequested += () => opened++;
+            details.EditCollectionsRequested += () => collections++;
+
+            var panel = new GameQuickViewDialog(details);
+            var window = new Window
+            {
+                Content = panel,
+                Width = 700,
+                Height = 760,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -5000,
+                Top = -5000,
+                ShowActivated = false,
+            };
+            window.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/GameLauncher;component/Themes/Axis.Tokens.xaml") });
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                if (Environment.GetEnvironmentVariable("AXIS_FIT_SHOTS") is { Length: > 0 } folder)
+                {
+                    // A picture of the whole panel at a roomy size (the small-screen audit only sees it in a short window, scrolled).
+                    Directory.CreateDirectory(folder);
+                    var bitmap = new RenderTargetBitmap((int)panel.ActualWidth, (int)panel.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(panel);
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    using var stream = File.Create(Path.Combine(folder, "quick-view-whole.png"));
+                    encoder.Save(stream);
+                }
+
+                Assert.Equal("7 GB", panel.SizeOnDisk.Text);
+                Assert.Equal(game.InstallDir, panel.InstalledIn.Text.Replace("\u200B", "")); // the whole path, wrapped at its separators
+
+                // Play and Game tweaks also close the panel (a close request that bubbles to whatever hosts it).
+                var closes = 0;
+                panel.AddHandler(AppShell.CloseRequestedEvent, new RoutedEventHandler((_, _) => closes++));
+
+                Press(FindByContent(panel, "Open install location")!);
+                Assert.Equal(1, opened);
+                Press(FindByContent(panel, "Collections...")!);
+                Assert.Equal(1, collections);
+
+                Assert.False(details.PlayRequested);
+                Press(FindByContent(panel, "Play")!);
+                Assert.True(details.PlayRequested);
+                Assert.Equal(1, closes);
+
+                Assert.Null(FindByContent(panel, "All details..."));              // Axis has no full details page to go on to
+
+                Press(FindByContent(panel, "Game tweaks...")!);
+                Assert.True(details.TweaksRequested);
+                Assert.Equal(2, closes);
             }
             finally
             {

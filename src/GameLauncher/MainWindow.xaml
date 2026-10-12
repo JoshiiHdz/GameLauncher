@@ -20,7 +20,7 @@
 
     <Window.InputBindings>
         <KeyBinding Key="K" Modifiers="Control" Command="{Binding ShowCommandPaletteCommand}" />
-        <KeyBinding Key="F11" Command="{Binding EnterControllerModeFromAxisCommand}" />
+        <KeyBinding Key="F11" Command="{Binding ControllerModeKeyCommand}" />
     </Window.InputBindings>
 
     <Window.Resources>
@@ -445,6 +445,19 @@
                 <!-- Whether a controller is connected, always visible; just left of the caption buttons. -->
                 <controls:ControllerStatusPill x:Name="AxisControllerPill" DockPanel.Dock="Right" Margin="0,0,10,0" />
 
+                <!-- A new version is ready: here on every page (the banner in the library is covered by a page such as Settings). -->
+                <ui:Button x:Name="AxisUpdateButton" DockPanel.Dock="Right" Tag="{Binding}" Appearance="Primary" Height="28" Padding="10,0" FontSize="12" Margin="0,0,10,0"
+                           shell:WindowChrome.IsHitTestVisibleInChrome="True" VerticalAlignment="Center"
+                           Command="{Binding DownloadUpdateCommand}" Content="{Binding UpdatePillText}"
+                           ToolTip="A new version is ready: install it and restart (right-click to hide this)"
+                           Visibility="{Binding UpdateAvailable, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
+                    <ui:Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Hide this notice" Command="{Binding PlacementTarget.Tag.DismissUpdateCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                        </ContextMenu>
+                    </ui:Button.ContextMenu>
+                </ui:Button>
+
                 <!-- Axis's way into controller mode (also F11, Ctrl+K, and Start on a pad): puts the PlayStation look on for the session. -->
                 <Button x:Name="AxisControllerModeButton" DockPanel.Dock="Right" Style="{StaticResource CaptionButtonStyle}" Width="38"
                         Command="{Binding EnterControllerModeFromAxisCommand}" ToolTip="Controller mode (F11) - needs a connected controller"
@@ -462,7 +475,7 @@
                 </StackPanel>
 
                 <!-- Fills whatever is left between brand and buttons, centred within it. -->
-                <ui:TextBox x:Name="SearchBox" Width="380" Height="32" VerticalAlignment="Center" HorizontalAlignment="Center"
+                <ui:TextBox x:Name="SearchBox" MaxWidth="380" MinWidth="120" Height="32" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="12,0"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"
                             PlaceholderText="Search your library...  (Ctrl+K for commands)"
                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
@@ -532,7 +545,7 @@
                     </StackPanel>
                 </Button>
                 <RadioButton DockPanel.Dock="Bottom" Style="{StaticResource RailNavButtonStyle}" Margin="0,2,0,2" ToolTip="Settings"
-                             IsChecked="{Binding IsSettingsPageOpen, Mode=OneWay}"
+                             IsChecked="{Binding IsSettingsHighlighted, Mode=OneWay}"
                              Command="{Binding ShowSettingsCommand}">
                     <StackPanel Orientation="Horizontal">
                         <ui:SymbolIcon Symbol="Settings24" FontSize="18" Width="18" />
@@ -927,7 +940,7 @@
                                                 <Ellipse Width="32" Height="32" Stroke="{DynamicResource TrackFill}" StrokeThickness="2.5" />
                                                 <Path x:Name="DriveArc" Stroke="{DynamicResource Accent}"
                                                       StrokeThickness="2.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                                      Data="{Binding UsedFraction, Converter={x:Static conv:UsedFractionToArcConverter.Instance}}" />
+                                                      Data="{Binding UsedFraction, Converter={x:Static conv:UsedFractionToArcConverter.Instance}, ConverterParameter='40,36,32,2.5'}" />
                                                 <TextBlock x:Name="DriveLetter" Text="{Binding Letter, Converter={x:Static conv:DriveLetterGlyphConverter.Instance}}"
                                                            FontSize="11" FontWeight="SemiBold" Opacity="0.8"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -1116,39 +1129,6 @@
                            TextTrimming="CharacterEllipsis" />
             </StackPanel>
 
-            <!-- Update banner: sits above everything else (empty state included) so it's never missed,
-                 but is a plain dismissible strip rather than a modal - checking/applying an update is
-                 never allowed to block using the library in the meantime. -->
-            <Border DockPanel.Dock="Top" Margin="0,0,0,12" Padding="14,10" CornerRadius="8"
-                    Background="#1FFFFFFF"
-                    Visibility="{Binding UpdateAvailable, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-
-                    <ui:SymbolIcon Grid.Column="0" Symbol="ArrowDownload24"
-                                   Foreground="{DynamicResource AccentFillColorDefaultBrush}"
-                                   VerticalAlignment="Center" />
-
-                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="13">
-                        <Run Text="Update available: v" /><Run Text="{Binding AvailableUpdateVersion}" />
-                    </TextBlock>
-
-                    <ui:Button Grid.Column="2" Appearance="Primary" Margin="0,0,8,0"
-                               Content="{Binding IsUpdating, Converter={x:Static conv:UpdatingButtonTextConverter.Instance}}"
-                               Command="{Binding DownloadUpdateCommand}" />
-
-                    <ui:Button Grid.Column="3" Appearance="Transparent" BorderThickness="0"
-                               Icon="{ui:SymbolIcon Dismiss24}" ToolTip="Dismiss"
-                               Command="{Binding DismissUpdateCommand}"
-                               IsEnabled="{Binding IsUpdating, Converter={x:Static conv:InverseBoolConverter.Instance}}" />
-                </Grid>
-            </Border>
-
             <!-- Empty views explain their own purpose; only an empty library offers discovery actions. -->
             <Grid x:Name="LibraryEmptyState" DockPanel.Dock="Top" Visibility="{Binding HasNoGames, Converter={x:Static conv:BoolToVisibilityConverter.Instance}}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,80,0,0" MaxWidth="360">
@@ -1322,29 +1302,14 @@
                                 <StackPanel Orientation="Horizontal">
                                     <ui:Button Content="Play" Icon="{ui:SymbolIcon Play24}" Appearance="Primary" Height="{DynamicResource HeroButtonHeight}" Padding="18,0,22,0" FontSize="14" FontWeight="SemiBold"
                                                Command="{Binding LaunchCommand}" CommandParameter="{Binding FeaturedGame}" />
-                                    <Button Margin="8,0,0,0" Height="{DynamicResource HeroButtonHeight}" Style="{StaticResource HeroGhostButtonStyle}"
-                                            Tag="{Binding}" beh:ContextMenuButtonBehavior.OpensContextMenuOnClick="True">
+                                    <!-- The game's quick view (the card's click does the same): Play, priority, tweaks, collections, folder, play time and Uninstall are all in it, so the hero has no menu of its own. -->
+                                    <Button x:Name="HeroDetailsButton" Margin="8,0,0,0" Height="{DynamicResource HeroButtonHeight}" Style="{StaticResource HeroGhostButtonStyle}"
+                                            ToolTip="Open this game's quick view"
+                                            Command="{Binding ShowGameQuickViewCommand}" CommandParameter="{Binding FeaturedGame}">
                                         <StackPanel Orientation="Horizontal">
-                                            <ui:SymbolIcon Symbol="MoreHorizontal24" FontSize="15" VerticalAlignment="Center" />
-                                            <TextBlock Text="More" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="14" FontWeight="Medium" />
+                                            <ui:SymbolIcon Symbol="Info24" FontSize="15" VerticalAlignment="Center" />
+                                            <TextBlock Text="Details" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="14" FontWeight="Medium" />
                                         </StackPanel>
-                                        <Button.ContextMenu>
-                                            <ContextMenu>
-                                                <MenuItem Header="Play"
-                                                          Command="{Binding PlacementTarget.Tag.LaunchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                          CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                                <MenuItem Header="Game details..."
-                                                          Command="{Binding PlacementTarget.Tag.ShowGameDetailsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                          CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                                <Separator />
-                                                <MenuItem Header="Open install location"
-                                                          Command="{Binding PlacementTarget.Tag.OpenInstallLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                          CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                                <MenuItem Header="Uninstall..." Foreground="{DynamicResource Danger}"
-                                                          Command="{Binding PlacementTarget.Tag.UninstallGameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                          CommandParameter="{Binding PlacementTarget.Tag.FeaturedGame, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                            </ContextMenu>
-                                        </Button.ContextMenu>
                                     </Button>
                                 </StackPanel>
                             </StackPanel>

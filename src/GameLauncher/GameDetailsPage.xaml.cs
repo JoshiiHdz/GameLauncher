@@ -26,6 +26,8 @@ public partial class GameDetailsPage : UserControl
 
     private void EditCollections_Click(object sender, RoutedEventArgs e) => ViewModel?.RequestEditCollections();
 
+    private void GameTweaks_Click(object sender, RoutedEventArgs e) => ViewModel?.RequestGameTweaks();
+
     private void PlayTime_Click(object sender, RoutedEventArgs e) => ViewModel?.RequestPlayTime();
 
     /// <summary>The ribbon's "..." button: the More menu (Play, install folder, Uninstall) docked at the right edge.</summary>

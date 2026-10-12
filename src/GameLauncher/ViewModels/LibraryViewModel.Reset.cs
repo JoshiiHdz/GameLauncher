@@ -74,7 +74,10 @@ public partial class LibraryViewModel
         OptimizeBeforeLaunch = false;
         FocusPlayEnabled = false;
         FocusPlayOnlyWhenPluggedIn = true;
+        _settings.GameTweaksOnLaunch.Clear();
+        RefreshGameTweakRows();
         GlobalHotkeyEnabled = true;
+        BusyCursorLog = true;
         TrackExternalGames = true;
         CheckForUpdates = true;
         StartMaximized = true;

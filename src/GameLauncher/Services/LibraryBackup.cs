@@ -20,11 +20,14 @@ public sealed class BackupGame
     /// <summary>Focus play: run this game at High priority.</summary>
     public bool RaiseGamePriority { get; set; }
 
+    /// <summary>This game's own list of game tweaks (ids); null when it follows the default list.</summary>
+    public List<string>? GameTweaks { get; set; }
+
     /// <summary>The play time as it happened, so "today" and "this week" survive a reinstall.</summary>
     public List<PlaySessionRecord> Sessions { get; set; } = new();
 
     internal bool HasAnything => !string.IsNullOrWhiteSpace(CustomName) || Hidden || Favorite || Collections.Count > 0
-        || !string.IsNullOrWhiteSpace(Notes) || TotalPlaySeconds > 0 || LastPlayedUtc is not null || RaiseGamePriority || Sessions.Count > 0;
+        || !string.IsNullOrWhiteSpace(Notes) || TotalPlaySeconds > 0 || LastPlayedUtc is not null || RaiseGamePriority || GameTweaks is not null || Sessions.Count > 0;
 }
 
 /// <summary>The few plain preferences a backup carries. Nothing PC-specific (watched folders, start-with-Windows) and no keys or secrets.</summary>
@@ -49,6 +52,9 @@ public sealed class BackupSettings
     public bool OptimizeBeforeLaunch { get; set; }
     public bool FocusPlay { get; set; }
     public bool FocusPlayOnlyWhenPluggedIn { get; set; } = true;
+
+    /// <summary>The game tweaks switched on (ids). Only the choices travel; what is currently applied on a PC does not.</summary>
+    public List<string> GameTweaksOnLaunch { get; set; } = new();
 }
 
 public sealed class BackupFile
@@ -101,6 +107,7 @@ public static class LibraryBackup
                 MinimizeToTrayOnMinimize = settings.MinimizeToTrayOnMinimize,
                 TrackExternalGames = settings.TrackExternalGames, CheckForUpdates = settings.CheckForUpdates,
                 OptimizeBeforeLaunch = settings.OptimizeBeforeLaunch, FocusPlay = settings.FocusPlay, FocusPlayOnlyWhenPluggedIn = settings.FocusPlayOnlyWhenPluggedIn,
+                GameTweaksOnLaunch = settings.GameTweaksOnLaunch.ToList(),
             },
         };
 
@@ -110,7 +117,7 @@ public static class LibraryBackup
             {
                 CustomName = over.CustomName, Hidden = over.Hidden, Favorite = over.Favorite, Collections = [.. over.Collections ?? []],
                 Notes = over.Notes, DateAdded = over.DateAdded, TotalPlaySeconds = over.TotalPlaySeconds, LastPlayedUtc = over.LastPlayedUtc,
-                RaiseGamePriority = over.RaiseGamePriority,
+                RaiseGamePriority = over.RaiseGamePriority, GameTweaks = over.GameTweaks?.ToList(),
                 Sessions = over.Sessions.Select(s => new PlaySessionRecord { StartUtc = s.StartUtc, Seconds = s.Seconds }).ToList(),
             };
 
@@ -184,11 +191,14 @@ public static class LibraryBackup
             }
 
             var before = (over!.Favorite, over.Hidden, over.CustomName, over.Notes, over.TotalPlaySeconds, over.DateAdded, over.LastPlayedUtc,
-                Collections: string.Join('\u0001', over.Collections), over.RaiseGamePriority, Sessions: over.Sessions.Count);
+                Collections: string.Join('\u0001', over.Collections), over.RaiseGamePriority, Sessions: over.Sessions.Count,
+                Tweaks: over.GameTweaks is null ? -1 : over.GameTweaks.Count);
 
             over.Favorite |= incoming.Favorite;
             over.Hidden |= incoming.Hidden;
             over.RaiseGamePriority |= incoming.RaiseGamePriority;
+            if (over.GameTweaks is null && incoming.GameTweaks is { } theirs)
+                over.GameTweaks = theirs.Where(id => GameTweakCatalog.ById(id) is not null).Distinct().ToList(); // only tweaks this app knows; the person's own list wins
             PlayHistory.Union(over, incoming.Sessions);
             if (string.IsNullOrWhiteSpace(over.CustomName) && !string.IsNullOrWhiteSpace(incoming.CustomName))
                 over.CustomName = incoming.CustomName.Trim();
@@ -201,7 +211,8 @@ public static class LibraryBackup
                 over.LastPlayedUtc = last;
 
             var after = (over.Favorite, over.Hidden, over.CustomName, over.Notes, over.TotalPlaySeconds, over.DateAdded, over.LastPlayedUtc,
-                Collections: string.Join('\u0001', over.Collections), over.RaiseGamePriority, Sessions: over.Sessions.Count);
+                Collections: string.Join('\u0001', over.Collections), over.RaiseGamePriority, Sessions: over.Sessions.Count,
+                Tweaks: over.GameTweaks is null ? -1 : over.GameTweaks.Count);
             if (!existed)
                 added++;
             else if (before != after)

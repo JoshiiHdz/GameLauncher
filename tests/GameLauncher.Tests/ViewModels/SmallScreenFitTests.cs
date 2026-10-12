@@ -181,10 +181,59 @@ public sealed class SmallScreenFitTests(WpfStaFixture sta)
                 await Pause(200);
             }
 
+            // The About cards on the PlayStation home are below the hero: bring them into view and look at them too.
+            if (theme == ThemeId.ConsoleRibbon && Walk(window).OfType<ConsoleRibbonView>().FirstOrDefault() is { } ribbonHome)
+            {
+                ribbonHome.HomeExtras.BringIntoView(new Rect(0, 0, 560, 380));
+                await Pause(350);
+                Audit(window, t + " home cards", report);
+                Save(window, $"{theme}-{width}x{height}-home-cards");
+            }
+
             await Page("details", () => vm.ShowGameDetailsCommand.Execute(game));
+
+            // ...and the foot of the details page: the notes and the priority switch.
+            vm.ShowGameDetailsCommand.Execute(game);
+            await Pause(700);
+            if (Walk(window).OfType<GameDetailsPage>().FirstOrDefault() is { } detailsPage && Walk(detailsPage).OfType<ScrollViewer>().FirstOrDefault() is { } detailsScroller)
+            {
+                detailsScroller.ScrollToEnd();
+                await Pause(300);
+                Audit(window, t + " details end", report);
+                Save(window, $"{theme}-{width}x{height}-details-end");
+            }
+
+            vm.ClosePageCommand.Execute(null);
+            await Pause(200);
             await Page("play-time", () => vm.ShowPlayTimeCommand.Execute(game));
             await Page("stats", () => vm.ShowStatsCommand.Execute(null));
             await Page("optimize", () => vm.ShowOptimizeCommand.Execute(null), 900);
+
+            // The Optimize page is tabs: the first was audited above; the others are audited here.
+            vm.ShowOptimizeCommand.Execute(null);
+            await Pause(900);
+            if (Walk(window).OfType<OptimizePage>().FirstOrDefault() is { DataContext: OptimizeViewModel optimizePage })
+            {
+                var boost = Walk(window).OfType<OptimizePage>().First().BoostSection;
+                foreach (var offset in new[] { 250.0, 520.0, 5000.0 }) // down the list of switches, to the end
+                {
+                    boost.ScrollToVerticalOffset(offset);
+                    await Pause(250);
+                    Audit(window, $"{t} optimize Boost scrolled {offset}", report);
+                    Save(window, $"{theme}-{width}x{height}-optimize-Boost-{offset}");
+                }
+
+                foreach (var tab in new[] { OptimizeTab.Health, OptimizeTab.Startup, OptimizeTab.CleanUp })
+                {
+                    optimizePage.Tab = tab;
+                    await Pause(400);
+                    Audit(window, $"{t} optimize {tab}", report);
+                    Save(window, $"{theme}-{width}x{height}-optimize-{tab}");
+                }
+            }
+
+            vm.ClosePageCommand.Execute(null);
+            await Pause(200);
             await Page("pick", () => vm.PickGameCommand.Execute(null));
             await Page("storage", () => vm.ShowStorageCommand.Execute("C:"));
             await Page("my-pc", () => vm.ShowMyPcCommand.Execute(null), 900);
@@ -205,12 +254,14 @@ public sealed class SmallScreenFitTests(WpfStaFixture sta)
                 ("feedback", new FeedbackDialog(new FeedbackViewModel(new FeedbackService(null, null, () => DateTime.UtcNow), () => "d"))),
                 ("palette", new CommandPaletteDialog(new CommandPaletteViewModel(vm.BuildPaletteItems()))),
                 ("confirm", new ConfirmDialog("This clears 1.2 GB of temporary files. They cannot be restored.", "Clear files", "Cancel", warning: true)),
+                ("quick-view", new GameQuickViewDialog(new GameDetailsViewModel(game))),
             };
             foreach (var (name, content) in dialogs)
             {
                 var shown = await ShellTestSupport.ShowDialogAsync(window, name, content);
                 await Pause(300);
                 Audit(window, $"{t} dialog {name}", report);
+                Save(window, $"{theme}-{width}x{height}-dialog-{name}");
                 await shown.CloseAsync();
             }
         }

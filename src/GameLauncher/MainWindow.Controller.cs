@@ -145,20 +145,89 @@ public partial class MainWindow
                     + $"{(PadGateReason(library) ?? "reading allowed")}, game running {library.HasRunningGame}, timer ticks {_pad.TickCount}, readings {_pad.PollCount}.");
         };
 
+        // Empty controller slots are not asked about on a timer (on some PCs each question makes Windows flash its busy pointer). They are looked at again when Windows
+        // says a device came or went, and when the launcher is brought to the front; the first reading and a once-a-minute net sit under those (see ControllerInput).
+        var deviceDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        deviceDebounce.Tick += (_, _) =>
+        {
+            deviceDebounce.Stop();
+            Trail.Note("Windows reported a device change: looking in the controller slots again");
+            _pad.RequestProbe();
+        };
+        SourceInitialized += (_, _) =>
+        {
+            const int wmDeviceChange = 0x0219, devNodesChanged = 0x0007, deviceArrival = 0x8000, deviceRemoveComplete = 0x8004;
+            if (PresentationSource.FromVisual(this) is System.Windows.Interop.HwndSource source)
+            {
+                source.AddHook((IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) =>
+                {
+                    if (msg == wmDeviceChange && wParam.ToInt64() is devNodesChanged or deviceArrival or deviceRemoveComplete)
+                    {
+                        deviceDebounce.Stop(); // a plug usually brings several of these at once: one look, a moment after the last
+                        deviceDebounce.Start();
+                    }
+
+                    return IntPtr.Zero;
+                });
+            }
+        };
+        Activated += (_, _) => _pad.RequestProbe();
+
+        // Why does the loading circle show over the launcher, if it does? The watch (BusyCursorWatch) writes it to the log with what the launcher did just before.
+        BusyCursorWatch? busyWatch = null;
+        void ApplyBusyWatch()
+        {
+            if (library.BusyCursorLog && busyWatch is null && IsLoaded)
+            {
+                busyWatch = new BusyCursorWatch(Dispatcher, () => _inView, DescribePointer);
+                busyWatch.Start();
+            }
+            else if (!library.BusyCursorLog && busyWatch is not null)
+            {
+                busyWatch.Dispose();
+                busyWatch = null;
+            }
+        }
+
+        void NoteInView() => _inView = IsVisible && WindowState != WindowState.Minimized;
+        StateChanged += (_, _) => NoteInView();
+        IsVisibleChanged += (_, _) => NoteInView();
+        library.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(LibraryViewModel.BusyCursorLog))
+                ApplyBusyWatch();
+        };
+
         Loaded += (_, _) =>
         {
             _pad.Start(Dispatcher);
             heartbeat.Start();
+            NoteInView();
+            ApplyBusyWatch();
             Logger.Info("Controller input started (the pad is only read while this window is in front).");
         };
         Closed += (_, _) =>
         {
             heartbeat.Stop();
+            deviceDebounce.Stop();
+            busyWatch?.Dispose();
             _pad.Dispose();
             _cursorTimer.Stop();
             ShowCursor();
         };
     }
+
+    /// <summary>Read by the busy-pointer watch on the UI thread: the pointer WPF itself has asked for under the mouse (an override, or the element's own), if it is
+    /// anything but the usual arrow.</summary>
+    private static string DescribePointer()
+    {
+        if (Mouse.OverrideCursor is { } over)
+            return "override " + over;
+
+        return Mouse.DirectlyOver is FrameworkElement { Cursor: { } own } ? own.ToString() ?? "" : "";
+    }
+
+    private volatile bool _inView;
 
     /// <summary>XInput is read system-wide, so the pad is only read while this window is the one in front (otherwise pressing A in a
     /// game would press A here as well). A game running behind the launcher does not matter: when a game has the screen this window is not in front, and when
@@ -219,7 +288,7 @@ public partial class MainWindow
     private void TraceStep(string screen, PadButton button, string from)
     {
         var rule = _router!.LastRule;
-        var stick = _pad.LastStick;
+        var stick = _pad!.LastStick;
         var stickText = Math.Abs(stick.X) >= 8000 || Math.Abs(stick.Y) >= 8000 ? $"{stick.X},{stick.Y}" : null;
 
         // The focus settles a moment after the press (a tile takes it when the layout is done), so what it landed on is read then.
@@ -303,7 +372,7 @@ public partial class MainWindow
             RestoreOwnFocusVisuals();
             if (NavTrace.Steps > 0)
             {
-                NavTrace.IgnoredDiagonals = _pad.IgnoredDiagonals;
+                NavTrace.IgnoredDiagonals = _pad!.IgnoredDiagonals;
                 NavTrace.WriteSummary();
                 Logger.Info("Controller navigation: " + NavTrace.Summary().Split(Environment.NewLine)[0] + " (the report is controller-navigation-summary.txt in the logs folder).");
             }
@@ -592,6 +661,9 @@ public partial class MainWindow
 
         public bool GameTileHasFocus => window.RibbonView.GameTileHasFocus;
 
+        public string? FocusedCollection =>
+            Keyboard.FocusedElement is FrameworkElement { DataContext: CollectionItem collection } focused && focused is RadioButton ? collection.Name : null;
+
         /// <summary>Where a direction leads from a control, with the list-of-choices rules, without moving anything (the tests and the review dumps read the whole map with it).</summary>
         internal FrameworkElement? NeighbourOf(FrameworkElement current, ShellDirection direction, IReadOnlyList<FrameworkElement> controls) =>
             current is ListBoxItem row ? NextFromListRow(row, direction, controls) : NextFrom(current, direction, controls);
@@ -840,7 +912,7 @@ public partial class MainWindow
 
         private IEnumerable<FrameworkElement> TopBar() =>
         [
-            window.RibbonView.HomeTab, window.RibbonView.LibraryTab, window.RibbonView.SearchButton,
+            window.RibbonView.HomeTab, window.RibbonView.LibraryTab, window.RibbonView.UpdateButton, window.RibbonView.SearchButton,
             window.RibbonView.ControllerButton, window.RibbonView.SettingsButton, window.RibbonView.PowerButton,
         ];
 
