@@ -294,9 +294,8 @@ public partial class LibraryViewModel
         if (status.TotalBytes <= 0)
             return null;
 
-        var plenty = (double)status.AvailableBytes / status.TotalBytes >= MemoryPressureThreshold;
         var free = $"{ByteFormat.Size(status.AvailableBytes)} free of {ByteFormat.Size(status.TotalBytes)}";
-        return new(null, plenty ? $"{free} - plenty, so a trim would be skipped" : $"{free} - getting short, so a trim would run");
+        return new(null, $"{free} - trimmed every time a game starts");
     }
 
     private static TweakWindowsState? PowerState(IPowerPlans plans) => plans.GetActive() switch

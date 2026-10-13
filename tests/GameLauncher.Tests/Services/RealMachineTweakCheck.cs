@@ -249,4 +249,52 @@ public sealed class RealMachineTweakCheck(ITestOutputHelper output)
         process.WaitForExit(15_000);
         return text.Split('\n').Where(l => l.Contains("GUID", StringComparison.OrdinalIgnoreCase) && l.Contains(':')).ToList();
     }
+
+    [Fact]
+    public void WhatTheHighPriorityKeeperCostsEachTick()
+    {
+        if (!Enabled)
+            return;
+
+        // The raised processes a game has (a launcher stub, the game, a helper): asked what priority each is on, every 2 s.
+        var pids = Process.GetProcesses().Where(p => p.ProcessName is "explorer" or "svchost" or "dwm").Select(p => p.Id).Take(3).ToList();
+        Assert.NotEmpty(pids);
+        for (var i = 0; i < 20; i++)
+            foreach (var id in pids)
+                GamePriority.Current(id);                                            // warm up
+
+        var watch = Stopwatch.StartNew();
+        const int rounds = 500;
+        for (var i = 0; i < rounds; i++)
+            foreach (var id in pids)
+                GamePriority.Current(id);
+
+        var perTick = watch.Elapsed.TotalMilliseconds / rounds;
+        output.WriteLine($"verify {pids.Count} process(es): {perTick:0.000} ms per tick  (every 2 s = {perTick / 2000 * 100:0.0000} % of one core)");
+
+        // Looking for new processes of the game by exe name (the quick window's every-2-s scan; then every 15 s).
+        var provider = new GameLauncher.Services.SessionTracking.Win32ProcessProvider();
+        var names = new[] { "CapturePro", "client_diagnose", "MarvelRivals_Launcher", "upload_profile", "Marvel", "Marvel-Win64-Shipping", "render", "webview_support_browser", "QtWebEngineProcess", "game_graphics_setter", "UniSDKTools" };
+        for (var i = 0; i < 5; i++)
+            foreach (var p in provider.FindProcessesByName(names))
+                p.Dispose();
+
+        watch.Restart();
+        const int scans = 100;
+        for (var i = 0; i < scans; i++)
+            foreach (var p in provider.FindProcessesByName(names))
+                p.Dispose();
+
+        var perScan = watch.Elapsed.TotalMilliseconds / scans;
+        output.WriteLine($"find the game's processes by {names.Length} exe names: {perScan:0.00} ms per scan  (every 2 s = {perScan / 2000 * 100:0.00} % of one core; every 15 s = {perScan / 15000 * 100:0.000} %)");
+
+        // The external-game monitor (a whole-process snapshot, every 5-10 s) for comparison.
+        var snapshot = new GameLauncher.Services.SessionTracking.SnapshotProcessProvider();
+        watch.Restart();
+        for (var i = 0; i < scans; i++)
+            foreach (var p in snapshot.FindProcessesByName(names))
+                p.Dispose();
+
+        output.WriteLine($"external-game snapshot: {watch.Elapsed.TotalMilliseconds / scans:0.00} ms per check");
+    }
 }

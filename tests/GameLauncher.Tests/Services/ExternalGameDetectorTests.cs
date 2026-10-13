@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using GameLauncher.Services;
 using GameLauncher.Tests.Services.SessionTracking;
 
@@ -76,5 +77,67 @@ public sealed class ExternalGameDetectorTests
         var path = current.MainModule!.FileName;
         Assert.Equal("test-host", Assert.Single(new ExternalGameDetector()
             .Detect([new("test-host", path)], default)).GameId);
+    }
+
+    // ---- Games with no exe on record (Xbox, EA, anything started by address) and protected processes ---------------------------------
+
+    private sealed class PerFolderNames(Dictionary<string, string[]> byFolder) : GameLauncher.Services.SessionTracking.IExecutableNameDiscovery
+    {
+        public HashSet<string> GetCandidateNames(string installDir) =>
+            new(byFolder.TryGetValue(installDir.TrimEnd(System.IO.Path.DirectorySeparatorChar), out var names) ? names : [], StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string TempFolder(string name)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "axis-ext-" + Guid.NewGuid().ToString("N")[..8], name);
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    [Fact]
+    public void AGameWithNoExeOnRecord_IsFoundByRunningFromInsideItsInstallFolder_AndNotFromElsewhere()
+    {
+        var folder = TempFolder("Fortnite");
+        var provider = new FakeProcessProvider();
+        var inside = provider.AddRunning(1, "FortniteClient-Win64-Shipping", Path.Combine(folder, "FortniteGame", "Binaries", "Win64", "FortniteClient-Win64-Shipping.exe"));
+        var elsewhere = provider.AddRunning(2, "FortniteClient-Win64-Shipping", @"C:\Somewhere\Else\FortniteClient-Win64-Shipping.exe");
+        var names = new PerFolderNames(new() { [folder] = ["FortniteClient-Win64-Shipping", "CrashReportClient"] });
+        var detector = new ExternalGameDetector(provider, names);
+
+        var found = detector.Detect([new("fortnite", "", folder)], default);          // started by address: no exe on record
+
+        Assert.Equal("fortnite", Assert.Single(found).GameId);
+        Assert.True(inside.Disposed && elsewhere.Disposed);
+    }
+
+    [Fact]
+    public void AProtectedProcess_IsRecognisedByNameOnlyWhenTheNameIsOneGamesMainProgram()
+    {
+        var one = TempFolder("One");
+        var two = TempFolder("Two");
+        var provider = new FakeProcessProvider();
+        provider.AddRunning(1, "GameOne-Win64-Shipping", null);        // path refused (anti-cheat): a main program of one game only
+        provider.AddRunning(2, "EasyAntiCheat_EOS", null);             // a helper with no claim to be the game
+        provider.AddRunning(3, "SharedTool", null);                    // in both games' folders
+        var names = new PerFolderNames(new()
+        {
+            [one] = ["GameOne-Win64-Shipping", "EasyAntiCheat_EOS", "SharedTool", "Other"],
+            [two] = ["GameTwo-Win64-Shipping", "SharedTool", "Another"],
+        });
+        var detector = new ExternalGameDetector(provider, names);
+
+        var found = detector.Detect([new("one", "", one), new("two", "", two)], default);
+
+        Assert.Equal("one", Assert.Single(found).GameId);               // not the helper, not the shared name, and not game two
+    }
+
+    [Fact]
+    public void ADetectorWithoutFolderNames_BehavesAsBefore_NothingIsGuessedFromAFolder()
+    {
+        var folder = TempFolder("Game");
+        var provider = new FakeProcessProvider();
+        provider.AddRunning(1, "Game", Path.Combine(folder, "Game.exe"));
+
+        Assert.Empty(new ExternalGameDetector(provider).Detect([new("g", "", folder)], default));
     }
 }

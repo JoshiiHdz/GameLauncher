@@ -192,8 +192,10 @@ public partial class LibraryViewModel
     }
 
     /// <summary>The game's own process is often not there yet when it is first noticed (a launcher or an anti-cheat stub comes first, the game itself a few seconds
-    /// later), so raising only what was running at that moment left the game on Normal. This keeps looking while the session lasts - every two seconds for the first
-    /// three minutes, then every fifteen - and raises any process of the game it has not tried yet. Ends with <paramref name="ct"/> (the session).</summary>
+    /// later), so raising only what was running at that moment left the game on Normal. This keeps looking while the session lasts and raises any process of the game it
+    /// has not tried yet - looking for new processes every <paramref name="quick"/> (2 s) for the first <paramref name="quickFor"/> (3 minutes), then every
+    /// <paramref name="slow"/> (15 s) - and every <paramref name="quick"/> it asks Windows again what the raised processes are on, because a game (or its anti-cheat)
+    /// can put its priority back, and a priority that is Normal for twenty seconds is not what was asked for. Ends with <paramref name="ct"/> (the session).</summary>
     internal async Task KeepGamePriorityAsync(GameEntry game, Func<IReadOnlyCollection<int>> findRunning, CancellationToken ct,
         TimeSpan? quick = null, TimeSpan? slow = null, TimeSpan? quickFor = null)
     {
@@ -201,16 +203,17 @@ public partial class LibraryViewModel
         var then = slow ?? TimeSpan.FromSeconds(15);
         var quickWindow = quickFor ?? TimeSpan.FromMinutes(3);
         var started = DateTime.UtcNow;
+        var lastLookedForNew = DateTime.MinValue;
         var tried = new HashSet<int>();
-        var raisedOk = new HashSet<int>();
-        var lastLook = DateTime.UtcNow;
+        var raisedOk = new Dictionary<int, DateTime>();   // pid -> when it was last raised
+        var resets = new Dictionary<int, int>();          // pid -> how many times it was put back
         var told = false;
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(DateTime.UtcNow - started < quickWindow ? every : then, ct);
+                await Task.Delay(every, ct);
             }
             catch (OperationCanceledException)
             {
@@ -220,6 +223,34 @@ public partial class LibraryViewModel
             if (!GetRaiseGamePriority(game.Id))
                 continue;
 
+            // 1. What was raised, is it still raised? Asking is cheap (a handful of processes), so this is every tick.
+            foreach (var id in raisedOk.Keys.ToList())
+            {
+                var now = GamePriority.Current(id);
+                if (now is null)
+                {
+                    raisedOk.Remove(id); // gone
+                }
+                else if (now is not ("High" or "RealTime"))
+                {
+                    var count = resets[id] = resets.GetValueOrDefault(id) + 1;
+                    var held = DateTime.UtcNow - raisedOk[id];
+                    Logger.Warn($"High priority: '{game.Name}' pid {id} is on {now} again after {held.TotalSeconds:0} s (put back #{count}) - raising it again.");
+                    if (count == 5)
+                        Logger.Warn($"High priority: '{game.Name}' pid {id} keeps being put back by the game or its protection; the launcher keeps raising it every {every.TotalSeconds:0} s.");
+
+                    var again = GamePriority.RaiseEach([id]);
+                    LogRaise(game, again);
+                    if (again.Any(r => r.Raised))
+                        raisedOk[id] = DateTime.UtcNow;
+                }
+            }
+
+            // 2. Any process of the game it has not tried yet.
+            if (DateTime.UtcNow - started >= quickWindow && DateTime.UtcNow - lastLookedForNew < then)
+                continue;
+
+            lastLookedForNew = DateTime.UtcNow;
             IReadOnlyCollection<int> running;
             try
             {
@@ -235,25 +266,6 @@ public partial class LibraryViewModel
                 continue;
             }
 
-            // Every 20 seconds, ask Windows again what the raised processes are on: a game (or its anti-cheat) can put its priority back, and the log should show it.
-            if (DateTime.UtcNow - lastLook > TimeSpan.FromSeconds(20) && raisedOk.Count > 0)
-            {
-                lastLook = DateTime.UtcNow;
-                foreach (var id in raisedOk.ToList())
-                {
-                    var now = GamePriority.Current(id);
-                    if (now is null)
-                    {
-                        raisedOk.Remove(id); // gone
-                    }
-                    else if (now is not ("High" or "RealTime"))
-                    {
-                        Logger.Warn($"High priority: '{game.Name}' pid {id} is on {now} again (it was put back) - raising it again.");
-                        LogRaise(game, GamePriority.RaiseEach([id]));
-                    }
-                }
-            }
-
             var fresh = running.Where(tried.Add).ToList();
             if (fresh.Count == 0)
                 continue;
@@ -261,7 +273,7 @@ public partial class LibraryViewModel
             var results = GamePriority.RaiseEach(fresh);
             LogRaise(game, results);
             foreach (var r in results.Where(r => r.Raised))
-                raisedOk.Add(r.Id);
+                raisedOk[r.Id] = DateTime.UtcNow;
 
             if (!told && results.Any(r => r.Raised))
             {

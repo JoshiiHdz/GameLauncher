@@ -81,6 +81,7 @@ public partial class MainWindow : FluentWindow
             TrayIcon.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? string.Empty);
 
             vm.GameLaunched += OnGameLaunched;
+            vm.ExternalGameDetected += OnExternalGameDetected;
             _ = vm.MonitorExternalGamesAsync(_externalMonitorCts.Token);
             vm.VibrantBackgroundChanged += ApplyBackdrop;
             ApplyBackdrop(vm.VibrantBackground);
@@ -268,6 +269,20 @@ public partial class MainWindow : FluentWindow
         // the taskbar forever after the game closed - IsRunning cleared correctly, but nothing ever
         // brought the window back, which read as "it doesn't reopen when the game closes."
         RestoreFromTray();
+    }
+
+    /// <summary>A game was started outside the launcher (from Steam, the Epic launcher, the Xbox app, a shortcut) and has just been seen running: it gets what a game
+    /// started from here gets - the memory trim when that tweak is on, and High priority when the game is set to it (kept up until the game is gone).</summary>
+    private void OnExternalGameDetected(GameEntry game, CancellationToken token)
+    {
+        if (DataContext is not LibraryViewModel vm)
+            return;
+
+        Logger.Info($"External game '{game.Name}': applying what is on for it (memory trim {(vm.TweaksForGame(game.Id).Contains(GameTweakCatalog.MemoryTrimId) ? "on" : "off")}, high priority {(vm.GetRaiseGamePriority(game.Id) ? "on" : "off")}).");
+        if (vm.TweaksForGame(game.Id).Contains(GameTweakCatalog.MemoryTrimId))
+            vm.FreeMemoryBeforeLaunch(game.InstallDir);
+
+        _ = vm.KeepGamePriorityAsync(game, RunningProcessFinder(game), token);
     }
 
     /// <summary>A function that lists the ids of the game's processes running now. The exe names are read from the install folder at most every 30 seconds; it is

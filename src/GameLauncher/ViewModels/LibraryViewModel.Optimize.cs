@@ -33,24 +33,18 @@ public partial class LibraryViewModel
             ? [running.InstallDir]
             : [];
 
-    /// <summary>The fraction of RAM that must be available for the pre-launch trim to be skipped.</summary>
-    internal const double MemoryPressureThreshold = 0.30;
-
-    internal void FreeMemoryBeforeLaunch()
+    /// <summary>Trims memory as a game starts: whenever the tweak is on, however much is free. <paramref name="alsoProtect"/> is the install folder of a game that is
+    /// already running (one started outside the launcher), whose own programs are left alone like the running game's.</summary>
+    internal void FreeMemoryBeforeLaunch(string? alsoProtect = null)
     {
         try
         {
-            // Trimming only helps when memory is actually short: when plenty is free it just makes the apps that were trimmed page their memory back in. So it is
-            // skipped (and logged) unless less than a third of the RAM is available.
+            // Always, when the tweak is on, however much is free: the person asked for the memory to be tidied as a game starts.
             var status = MemoryOptimizerService.GetStatus();
-            if (status.TotalBytes > 0 && (double)status.AvailableBytes / status.TotalBytes >= MemoryPressureThreshold)
-            {
-                Logger.Info($"Optimize before launch: skipped, plenty of memory is free ({status.Describe()}).");
-                return;
-            }
-
-            var result = MemoryOptimizerService.Trim(RunningGameFolders());
-            Logger.Info($"Optimize before launch: {result.Describe()}");
+            Logger.Info($"Optimize at game start: trimming (memory now: {status.Describe()}).");
+            IReadOnlyList<string> protectedFolders = string.IsNullOrWhiteSpace(alsoProtect) ? RunningGameFolders() : [.. RunningGameFolders(), alsoProtect];
+            var result = MemoryOptimizerService.Trim(protectedFolders);
+            Logger.Info($"Optimize at game start: {result.Describe()}");
         }
         catch (Exception ex)
         {

@@ -185,11 +185,11 @@ public sealed class GamingAdvisorTests(WpfStaFixture sta)
     }
 
     [Fact]
-    public void TheBeforeLaunchTrim_IsSkippedWhenMemoryIsPlentiful_AndRunsWhenItIsShort() => sta.RunAsync(async () =>
+    public void TheAtStartTrim_RunsEveryTime_HoweverMuchMemoryIsFree() => sta.RunAsync(async () =>
     {
         var plenty = new FakeMemory(32L << 30, 16L << 30);   // half free
         Library(plenty).FreeMemoryBeforeLaunch();
-        Assert.Equal(0, plenty.Trims);
+        Assert.Equal(1, plenty.Trims);                       // trimmed all the same
 
         var short_ = new FakeMemory(16L << 30, 2L << 30);    // an eighth free
         Library(short_).FreeMemoryBeforeLaunch();

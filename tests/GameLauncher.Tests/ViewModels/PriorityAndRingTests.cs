@@ -230,4 +230,62 @@ public sealed class PriorityAndRingTests(WpfStaFixture sta)
             GamePriority.RaiseForTest = before;
         }
     });
+
+    [Fact]
+    public void AProcessTheGamePutsBackToNormal_IsRaisedAgainWithinSeconds_NotOnlyEveryTwentySeconds() => sta.RunAsync(async () =>
+    {
+        var vm = NewLibrary(out var game);
+        vm.SetRaiseGamePriority(game.Id, true);
+        var raised = new List<int>();
+        var beforeRaise = GamePriority.RaiseForTest;
+        var beforeCurrent = GamePriority.CurrentForTest;
+        var resetsLeft = 2;                                                         // the game puts it back twice
+        GamePriority.RaiseForTest = id =>
+        {
+            lock (raised)
+                raised.Add(id);
+
+            return true;
+        };
+        GamePriority.CurrentForTest = id =>
+        {
+            lock (raised)
+            {
+                if (id == 200 && resetsLeft > 0 && raised.Count(r => r == 200) > resetsLeft - 2 && raised.Contains(200))
+                {
+                    resetsLeft--;
+                    return "Normal";
+                }
+            }
+
+            return "High";
+        };
+
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            var keeper = vm.KeepGamePriorityAsync(game, () => [200], cts.Token, quick: TimeSpan.FromMilliseconds(10), slow: TimeSpan.FromMilliseconds(10));
+            for (var i = 0; i < 300; i++)
+            {
+                lock (raised)
+                {
+                    if (raised.Count(r => r == 200) >= 3)
+                        break;
+                }
+
+                await Task.Delay(10);
+            }
+
+            lock (raised)
+                Assert.True(raised.Count(r => r == 200) >= 3, "raised once, then again after each of the two resets");
+
+            cts.Cancel();
+            await keeper;
+        }
+        finally
+        {
+            GamePriority.RaiseForTest = beforeRaise;
+            GamePriority.CurrentForTest = beforeCurrent;
+        }
+    });
 }

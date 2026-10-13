@@ -369,6 +369,9 @@ public static class GamePriority
     /// <summary>Test seam: stands in for changing a real process's priority. Returns true when it worked.</summary>
     internal static Func<int, bool>? RaiseForTest { get; set; }
 
+    /// <summary>Test seam: what a process's priority class is right now ("High", "Normal"...), for the check that it has not been put back.</summary>
+    internal static Func<int, string?>? CurrentForTest { get; set; }
+
     /// <summary>Raises each process and returns how many accepted it.</summary>
     public static int Raise(IEnumerable<int> processIds) => RaiseEach(processIds).Count(r => r.Raised);
 
@@ -385,6 +388,9 @@ public static class GamePriority
     /// <summary>The priority class a process has right now, as text; null when the process is gone or will not say. (Not with the test seam: there is no real process.)</summary>
     public static string? Current(int id)
     {
+        if (CurrentForTest is { } seam)
+            return seam(id);
+
         if (RaiseForTest is not null)
             return null;
 

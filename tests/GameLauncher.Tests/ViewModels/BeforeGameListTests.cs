@@ -145,7 +145,7 @@ public sealed class BeforeGameListTests(WpfStaFixture sta)
     });
 
     [Fact]
-    public void TheMemoryRule_StillSkipsATrimWhenPlentyIsFree_EvenWhenAskedFor() => sta.RunAsync(async () =>
+    public void TheMemoryTrim_RunsAtEveryGameStart_EvenWhenPlentyIsFree() => sta.RunAsync(async () =>
     {
         var (vm, _, memory, _) = Make(available: 12 * Gb);                 // 75% free
         var game = Broken();
@@ -154,7 +154,7 @@ public sealed class BeforeGameListTests(WpfStaFixture sta)
 
         vm.LaunchCommand.Execute(game);
 
-        Assert.Equal(0, memory.Trims);
+        Assert.Equal(1, memory.Trims);                                     // 75% free, and it ran anyway
         await Task.CompletedTask;
     });
 
@@ -174,7 +174,7 @@ public sealed class BeforeGameListTests(WpfStaFixture sta)
         Assert.Contains("Already on", gameMode.WindowsState);
         Assert.True(gameMode.ShownOn);                                     // the switch SHOWS on: it is on while a game runs
         Assert.False(gameMode.CanToggle);                                  // and there is nothing to choose, so it does not move
-        Assert.Contains("plenty", Row(vm, "memory-trim").WindowsState);
+        Assert.Contains("every time a game starts", Row(vm, "memory-trim").WindowsState);
         Assert.Contains("Already on a high performance", Row(vm, "power-plan").WindowsState);
         Assert.True(Row(vm, "power-plan").ShownOn);
         Assert.Contains("already on in Windows", vm.GameTweaksSummary);

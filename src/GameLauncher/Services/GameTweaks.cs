@@ -51,7 +51,7 @@ public static class GameTweakCatalog
     public const string PowerPlanId = "power-plan";
 
     public static readonly GameTweak FreeMemory = new(MemoryTrimId, "Free up memory before launching a game",
-        "Asks Windows to trim the memory other apps are holding but not using, just before the game starts. It helps only when memory is short, so it is skipped when more than a third of your memory is free. It never closes anything.",
+        "Asks Windows to trim the memory other apps are holding but not using, just before the game starts. It runs every time a game starts, however much memory is free, and it never closes anything.",
         TweakKind.Launcher, "Runs once as the game starts. Windows hands the pages back when an app needs them.");
 
     public static readonly GameTweak PowerPlan = new(PowerPlanId, "High performance power plan while playing",

@@ -16,7 +16,14 @@ public partial class LibraryViewModel
         public TimeSpan Pending;
         public DateTime LastSeenUtc;
         public bool Qualified;
+
+        /// <summary>Cancelled when the session ends: what was started for it (the priority keeper) stops with it.</summary>
+        public CancellationTokenSource Cts { get; } = new();
     }
+
+    /// <summary>Raised when a game that was started outside the launcher is first seen running (the token is cancelled when it is seen no more): the window uses it to
+    /// give that game the same High priority and memory trim a game started from here gets.</summary>
+    public event Action<GameEntry, CancellationToken>? ExternalGameDetected;
     private readonly Dictionary<int, PassiveSession> _passiveSessions = new();
     private long _sessionActivityGeneration;
 
@@ -54,7 +61,9 @@ public partial class LibraryViewModel
                     if (!ReferenceEquals(candidateLibrary, _allGames))
                     {
                         candidateLibrary = _allGames;
-                        index = detector.BuildIndex(_allGames.Select(g => new ExternalGameCandidate(g.Id, g.ExecutablePath)).ToArray());
+                        // Off the UI thread: finding the programs inside every install folder walks those folders.
+                        var candidates = _allGames.Select(g => new ExternalGameCandidate(g.Id, g.ExecutablePath, g.InstallDir)).ToArray();
+                        index = await Task.Run(() => detector.BuildIndex(candidates), ct);
                         Logger.Info($"External game monitor: watching {index.PathCount} executable(s) across {index.NameCount} process name(s).");
                     }
                     var generation = _sessionActivityGeneration;
@@ -99,9 +108,11 @@ public partial class LibraryViewModel
         {
             var id = ResolveAlias(match.GameId);
             var live = _allGames.FirstOrDefault(g => g.Id == id);
-            if (live is not null && ExternalGameDetector.NormalizePath(live.ExecutablePath) is { } path
-                && string.Equals(path, ExternalGameDetector.NormalizePath(match.ExecutablePath), StringComparison.OrdinalIgnoreCase)
-                && !_sessionGameIds.Any(s => s.Value == id && !_passiveSessions.ContainsKey(s.Key)))
+            // The entry must still be the one the match was made for: the same exe when both have one (a game started by address has none, and is matched by its folder).
+            var livePath = live is null ? null : ExternalGameDetector.NormalizePath(live.ExecutablePath);
+            var matchPath = ExternalGameDetector.NormalizePath(match.ExecutablePath);
+            var sameEntry = livePath is null || matchPath is null || string.Equals(livePath, matchPath, StringComparison.OrdinalIgnoreCase);
+            if (live is not null && sameEntry && !_sessionGameIds.Any(s => s.Value == id && !_passiveSessions.ContainsKey(s.Key)))
                 present.Add(id);
         }
         foreach (var sessionId in _passiveSessions.Keys.ToArray())
@@ -123,8 +134,21 @@ public partial class LibraryViewModel
         {
             var token = ++_sessionCounter;
             _sessionGameIds[token] = id;
-            _passiveSessions[token] = new PassiveSession { LastTick = now, LastSeenUtc = utc };
-            Logger.Info($"External game session detected: '{_allGames.FirstOrDefault(g => g.Id == id)?.Name ?? id}' ({id}). Tracking from now, not process start.");
+            var session = new PassiveSession { LastTick = now, LastSeenUtc = utc };
+            _passiveSessions[token] = session;
+            var started = _allGames.FirstOrDefault(g => g.Id == id);
+            Logger.Info($"External game session detected: '{started?.Name ?? id}' ({id}). Tracking from now, not process start.");
+            if (started is not null)
+            {
+                try
+                {
+                    ExternalGameDetected?.Invoke(started, session.Cts.Token);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"External game '{started.Name}': the start-up steps failed.", ex);
+                }
+            }
         }
         ReapplyRunningBadge();
     }
@@ -143,6 +167,7 @@ public partial class LibraryViewModel
     private void EndPassiveSession(int token)
     {
         if (!_passiveSessions.Remove(token, out var session)) return;
+        session.Cts.Cancel();
         FlushPassiveTime(token, session);
         _sessionGameIds.Remove(token);
         ReapplyRunningBadge();
