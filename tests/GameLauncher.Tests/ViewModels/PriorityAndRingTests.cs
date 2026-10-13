@@ -288,4 +288,65 @@ public sealed class PriorityAndRingTests(WpfStaFixture sta)
             GamePriority.CurrentForTest = beforeCurrent;
         }
     });
+
+    [Fact]
+    public void AGameThatRefusesFromTheLauncher_IsHandedToTheHelper_OrRemembered() => sta.RunAsync(async () =>
+    {
+        var vm = NewLibrary(out var game);
+        vm.SetRaiseGamePriority(game.Id, true);
+        var handed = new List<int>();
+        var beforeDetailed = GamePriority.RaiseDetailedForTest;
+        var beforeRequests = ServiceGuard.RaiseRequestsForTest;
+        GamePriority.RaiseDetailedForTest = id => new RaiseResult(id, "FC27", false, "Access is denied.", Denied: true);
+        ServiceGuard.RaiseRequestsForTest = ids => handed.AddRange(ids);
+        try
+        {
+            // With the administrator helper running: the refused program goes to it.
+            ServiceGuard.HelperActive = true;
+            vm.OnGameProcessesFound(game, new HashSet<int> { 11308 });
+            Assert.Equal([11308], handed);
+            Assert.False(vm.GetPriorityNeedsHelper(game.Id));
+
+            // Without it: remembered, so the next launch from here asks for permission once.
+            ServiceGuard.HelperActive = false;
+            vm.OnGameProcessesFound(game, new HashSet<int> { 11309 });
+            Assert.True(vm.GetPriorityNeedsHelper(game.Id));
+            Assert.Contains("blocks High priority", vm.StatusText);
+        }
+        finally
+        {
+            ServiceGuard.HelperActive = false;
+            GamePriority.RaiseDetailedForTest = beforeDetailed;
+            ServiceGuard.RaiseRequestsForTest = beforeRequests;
+        }
+
+        await Task.CompletedTask;
+    });
+
+    [Fact]
+    public void AGameKnownToRefuse_StartsTheHelperAtLaunch_EvenWithNoServiceTweaks() => sta.RunAsync(async () =>
+    {
+        var vm = NewLibrary(out var game);
+        vm.SetRaiseGamePriority(game.Id, true);
+        vm.EnsureOverrideForTest(game.Id).PriorityNeedsHelper = true;
+        var asked = new List<IReadOnlyList<string>>();
+        var before = ServiceGuard.StartForTest;
+        ServiceGuard.StartForTest = ids =>
+        {
+            asked.Add(ids);
+            return null;
+        };
+        try
+        {
+            vm.BeginGameTweaks(game);
+            Assert.Single(asked);
+            Assert.Empty(asked[0]);                                                   // no services - the helper is for the priority alone
+        }
+        finally
+        {
+            ServiceGuard.StartForTest = before;
+        }
+
+        await Task.CompletedTask;
+    });
 }

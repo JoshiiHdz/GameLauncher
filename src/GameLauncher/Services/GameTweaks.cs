@@ -339,10 +339,10 @@ public static class ServiceGuard
 
     /// <summary>The launcher's side: starts the elevated copy for these service tweaks. Returns a handle whose Dispose tells it to restore the services, or null when
     /// permission was declined or there was nothing to do.</summary>
-    public static IDisposable? Start(IReadOnlyList<string> tweakIds)
+    public static IDisposable? Start(IReadOnlyList<string> tweakIds, bool raisePriority = false)
     {
         var ids = tweakIds.Where(i => GameTweakCatalog.ById(i) is { Kind: TweakKind.Service }).Distinct().ToList();
-        if (ids.Count == 0)
+        if (ids.Count == 0 && !raisePriority)
             return null;
 
         if (StartForTest is { } seam)
@@ -353,23 +353,60 @@ public static class ServiceGuard
 
         // Windows' permission prompt blocks whoever asks for it until it is answered, so it is asked for off the UI thread: the game starts, and the window stays
         // alive, while the person decides. What is returned here is a promise of that start; disposing it restores the services whenever (and if ever) they were stopped.
-        return new PendingHandle(Task.Run(() => StartElevated(exe, ids)));
+        return new PendingHandle(Task.Run(() => StartElevated(exe, ids, raisePriority)));
     }
 
-    private static IDisposable? StartElevated(string exe, List<string> ids)
+    /// <summary>True while the administrator helper is running for a game: a program that refuses High priority from the launcher can be handed to it.</summary>
+    internal static volatile bool HelperActive;
+
+    /// <summary>Test seam: receives the process ids handed to the helper instead of writing the file it reads.</summary>
+    internal static Action<IReadOnlyList<int>>? RaiseRequestsForTest { get; set; }
+
+    private const string RaiseFileName = "game-priority-pids.json";
+
+    internal static string RaiseFilePath => Path.Combine(AppPaths.DataDir, RaiseFileName);
+
+    /// <summary>Hands process ids to the administrator helper, which raises them to High priority with its own permissions (a game started by an anti-cheat service
+    /// refuses a program that is not an administrator). Only the ids are passed; the helper never raises anything above High.</summary>
+    internal static void RequestRaise(IEnumerable<int> pids)
+    {
+        var list = pids.Distinct().ToList();
+        if (RaiseRequestsForTest is { } seam)
+        {
+            seam(list);
+            return;
+        }
+
+        try
+        {
+            var all = new HashSet<int>(list);
+            if (File.Exists(RaiseFilePath) && JsonSerializer.Deserialize<List<int>>(File.ReadAllText(RaiseFilePath)) is { } existing)
+                all.UnionWith(existing);
+
+            File.WriteAllText(RaiseFilePath, JsonSerializer.Serialize(all));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Logger.Warn("High priority: could not hand the process to the administrator helper.", ex);
+        }
+    }
+
+    private static IDisposable? StartElevated(string exe, List<string> ids, bool raisePriority)
     {
         var name = "Axis-ServiceGuard-" + Guid.NewGuid().ToString("N");
         var stop = new EventWaitHandle(false, EventResetMode.ManualReset, name);
         try
         {
             try { File.Delete(StatePath); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } // a leftover from an earlier run must not be read as this one's
-            Logger.Info($"Game tweaks: asking Windows for permission to pause {string.Join(", ", ids)}.");
+            try { File.Delete(RaiseFilePath); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            var what = (ids.Count > 0 ? "pause " + string.Join(", ", ids) : "") + (ids.Count > 0 && raisePriority ? " and " : "") + (raisePriority ? "raise this game's priority" : "");
+            Logger.Info($"Game tweaks: asking Windows for permission ({what}).");
             var start = new ProcessStartInfo(exe)
             {
                 UseShellExecute = true, // required for the "runas" verb
                 Verb = "runas",
                 WindowStyle = ProcessWindowStyle.Hidden,
-                Arguments = $"{Switch} {string.Join(',', ids)} --parent {Environment.ProcessId} --event {name} --state \"{StatePath}\"",
+                Arguments = $"{Switch} {(ids.Count > 0 ? string.Join(',', ids) : "none")} --parent {Environment.ProcessId} --event {name} --state \"{StatePath}\" --raise-file \"{RaiseFilePath}\"",
             };
 
             var process = Process.Start(start);
@@ -381,7 +418,10 @@ public static class ServiceGuard
 
             // Whether the helper really paused anything is told by its state file (written once the services are stopped, after the permission prompt):
             // say so in this log, so "did it work?" has an answer here and not only in the helper's own log.
-            _ = Task.Run(() => ReportWhatTheHelperDid(ids));
+            if (ids.Count > 0)
+                _ = Task.Run(() => ReportWhatTheHelperDid(ids));
+
+            HelperActive = true;
             return new Handle(stop, process);
         }
         catch (System.ComponentModel.Win32Exception ex)
@@ -432,6 +472,7 @@ public static class ServiceGuard
         {
             // "Restore now" is signalled at once; waiting for the services to come back (sc start can take seconds each) is not done on the thread that called this -
             // that is the UI thread, at the moment the launcher window is coming back after the game.
+            HelperActive = false;
             try
             {
                 stop.Set();
@@ -468,7 +509,7 @@ public static class ServiceGuard
     }
 
     /// <summary>The elevated copy's work. Returns an exit code (0 normally).</summary>
-    internal static int RunFromArguments(IReadOnlyList<string> args, Func<string, string, bool>? runSc = null)
+    internal static int RunFromArguments(IReadOnlyList<string> args, Func<string, string, bool>? runSc = null, Func<int, RaiseOutcome>? raise = null, Action<TimeSpan>? pause = null)
     {
         string? Value(string option)
         {
@@ -514,6 +555,43 @@ public static class ServiceGuard
         {
         }
 
+        // Programs the launcher could not raise (a game started by an anti-cheat service refuses it): this copy has the permissions, so it raises them to High and keeps
+        // them there. Only the launcher's own file of process ids is read, and nothing is ever raised above High.
+        var raiseFile = Value("--raise-file") is { } rf && string.Equals(Path.GetFileName(rf), RaiseFileName, StringComparison.OrdinalIgnoreCase) ? rf : null;
+        var raiser = raise ?? ElevatedEnsureHigh;
+        var seen = new Dictionary<int, RaiseOutcome>();
+
+        void RaiseWhatIsAsked()
+        {
+            if (raiseFile is null || !File.Exists(raiseFile))
+                return;
+
+            List<int>? asked = null;
+            try { asked = JsonSerializer.Deserialize<List<int>>(File.ReadAllText(raiseFile)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { }
+
+            foreach (var id in (asked ?? []).Distinct().Take(64))
+            {
+                if (seen.TryGetValue(id, out var before) && before == RaiseOutcome.Gone)
+                    continue;
+
+                var outcome = raiser(id);
+                if (!seen.TryGetValue(id, out var last) || last != outcome || outcome == RaiseOutcome.Raised)
+                {
+                    var said = outcome switch
+                    {
+                        RaiseOutcome.AlreadyHigh => "is on High",
+                        RaiseOutcome.Raised => "raised to High" + (seen.ContainsKey(id) ? " (the game had put it back)" : ""),
+                        RaiseOutcome.Gone => "has exited",
+                        _ => "would not take High even with administrator rights",
+                    };
+                    Logger.Info($"Priority helper: pid {id} - {said}.");
+                }
+
+                seen[id] = outcome;
+            }
+        }
+
         var parent = int.TryParse(Value("--parent"), out var pid) ? pid : 0;
         var limit = DateTime.UtcNow.AddHours(12);
         while (DateTime.UtcNow < limit)
@@ -524,12 +602,20 @@ public static class ServiceGuard
             if (signal is null)
                 Thread.Sleep(1500);
 
+            RaiseWhatIsAsked();
             if (parent != 0 && !IsRunning(parent))
                 break;
         }
 
+        var wait = pause ?? Thread.Sleep;
         foreach (var service in stopped)
-            Logger.Info($"Services helper: {service} - {(sc("start", service) ? "started again" : "COULD NOT BE STARTED AGAIN (it will start with Windows)")}.");
+            Logger.Info($"Services helper: {service} - {StartAgain(service, sc, wait)}.");
+
+        if (raiseFile is not null)
+        {
+            try { File.Delete(raiseFile); }
+            catch (IOException) { }
+        }
 
         if (statePath is not null)
         {
@@ -538,6 +624,102 @@ public static class ServiceGuard
         }
 
         return 0;
+    }
+
+    /// <summary>What was found when the helper was asked to put a program on High.</summary>
+    internal enum RaiseOutcome { AlreadyHigh, Raised, Failed, Gone }
+
+    /// <summary>Starts a service again and makes sure it is running: a service that is still stopping refuses to start, and one Windows has already started again
+    /// (Windows Search has triggers that do) reports an error to "start" although it is running - so it asks what state it is in, rather than trusting one command.</summary>
+    internal static string StartAgain(string service, Func<string, string, bool> sc, Action<TimeSpan> pause)
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            if (sc("query", service))
+                return attempt == 0 ? "already running (Windows had started it again)" : "started again";
+
+            sc("start", service); // refused while it is still stopping: asked again below
+            pause(TimeSpan.FromMilliseconds(attempt == 0 ? 500 : 1500));
+        }
+
+        return sc("query", service) ? "started again" : "COULD NOT BE STARTED AGAIN (it will start with Windows)";
+    }
+
+    [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+
+    [System.Runtime.InteropServices.DllImport("advapi32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern bool LookupPrivilegeValueW(string? system, string name, out long luid);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 1)]
+    private struct TokenPrivileges
+    {
+        public int Count;
+        public long Luid;
+        public int Attributes;
+    }
+
+    [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref TokenPrivileges state, int length, IntPtr previous, IntPtr returnLength);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    private static bool _debugPrivilegeTried;
+
+    /// <summary>Turns on the debug privilege an administrator token carries but keeps switched off (what Task Manager does), so a program that grants nothing to an
+    /// ordinary caller can be opened. Used only by the elevated copy, only to read and set a priority class.</summary>
+    private static void EnableDebugPrivilege()
+    {
+        if (_debugPrivilegeTried)
+            return;
+
+        _debugPrivilegeTried = true;
+        try
+        {
+            using var self = Process.GetCurrentProcess();
+            if (!OpenProcessToken(self.Handle, 0x20 | 0x8, out var token))
+                return;
+
+            try
+            {
+                if (LookupPrivilegeValueW(null, "SeDebugPrivilege", out var luid))
+                {
+                    var state = new TokenPrivileges { Count = 1, Luid = luid, Attributes = 2 };
+                    AdjustTokenPrivileges(token, false, ref state, 0, IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+            finally
+            {
+                CloseHandle(token);
+            }
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or System.ComponentModel.Win32Exception)
+        {
+        }
+    }
+
+    private static RaiseOutcome ElevatedEnsureHigh(int id)
+    {
+        EnableDebugPrivilege();
+        try
+        {
+            using var process = Process.GetProcessById(id);
+            if (process.PriorityClass is ProcessPriorityClass.High or ProcessPriorityClass.RealTime)
+                return RaiseOutcome.AlreadyHigh;
+
+            process.PriorityClass = ProcessPriorityClass.High;
+            process.Refresh();
+            return process.PriorityClass == ProcessPriorityClass.High ? RaiseOutcome.Raised : RaiseOutcome.Failed;
+        }
+        catch (ArgumentException)
+        {
+            return RaiseOutcome.Gone;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            return RaiseOutcome.Failed;
+        }
     }
 
     private static bool IsRunning(int pid)

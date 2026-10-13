@@ -360,7 +360,7 @@ public sealed class FocusPlayService
 }
 
 /// <summary>What happened to one process when it was asked to run at High priority.</summary>
-public readonly record struct RaiseResult(int Id, string Name, bool Raised, string? Why);
+public readonly record struct RaiseResult(int Id, string Name, bool Raised, string? Why, bool Denied = false);
 
 /// <summary>Raises game processes to High priority (never Realtime). Best effort: games running as administrator, or protected by anti-cheat,
 /// refuse it, and that is reported as "couldn't", never as an error.</summary>
@@ -405,8 +405,14 @@ public static class GamePriority
         }
     }
 
+    /// <summary>Test seam: stands in for one process's whole result (including a refusal with "access denied").</summary>
+    internal static Func<int, RaiseResult>? RaiseDetailedForTest { get; set; }
+
     private static RaiseResult RaiseOne(int id)
     {
+        if (RaiseDetailedForTest is { } detailed)
+            return detailed(id);
+
         if (RaiseForTest is { } seam)
             return new RaiseResult(id, "?", seam(id), null);
 
@@ -427,7 +433,8 @@ public static class GamePriority
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException or ArgumentException)
         {
-            return new RaiseResult(id, name, false, ex.Message);
+            // Access denied (error 5): a program run as administrator, or started by an anti-cheat service, will not take it from a normal program.
+            return new RaiseResult(id, name, false, ex.Message, Denied: ex is System.ComponentModel.Win32Exception { NativeErrorCode: 5 });
         }
     }
 }

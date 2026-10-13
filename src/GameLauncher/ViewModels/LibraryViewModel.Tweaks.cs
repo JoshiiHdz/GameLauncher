@@ -308,19 +308,20 @@ public partial class LibraryViewModel
 
     /// <summary>Called just before a game is launched from here: applies the tweaks that are switched on. The user-setting ones are applied at once; the service ones start
     /// the elevated copy (Windows asks permission) without making the game wait. Never throws: a tweak problem must not stop a game from starting.</summary>
-    internal void BeginGameTweaks(GameEntry game) => BeginGameTweaks(game.Name, game.ExecutablePath, TweaksForGame(game.Id));
+    internal void BeginGameTweaks(GameEntry game) =>
+        BeginGameTweaks(game.Name, game.ExecutablePath, TweaksForGame(game.Id), GetRaiseGamePriority(game.Id) && GetPriorityNeedsHelper(game.Id));
 
-    private void BeginGameTweaks(string gameName, string? executable, IReadOnlyList<string> wanted)
+    private void BeginGameTweaks(string gameName, string? executable, IReadOnlyList<string> wanted, bool priorityHelper = false)
     {
         try
         {
-            if (wanted.Count == 0)
+            if (wanted.Count == 0 && !priorityHelper)
                 return;
 
             var applied = TweakEngine.Begin(wanted, executable);
             var services = wanted.Where(i => GameTweakCatalog.ById(i) is { Kind: TweakKind.Service }).ToList();
-            if (services.Count > 0 && _serviceGuard is null)
-                _serviceGuard = ServiceGuard.Start(services);
+            if ((services.Count > 0 || priorityHelper) && _serviceGuard is null)
+                _serviceGuard = ServiceGuard.Start(services, priorityHelper);
 
             if (applied.Count > 0 || _serviceGuard is not null)
                 Logger.Info($"Game tweaks for '{gameName}': {string.Join(", ", applied)}{(_serviceGuard is not null ? " + services helper requested (see below for what it paused)" : "")}.");

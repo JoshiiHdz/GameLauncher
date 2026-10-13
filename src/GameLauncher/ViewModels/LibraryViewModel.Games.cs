@@ -72,7 +72,7 @@ public partial class LibraryViewModel
             if (before.Contains(GameTweakCatalog.MemoryTrimId))
                 FreeMemoryBeforeLaunch();
             switchedPowerPlan = BeginFocusPlay(before.Contains(GameTweakCatalog.PowerPlanId));
-            BeginGameTweaks(game.Name, game.ExecutablePath, before);
+            BeginGameTweaks(game.Name, game.ExecutablePath, before, priorityHelper: GetRaiseGamePriority(game.Id) && GetPriorityNeedsHelper(game.Id));
             var started = GameLauncherService.Launch(game);
             GameLaunched?.Invoke(game, started);
         }

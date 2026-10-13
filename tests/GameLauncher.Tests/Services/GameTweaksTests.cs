@@ -143,9 +143,17 @@ public sealed class GameTweaksTests
         bool Sc(string verb, string service)
         {
             lock (gate)
+            {
                 calls.Add(verb + " " + service);
 
-            return verb != "query" || running.Contains(service);
+                // The services behave: a stopped one is not running until it is started again.
+                if (verb == "stop")
+                    running.Remove(service);
+                else if (verb == "start")
+                    running.Add(service);
+
+                return verb != "query" || running.Contains(service);
+            }
         }
 
         var name = "Axis-Test-" + Guid.NewGuid().ToString("N");
@@ -199,6 +207,88 @@ public sealed class GameTweaksTests
         finally
         {
             File.Delete(other);
+        }
+    }
+
+    // ---- Starting a service again, and the helper that raises priority with administrator rights ----------------------------------
+
+    [Fact]
+    public void AServiceIsStartedAgainUntilItIsRunning_AndAnAlreadyRunningOneIsNotAnError()
+    {
+        // Still stopping at first (refuses to start), running by the third look.
+        var queries = 0;
+        var starts = 0;
+        bool Slow(string verb, string service)
+        {
+            if (verb == "start")
+            {
+                starts++;
+                return false;
+            }
+
+            return ++queries >= 3;
+        }
+
+        Assert.Equal("started again", ServiceGuard.StartAgain("WSearch", Slow, _ => { }));
+        Assert.True(starts >= 2);                                                    // it was asked more than once, not given up on after one refusal
+
+        // Windows had already started it again (Windows Search has triggers that do): "start" says error, but it is running.
+        var calls = new List<string>();
+        Assert.StartsWith("already running", ServiceGuard.StartAgain("WSearch", (verb, _) => { calls.Add(verb); return verb == "query"; }, _ => { }));
+        Assert.DoesNotContain("start", calls);
+
+        // Never running: said plainly, after trying a handful of times and not forever.
+        var tries = 0;
+        Assert.StartsWith("COULD NOT BE STARTED AGAIN", ServiceGuard.StartAgain("WSearch", (verb, _) => { if (verb == "start") tries++; return false; }, _ => { }));
+        Assert.InRange(tries, 2, 12);
+    }
+
+    [Fact]
+    public void TheHelper_RaisesTheProgramsItIsHandedInAFile_AndNothingElse()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "axis-raise-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var raiseFile = Path.Combine(dir, "game-priority-pids.json");
+            File.WriteAllText(raiseFile, "[4242, 4243]");
+            var name = "Axis-Test-" + Guid.NewGuid().ToString("N");
+            using var signal = new EventWaitHandle(false, EventResetMode.ManualReset, name);
+            var raised = new List<int>();
+            var task = Task.Run(() => ServiceGuard.RunFromArguments(
+                [ServiceGuard.Switch, "none", "--parent", "0", "--event", name, "--raise-file", raiseFile],
+                (_, _) => false,
+                id => { lock (raised) raised.Add(id); return id == 4243 ? ServiceGuard.RaiseOutcome.Gone : ServiceGuard.RaiseOutcome.Raised; },
+                _ => { }));
+
+            for (var i = 0; i < 200 && raised.Count < 2; i++)
+                Thread.Sleep(20);
+
+            signal.Set();
+            Assert.Equal(0, task.Result);
+            lock (raised)
+            {
+                Assert.Contains(4242, raised);
+                Assert.Contains(4243, raised);
+                Assert.Equal(2, raised.Distinct().Count());
+            }
+
+            Assert.False(File.Exists(raiseFile));                                     // the request file is removed when the helper is done
+
+            // A file with any other name is never read.
+            var other = Path.Combine(dir, "other.json");
+            File.WriteAllText(other, "[1]");
+            var name2 = "Axis-Test-" + Guid.NewGuid().ToString("N");
+            using var signal2 = new EventWaitHandle(true, EventResetMode.ManualReset, name2);
+            var seen = 0;
+            ServiceGuard.RunFromArguments([ServiceGuard.Switch, "none", "--parent", "0", "--event", name2, "--raise-file", other], (_, _) => false,
+                _ => { seen++; return ServiceGuard.RaiseOutcome.Raised; }, _ => { });
+            Assert.Equal(0, seen);
+            Assert.True(File.Exists(other));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
         }
     }
 }

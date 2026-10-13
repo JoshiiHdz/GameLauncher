@@ -31,6 +31,10 @@ public sealed class GameOverride
     /// <summary>Part of Focus play: run this game's processes at High priority. Off unless chosen; never Realtime.</summary>
     public bool RaiseGamePriority { get; set; }
 
+    /// <summary>This game's own programs refused High priority from the launcher (Windows said "access denied": an anti-cheat service starts them with rights a normal
+    /// program does not have). When set, the next launch from here asks Windows for administrator permission once, so a helper with the rights can raise them.</summary>
+    public bool PriorityNeedsHelper { get; set; }
+
     /// <summary>Total tracked running time, accumulated for launched sessions and observed external
     /// sessions while this app is running. Deliberately NOT a
     /// "lifetime played" figure: this app cannot know what someone played before the game was added

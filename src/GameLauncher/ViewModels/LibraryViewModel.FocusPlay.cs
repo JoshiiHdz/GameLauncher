@@ -177,8 +177,49 @@ public partial class LibraryViewModel
 
         var results = GamePriority.RaiseEach(processIds);
         LogRaise(game, results);
-        if (results.All(r => !r.Raised))
+        HandleRefused(game, results);
+        if (results.All(r => !r.Raised) && !results.Any(r => r.Denied))
             StatusText = $"High priority: {game.Name}'s processes didn't allow it - Windows or the game's protection refused.";
+    }
+
+    internal bool GetPriorityNeedsHelper(string gameId) => _settings.Overrides.GetValueOrDefault(gameId)?.PriorityNeedsHelper ?? false;
+
+    private void SetPriorityNeedsHelper(string gameId, bool value)
+    {
+        if (!_settings.Overrides.TryGetValue(gameId, out var over))
+        {
+            if (!value)
+                return;
+
+            over = new GameOverride();
+            _settings.Overrides[gameId] = over;
+        }
+
+        if (over.PriorityNeedsHelper == value)
+            return;
+
+        over.PriorityNeedsHelper = value;
+        _settingsService.Save(_settings);
+    }
+
+    /// <summary>Programs of the game that refused High priority with "access denied". If the administrator helper is running for this game they are handed to it (it
+    /// raises them with its own rights and keeps them there); otherwise the game is remembered, so the next launch from here asks Windows for permission once.</summary>
+    private void HandleRefused(GameEntry game, IReadOnlyList<RaiseResult> results)
+    {
+        var denied = results.Where(r => r.Denied).Select(r => r.Id).ToList();
+        if (denied.Count == 0)
+            return;
+
+        if (ServiceGuard.HelperActive)
+        {
+            ServiceGuard.RequestRaise(denied);
+            Logger.Info($"High priority: '{game.Name}' pid {string.Join(", ", denied)} refused it from the launcher (access denied) - handed to the administrator helper.");
+            return;
+        }
+
+        SetPriorityNeedsHelper(game.Id, true);
+        Logger.Info($"High priority: '{game.Name}' pid {string.Join(", ", denied)} refused it from the launcher (access denied). The next launch from here will ask for permission once so an administrator helper can raise it.");
+        StatusText = $"{game.Name} blocks High priority from the launcher. Start it from here next time: Windows will ask permission once, and the priority will be raised.";
     }
 
     private static void LogRaise(GameEntry game, IReadOnlyList<RaiseResult> results)
@@ -241,6 +282,7 @@ public partial class LibraryViewModel
 
                     var again = GamePriority.RaiseEach([id]);
                     LogRaise(game, again);
+                    HandleRefused(game, again);
                     if (again.Any(r => r.Raised))
                         raisedOk[id] = DateTime.UtcNow;
                 }
@@ -272,6 +314,7 @@ public partial class LibraryViewModel
 
             var results = GamePriority.RaiseEach(fresh);
             LogRaise(game, results);
+            HandleRefused(game, results);
             foreach (var r in results.Where(r => r.Raised))
                 raisedOk[r.Id] = DateTime.UtcNow;
 
