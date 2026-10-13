@@ -68,6 +68,7 @@ public partial class LibraryViewModel
             Logger.Info($"Launching '{game.Name}' ({game.Source}) - {game.LaunchUri ?? game.ExecutablePath}");
             // What happens before the game starts: the game tweaks list from Settings > Performance (see TweaksForGame).
             var before = TweaksForGame(game.Id);
+            Logger.Info($"Before launch: game tweaks on = [{string.Join(", ", before)}]; high priority {(GetRaiseGamePriority(game.Id) ? "on" : "off")}.");
             if (before.Contains(GameTweakCatalog.MemoryTrimId))
                 FreeMemoryBeforeLaunch();
             switchedPowerPlan = BeginFocusPlay(before.Contains(GameTweakCatalog.PowerPlanId));

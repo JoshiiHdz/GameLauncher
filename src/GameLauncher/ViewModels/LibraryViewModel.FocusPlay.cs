@@ -167,18 +167,108 @@ public partial class LibraryViewModel
         }
     }
 
-    /// <summary>Called with the ids of the game's processes once they are found: raises them to High priority when Focus play is on and the
-    /// game is set to it. Best effort - a game that refuses (run as administrator, anti-cheat) is reported, not treated as an error.</summary>
+    /// <summary>Called with the ids of the game's processes as they are found: raises them to High priority when the game is set to it. Best effort - a game that
+    /// refuses (run as administrator, anti-cheat) is reported, not treated as an error. Every process is named in the log with what happened to it.</summary>
     internal void OnGameProcessesFound(GameEntry game, IReadOnlySet<int> processIds)
     {
         // The per-game switch is the person's own choice for this game: it does not wait on the power plan being on as well.
         if (processIds.Count == 0 || !GetRaiseGamePriority(game.Id))
             return;
 
-        var raised = GamePriority.Raise(processIds);
-        Logger.Info($"Focus play: raised {raised} of {processIds.Count} process(es) of '{game.Name}' to High priority.");
-        if (raised == 0)
-            StatusText = $"Focus play couldn't raise {game.Name}'s priority - Windows or the game's protection didn't allow it.";
+        var results = GamePriority.RaiseEach(processIds);
+        LogRaise(game, results);
+        if (results.All(r => !r.Raised))
+            StatusText = $"High priority: {game.Name}'s processes didn't allow it - Windows or the game's protection refused.";
+    }
+
+    private static void LogRaise(GameEntry game, IReadOnlyList<RaiseResult> results)
+    {
+        foreach (var r in results)
+        {
+            Logger.Info(r.Raised
+                ? $"High priority: '{game.Name}' {r.Name} (pid {r.Id}) is on High."
+                : $"High priority: '{game.Name}' {r.Name} (pid {r.Id}) would not take it ({r.Why}).");
+        }
+    }
+
+    /// <summary>The game's own process is often not there yet when it is first noticed (a launcher or an anti-cheat stub comes first, the game itself a few seconds
+    /// later), so raising only what was running at that moment left the game on Normal. This keeps looking while the session lasts - every two seconds for the first
+    /// three minutes, then every fifteen - and raises any process of the game it has not tried yet. Ends with <paramref name="ct"/> (the session).</summary>
+    internal async Task KeepGamePriorityAsync(GameEntry game, Func<IReadOnlyCollection<int>> findRunning, CancellationToken ct,
+        TimeSpan? quick = null, TimeSpan? slow = null, TimeSpan? quickFor = null)
+    {
+        var every = quick ?? TimeSpan.FromSeconds(2);
+        var then = slow ?? TimeSpan.FromSeconds(15);
+        var quickWindow = quickFor ?? TimeSpan.FromMinutes(3);
+        var started = DateTime.UtcNow;
+        var tried = new HashSet<int>();
+        var raisedOk = new HashSet<int>();
+        var lastLook = DateTime.UtcNow;
+        var told = false;
+
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(DateTime.UtcNow - started < quickWindow ? every : then, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (!GetRaiseGamePriority(game.Id))
+                continue;
+
+            IReadOnlyCollection<int> running;
+            try
+            {
+                running = await Task.Run(findRunning, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"High priority: could not look for '{game.Name}' processes this time.", ex);
+                continue;
+            }
+
+            // Every 20 seconds, ask Windows again what the raised processes are on: a game (or its anti-cheat) can put its priority back, and the log should show it.
+            if (DateTime.UtcNow - lastLook > TimeSpan.FromSeconds(20) && raisedOk.Count > 0)
+            {
+                lastLook = DateTime.UtcNow;
+                foreach (var id in raisedOk.ToList())
+                {
+                    var now = GamePriority.Current(id);
+                    if (now is null)
+                    {
+                        raisedOk.Remove(id); // gone
+                    }
+                    else if (now is not ("High" or "RealTime"))
+                    {
+                        Logger.Warn($"High priority: '{game.Name}' pid {id} is on {now} again (it was put back) - raising it again.");
+                        LogRaise(game, GamePriority.RaiseEach([id]));
+                    }
+                }
+            }
+
+            var fresh = running.Where(tried.Add).ToList();
+            if (fresh.Count == 0)
+                continue;
+
+            var results = GamePriority.RaiseEach(fresh);
+            LogRaise(game, results);
+            foreach (var r in results.Where(r => r.Raised))
+                raisedOk.Add(r.Id);
+
+            if (!told && results.Any(r => r.Raised))
+            {
+                told = true;
+                StatusText = $"{game.Name} is running at high priority.";
+            }
+        }
     }
 
     internal bool GetRaiseGamePriority(string gameId) => _settings.Overrides.GetValueOrDefault(gameId)?.RaiseGamePriority ?? false;

@@ -154,4 +154,80 @@ public sealed class PriorityAndRingTests(WpfStaFixture sta)
 
         Assert.Equal(page, card);
     }
+
+    [Fact]
+    public void TheGamesOwnProcess_StartingAfterTheLauncherStub_IsRaisedToo() => sta.RunAsync(async () =>
+    {
+        var vm = NewLibrary(out var game);
+        vm.SetRaiseGamePriority(game.Id, true);
+        var raised = new List<int>();
+        var before = GamePriority.RaiseForTest;
+        GamePriority.RaiseForTest = id =>
+        {
+            lock (raised)
+                raised.Add(id);
+
+            return true;
+        };
+
+        try
+        {
+            var calls = 0;
+            IReadOnlyCollection<int> Find()
+            {
+                // The first look finds only the stub (an anti-cheat or launcher helper); the game's own process comes a few looks later.
+                return Interlocked.Increment(ref calls) < 3 ? [100] : [100, 200];
+            }
+
+            using var cts = new CancellationTokenSource();
+            var keeper = vm.KeepGamePriorityAsync(game, Find, cts.Token, quick: TimeSpan.FromMilliseconds(10), slow: TimeSpan.FromMilliseconds(10));
+            for (var i = 0; i < 300; i++)
+            {
+                lock (raised)
+                {
+                    if (raised.Contains(200))
+                        break;
+                }
+
+                await Task.Delay(10);
+            }
+
+            lock (raised)
+            {
+                Assert.Contains(200, raised);                                       // the game itself, found late
+                Assert.Equal(1, raised.Count(id => id == 100));                      // and the stub was only tried once, not every look
+            }
+
+            Assert.Contains("running at high priority", vm.StatusText);
+            cts.Cancel();
+            await keeper;                                                           // ends with the session
+        }
+        finally
+        {
+            GamePriority.RaiseForTest = before;
+        }
+    });
+
+    [Fact]
+    public void WithTheSwitchOff_TheKeeperRaisesNothing() => sta.RunAsync(async () =>
+    {
+        var vm = NewLibrary(out var game);                                          // High priority is off for this game
+        var raised = 0;
+        var before = GamePriority.RaiseForTest;
+        GamePriority.RaiseForTest = _ => { Interlocked.Increment(ref raised); return true; };
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            var keeper = vm.KeepGamePriorityAsync(game, () => [100], cts.Token, quick: TimeSpan.FromMilliseconds(5), slow: TimeSpan.FromMilliseconds(5));
+            await Task.Delay(120);
+            cts.Cancel();
+            await keeper;
+
+            Assert.Equal(0, raised);
+        }
+        finally
+        {
+            GamePriority.RaiseForTest = before;
+        }
+    });
 }

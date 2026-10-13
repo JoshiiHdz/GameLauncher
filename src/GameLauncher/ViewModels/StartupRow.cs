@@ -63,12 +63,14 @@ public sealed partial class StartupRow : ObservableObject
 
         if (!_service.SetEnabled(App.Id, value))
         {
+            Logger.Warn($"Startup apps: '{App.Name}' was not switched ({(App.Protected ? "a protected entry" : "Windows would not take it")}).");
             _quiet = true;
             IsOn = !value; // refused: the switch goes back
             _quiet = false;
             return;
         }
 
+        Logger.Info($"Startup apps: '{App.Name}' switched {(value ? "on" : "off")} (the state Task Manager's Startup tab shows).");
         _changed();
     }
 }

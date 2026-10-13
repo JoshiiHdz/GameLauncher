@@ -147,6 +147,7 @@ public partial class LibraryViewModel
 
     private void OnTweakSwitched(string id, bool on)
     {
+        Logger.Info($"Game tweaks: '{id}' switched {(on ? "on" : "off")} in Settings > Performance.");
         switch (id)
         {
             case GameTweakCatalog.MemoryTrimId:
@@ -323,7 +324,7 @@ public partial class LibraryViewModel
                 _serviceGuard = ServiceGuard.Start(services);
 
             if (applied.Count > 0 || _serviceGuard is not null)
-                Logger.Info($"Game tweaks for '{gameName}': {string.Join(", ", applied)}{(_serviceGuard is not null ? " + services paused" : "")}.");
+                Logger.Info($"Game tweaks for '{gameName}': {string.Join(", ", applied)}{(_serviceGuard is not null ? " + services helper requested (see below for what it paused)" : "")}.");
         }
         catch (Exception ex)
         {
@@ -336,9 +337,15 @@ public partial class LibraryViewModel
     {
         try
         {
+            var something = TweakEngine.IsActive || _serviceGuard is not null;
+            if (something)
+                Logger.Info("Game tweaks: the game has ended - putting everything back.");
+
             TweakEngine.End();
             _serviceGuard?.Dispose();
             _serviceGuard = null;
+            if (something)
+                Logger.Info("Game tweaks: everything is back (settings read again above; services are being started again).");
         }
         catch (Exception ex)
         {

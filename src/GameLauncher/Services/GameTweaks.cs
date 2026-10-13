@@ -224,6 +224,12 @@ public sealed class GameTweakEngine(IUserRegistry registry, AppSettings settings
                     try
                     {
                         registry.Write(key, name, on);
+
+                        // Read back from Windows itself: the log says what the value really is now, not just what was asked for.
+                        var was = settings.GameTweakUndo.GetValueOrDefault($"{id}|{key}|{name}");
+                        var now = registry.Read(key, name);
+                        Logger.Info($"Game tweak '{id}': {key}\\{name} {(was is null or Missing ? "<missing>" : was)} -> {now ?? "<missing>"}"
+                            + (now == on ? " (took)" : " (DID NOT TAKE - Windows shows something else)"));
                     }
                     catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
                     {
@@ -293,6 +299,14 @@ public sealed class GameTweakEngine(IUserRegistry registry, AppSettings settings
                             registry.Delete(key, name);
                         else
                             registry.Write(key, name, original);
+
+                        var after = registry.Read(key, name);
+                        var wanted = original == Missing ? null : original;
+                        Logger.Info($"Game tweak put back: {key}\\{name} -> {after ?? "<missing>"}" + (after == wanted ? " (as it was)" : $" (EXPECTED {wanted ?? "<missing>"})"));
+                    }
+                    else
+                    {
+                        Logger.Info($"Game tweak left alone: {key}\\{name} was changed by someone else while the game ran ({current ?? "<missing>"}).");
                     }
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
@@ -348,6 +362,8 @@ public static class ServiceGuard
         var stop = new EventWaitHandle(false, EventResetMode.ManualReset, name);
         try
         {
+            try { File.Delete(StatePath); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } // a leftover from an earlier run must not be read as this one's
+            Logger.Info($"Game tweaks: asking Windows for permission to pause {string.Join(", ", ids)}.");
             var start = new ProcessStartInfo(exe)
             {
                 UseShellExecute = true, // required for the "runas" verb
@@ -363,6 +379,9 @@ public static class ServiceGuard
                 return null;
             }
 
+            // Whether the helper really paused anything is told by its state file (written once the services are stopped, after the permission prompt):
+            // say so in this log, so "did it work?" has an answer here and not only in the helper's own log.
+            _ = Task.Run(() => ReportWhatTheHelperDid(ids));
             return new Handle(stop, process);
         }
         catch (System.ComponentModel.Win32Exception ex)
@@ -370,6 +389,36 @@ public static class ServiceGuard
             Logger.Info($"Game tweaks: the services were not paused ({ex.Message}) - permission was probably declined.");
             stop.Dispose();
             return null;
+        }
+    }
+
+    private static void ReportWhatTheHelperDid(List<string> tweakIds)
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(120); // the permission prompt waits for the person
+            while (DateTime.UtcNow < deadline)
+            {
+                if (File.Exists(StatePath))
+                {
+                    Thread.Sleep(150);
+                    var state = JsonSerializer.Deserialize<State>(File.ReadAllText(StatePath));
+                    var asked = tweakIds.SelectMany(GameTweakCatalog.ServicesFor).Distinct().ToList();
+                    var stopped = state?.Stopped ?? [];
+                    var left = asked.Where(s => !stopped.Contains(s, StringComparer.OrdinalIgnoreCase)).ToList();
+                    Logger.Info($"Game tweaks: services paused for the game: {(stopped.Count == 0 ? "none" : string.Join(", ", stopped))}"
+                        + (left.Count > 0 ? $" (not paused: {string.Join(", ", left)} - not running, or Windows would not stop them)." : "."));
+                    return;
+                }
+
+                Thread.Sleep(500);
+            }
+
+            Logger.Warn("Game tweaks: no word from the services helper after two minutes (the permission prompt may be waiting, or was closed).");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Logger.Warn("Game tweaks: could not read what the services helper did.", ex);
         }
     }
 
@@ -395,7 +444,10 @@ public static class ServiceGuard
             {
                 try
                 {
-                    process.WaitForExit(30_000);
+                    var exited = process.WaitForExit(30_000);
+                    Logger.Info(exited
+                        ? $"Game tweaks: the services helper has finished (exit code {process.ExitCode}); the services it paused are started again."
+                        : "Game tweaks: the services helper is still putting services back after 30 seconds.");
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
@@ -434,10 +486,15 @@ public static class ServiceGuard
         // Only the launcher's own state file is ever written or deleted by this elevated copy, whatever the command line says.
         var statePath = Value("--state") is { } given && string.Equals(Path.GetFileName(given), StateFileName, StringComparison.OrdinalIgnoreCase) ? given : null;
         var stopped = new List<string>();
+        Logger.Info($"Services helper: asked to pause {string.Join(", ", wanted)}.");
         foreach (var service in wanted)
         {
-            if (sc("query", service) && sc("stop", service)) // "query" is true only when the service is running
+            var running = sc("query", service); // true only when the service is running
+            var stoppedNow = running && sc("stop", service);
+            if (stoppedNow)
                 stopped.Add(service);
+
+            Logger.Info($"Services helper: {service} - {(!running ? "not running, left alone" : stoppedNow ? "stopped" : "would not stop")}.");
         }
 
         if (statePath is not null)
@@ -472,7 +529,7 @@ public static class ServiceGuard
         }
 
         foreach (var service in stopped)
-            sc("start", service);
+            Logger.Info($"Services helper: {service} - {(sc("start", service) ? "started again" : "COULD NOT BE STARTED AGAIN (it will start with Windows)")}.");
 
         if (statePath is not null)
         {

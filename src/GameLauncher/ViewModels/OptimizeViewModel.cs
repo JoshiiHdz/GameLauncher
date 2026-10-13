@@ -369,6 +369,7 @@ public sealed partial class OptimizeViewModel : ObservableObject
         {
             MemoryResultText = "Freeing up memory...";
             var result = await Task.Run(() => _memory.Trim(_protectedFolders));
+            Logger.Info($"Optimize: free up memory (by hand) - {result.Describe()}");
             MemoryResultText = result.Describe();
             RefreshMemory();
         }

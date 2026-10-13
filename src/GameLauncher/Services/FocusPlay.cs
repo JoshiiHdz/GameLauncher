@@ -339,6 +339,12 @@ public sealed class FocusPlayService
                     Logger.Warn("Focus play: Windows would not switch the power plan back; it will be tried again at the next start.");
                     return; // keep the record so the next start tries again
                 }
+
+                Logger.Info($"Focus play: power plan put back - {_plans.GetActive()?.ToString() ?? "unknown"} is active again (your plan was {original}).");
+            }
+            else
+            {
+                Logger.Info("Focus play: nothing to put back - the power plan is not the one switched to (changed by someone since, or never switched).");
             }
         }
         catch (Exception ex)
@@ -353,6 +359,9 @@ public sealed class FocusPlayService
     }
 }
 
+/// <summary>What happened to one process when it was asked to run at High priority.</summary>
+public readonly record struct RaiseResult(int Id, string Name, bool Raised, string? Why);
+
 /// <summary>Raises game processes to High priority (never Realtime). Best effort: games running as administrator, or protected by anti-cheat,
 /// refuse it, and that is reported as "couldn't", never as an error.</summary>
 public static class GamePriority
@@ -361,36 +370,58 @@ public static class GamePriority
     internal static Func<int, bool>? RaiseForTest { get; set; }
 
     /// <summary>Raises each process and returns how many accepted it.</summary>
-    public static int Raise(IEnumerable<int> processIds)
-    {
-        var raised = 0;
-        foreach (var id in processIds)
-        {
-            if (RaiseOne(id))
-                raised++;
-        }
+    public static int Raise(IEnumerable<int> processIds) => RaiseEach(processIds).Count(r => r.Raised);
 
-        return raised;
+    /// <summary>Raises each process and says, for each, which one it was and whether it took (and if not, why).</summary>
+    public static IReadOnlyList<RaiseResult> RaiseEach(IEnumerable<int> processIds)
+    {
+        var results = new List<RaiseResult>();
+        foreach (var id in processIds)
+            results.Add(RaiseOne(id));
+
+        return results;
     }
 
-    private static bool RaiseOne(int id)
+    /// <summary>The priority class a process has right now, as text; null when the process is gone or will not say. (Not with the test seam: there is no real process.)</summary>
+    public static string? Current(int id)
     {
-        if (RaiseForTest is { } seam)
-            return seam(id);
+        if (RaiseForTest is not null)
+            return null;
 
         try
         {
             using var process = Process.GetProcessById(id);
-            if (process.PriorityClass == ProcessPriorityClass.High || process.PriorityClass == ProcessPriorityClass.RealTime)
-                return true;
-
-            process.PriorityClass = ProcessPriorityClass.High;
-            return true;
+            return process.PriorityClass.ToString();
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException or ArgumentException)
         {
-            Logger.Info($"Focus play: process {id} would not take a higher priority ({ex.Message}).");
-            return false;
+            return null;
+        }
+    }
+
+    private static RaiseResult RaiseOne(int id)
+    {
+        if (RaiseForTest is { } seam)
+            return new RaiseResult(id, "?", seam(id), null);
+
+        var name = "?";
+        try
+        {
+            using var process = Process.GetProcessById(id);
+            name = process.ProcessName;
+            if (process.PriorityClass == ProcessPriorityClass.High || process.PriorityClass == ProcessPriorityClass.RealTime)
+                return new RaiseResult(id, name, true, null);
+
+            process.PriorityClass = ProcessPriorityClass.High;
+            process.Refresh();
+            var now = process.PriorityClass; // asked of Windows again: the log must say what it IS, not what was asked
+            return now is ProcessPriorityClass.High or ProcessPriorityClass.RealTime
+                ? new RaiseResult(id, name, true, null)
+                : new RaiseResult(id, name, false, $"Windows still reports {now} after the change");
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException or ArgumentException)
+        {
+            return new RaiseResult(id, name, false, ex.Message);
         }
     }
 }

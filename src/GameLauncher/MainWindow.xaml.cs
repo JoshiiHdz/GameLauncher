@@ -214,6 +214,11 @@ public partial class MainWindow : FluentWindow
         _sessionCts = new CancellationTokenSource();
         var token = _sessionCts.Token;
 
+        // High priority is raised on what the watch finds first, and then kept up for the whole session: the game's own process usually starts after the launcher or
+        // anti-cheat stub that was noticed first.
+        if (vm.GetRaiseGamePriority(game.Id))
+            _ = vm.KeepGamePriorityAsync(game, RunningProcessFinder(game), token);
+
         // Captured locally rather than read from _watchedSessionId after the await below: a newer
         // launch can overwrite that field (and _watchedGame) before this session's watch resolves,
         // and the cleanup call at the end of this method must always identify *this* session, not
@@ -263,6 +268,24 @@ public partial class MainWindow : FluentWindow
         // the taskbar forever after the game closed - IsRunning cleared correctly, but nothing ever
         // brought the window back, which read as "it doesn't reopen when the game closes."
         RestoreFromTray();
+    }
+
+    /// <summary>A function that lists the ids of the game's processes running now. The exe names are read from the install folder at most every 30 seconds; it is
+    /// called off the UI thread.</summary>
+    private Func<IReadOnlyCollection<int>> RunningProcessFinder(GameEntry game)
+    {
+        HashSet<string>? names = null;
+        var readAt = DateTime.MinValue;
+        return () =>
+        {
+            if (names is null || DateTime.UtcNow - readAt > TimeSpan.FromSeconds(30))
+            {
+                names = _sessionWatcher.CandidateNamesFor(game);
+                readAt = DateTime.UtcNow;
+            }
+
+            return _sessionWatcher.RunningIdsNow(game, names);
+        };
     }
 
     private void HideToTray()

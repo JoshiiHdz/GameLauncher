@@ -355,6 +355,26 @@ public sealed class GameSessionWatcher
         }
     }
 
+    /// <summary>The exe names found inside the game's install folder (what a process of this game can be called).</summary>
+    internal HashSet<string> CandidateNamesFor(GameEntry game) => _nameDiscovery.GetCandidateNames(game.InstallDir);
+
+    /// <summary>The ids of every process of this game running right now. For the High priority keeper, which has to find the game's own process even when it started
+    /// after the first one was noticed (the watch above fixes its batch at the moment of discovery).</summary>
+    internal IReadOnlyCollection<int> RunningIdsNow(GameEntry game, HashSet<string> candidateNames)
+    {
+        if (candidateNames.Count == 0)
+            return [];
+
+        var ids = new List<int>();
+        foreach (var process in FindRunning(game, candidateNames, launched: null))
+        {
+            ids.Add(process.Id);
+            process.Dispose();
+        }
+
+        return ids;
+    }
+
     private List<IGameProcess> FindRunning(GameEntry game, HashSet<string> candidateNames, IGameProcess? launched)
     {
         var found = new List<IGameProcess>();
